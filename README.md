@@ -8,9 +8,9 @@
 
 Palettisation, conditionnement et optimisation de chargement.
 
-Caisses · Bobines · Tubes · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
+Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.0.4` · Windows · .NET 10 · WPF
+`v0.0.8` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -24,7 +24,7 @@ Une palette.
 PalTunes cherche le plan.
 ```
 
-PalTunes est un outil de palettisation et de conditionnement conçu pour traiter aussi bien les cas simples que les chargements plus contraints : produits rectangulaires, cylindriques, lourds, fragiles, gerbables ou non, palettes mono-article ou compositions multi-articles.
+PalTunes est un outil de palettisation et de conditionnement conçu pour traiter aussi bien les cas simples que les chargements plus contraints : produits rectangulaires, cylindriques, creux, pliés, lourds, fragiles, gerbables ou non, palettes mono-article ou compositions multi-articles, mise en caisse avant palettisation.
 
 L'objectif n'est pas simplement de remplir une palette.
 
@@ -73,20 +73,22 @@ PalTunes calcule plusieurs configurations possibles, contrôle leur validité pu
 
 # 02 / CE QUE PALTUNES SAIT TRAITER
 
-| Produit         | Géométrie prise en compte | Exemples d'utilisation      |
-| --------------- | ------------------------- | --------------------------- |
-| Caisse / carton | parallélépipède           | colis, cartons, caisses     |
-| Bobine          | cylindre                  | papier, film, rouleau       |
-| Tube            | cylindre long             | tubes, profilés             |
-| Plaque          | parallélépipède mince     | panneaux, feuilles, plaques |
-| Sac             | volume rectangulaire      | sacs industriels            |
-| Fût             | cylindre                  | fûts, bidons                |
-| Bac             | parallélépipède           | bacs logistiques            |
-| Autre           | dimensions libres         | cas spécifiques             |
+| Produit         | Géométrie prise en compte                | Exemples d'utilisation            |
+| --------------- | ---------------------------------------- | --------------------------------- |
+| Caisse / carton | parallélépipède, monté ou **plié**       | colis, cartons, caisses           |
+| Bobine          | cylindre (mandrin facultatif)            | papier, film, rouleau             |
+| Tube            | cylindre long, plein ou **creux**        | tubes, profilés, bagues, mandrins |
+| Plaque          | parallélépipède mince                    | panneaux, feuilles, plaques       |
+| Sac             | volume rectangulaire                     | sacs industriels                  |
+| Fût             | cylindre debout                          | fûts, bidons                      |
+| Bac             | parallélépipède                          | bacs logistiques                  |
+| Autre           | dimensions libres                        | cas spécifiques                   |
 
 Chaque famille conserve ses propres règles.
 
 Une bobine n'est pas traitée comme un carton auquel on aurait simplement ajouté un diamètre.
+
+Seules les données utiles au calcul sont obligatoires selon le type ; désignation, client, famille, références et notes restent facultatives.
 
 ---
 
@@ -114,9 +116,11 @@ hauteur / poids / contraintes
 comparaison des solutions
 ```
 
-Le moteur peut travailler sur plusieurs familles de plans, notamment les organisations régulières et les dispositions combinées adaptées aux dimensions du produit et de la palette.
+Le moteur peut travailler sur plusieurs familles de plans, notamment les organisations régulières et les dispositions combinées adaptées aux dimensions du produit et de la palette, avec une borne théorique qui permet d'indiquer quand le plan trouvé est prouvé optimal.
 
-Pour les produits cylindriques, un moteur spécifique gère les implantations circulaires.
+Pour les produits cylindriques, un moteur spécifique gère les implantations circulaires (maille carrée ou quinconce).
+
+L'assistant « Proposer » compare toutes les palettes actives du catalogue pour un article.
 
 ---
 
@@ -141,6 +145,8 @@ PalTunes prend notamment en compte :
 * les surfaces encore exploitables ;
 * les incompatibilités verticales ;
 * les zones disponibles au fur et à mesure du chargement.
+
+Un **profil de gerbage** est déduit de chaque article, sans donnée obligatoire supplémentaire : classe (carton, rigide, souple, roulant), zone conseillée (bas, milieu, haut) et poids qu'il peut porter.
 
 Le moteur hétérogène utilise une recherche par points extrêmes pour construire progressivement le chargement.
 
@@ -188,6 +194,8 @@ NON GERBABLE
 └─ aucune charge autorisée au-dessus
 ```
 
+Le nombre de gerbages suit une convention simple : `0` = non gerbable, `1` = un conditionnement gerbé sur le premier, etc.
+
 Un article peut également être marqué fragile.
 
 Dans ce cas, le calcul interdit les configurations incompatibles avec cette contrainte.
@@ -208,7 +216,7 @@ LIBRE
 └─ les orientations compatibles peuvent être étudiées
 ```
 
-### Tubes et bobines
+### Tubes, bagues et bobines
 
 ```text
 VERTICAL
@@ -216,11 +224,31 @@ HORIZONTAL
 INDIFFERENT
 ```
 
-En mode `INDIFFERENT`, PalTunes peut comparer les possibilités et retenir la configuration la plus intéressante.
+En mode `INDIFFERENT`, PalTunes compare les deux axes et retient la configuration la plus intéressante ; l'axe peut être forcé par conditionnement.
+
+La même règle vaut en caisse : chaque caisse est proposée debout et couchée, la meilleure position est recommandée.
 
 ---
 
-# 07 / PALETTES
+# 07 / CARTONS PLIÉS
+
+Un carton livré à plat ne se palettise pas avec ses dimensions montées.
+
+La fiche d'un carton accepte trois dimensions pliées facultatives :
+
+```text
+LONGUEUR PLIÉE   → remplace la longueur
+LARGEUR PLIÉE    → remplace la largeur
+HAUTEUR PLIÉE    → remplace la hauteur
+
+dimension pliée vide ou 0 → dimension montée conservée
+```
+
+Chaque dimension pliée renseignée remplace uniquement la sienne, pour la palettisation (homogène, hétérogène, assistant) comme pour le colisage. La fiche conserve les dimensions montées ; la spécification indique celles qui ont été prises en compte.
+
+---
+
+# 08 / PALETTES
 
 PalTunes embarque un catalogue de palettes prêt à être utilisé et entièrement modifiable.
 
@@ -254,11 +282,11 @@ Plusieurs palettes physiques peuvent être associées pour construire une base d
 
 ---
 
-# 08 / DÉBORDS
+# 09 / DÉBORDS ET ACCESSOIRES
 
 Toutes les marchandises ne rentrent pas forcément exactement dans les dimensions du support.
 
-PalTunes peut travailler avec des débords lorsqu'ils sont autorisés.
+PalTunes peut travailler avec des débords lorsqu'ils sont autorisés (longueur et largeur, 0 par défaut).
 
 ```text
             CHARGE
@@ -272,9 +300,13 @@ PalTunes peut travailler avec des débords lorsqu'ils sont autorisés.
 
 La surface réellement disponible est recalculée avant la recherche des plans.
 
+Les accessoires sont pris en compte dans l'encombrement, le poids et les vues : intercalaires, coiffe, cornières, film étirable, cerclages.
+
+Cas particulier des **tubes en débord** : les cornières restent au niveau de la palette, les tubes qui les gêneraient sont retirés et la perte est comptée. Une option permet au contraire de faire suivre les tubes aux cornières.
+
 ---
 
-# 09 / HAUTEUR ET POIDS
+# 10 / HAUTEUR ET POIDS
 
 Chaque solution est confrontée aux limites du conditionnement.
 
@@ -294,31 +326,34 @@ hauteur totale
 
 Le poids est également contrôlé par rapport aux capacités du support et aux contraintes définies.
 
+Un poids unitaire impossible pour les dimensions de l'article (matière plus dense que 20 kg/dm³) est signalé sur la fiche, au colisage, au conditionnement et à l'import.
+
 ---
 
-# 10 / COLISAGE
+# 11 / COLISAGE
 
 PalTunes ne s'arrête pas à la palette.
 
-Le module de colisage permet de rechercher un contenant adapté à un produit ou à un ensemble de produits avant leur palettisation.
+Le module de colisage permet de rechercher un contenant adapté à un produit avant sa palettisation.
 
-Le catalogue comprend différents types de contenants :
+Le catalogue des caisses dispose de son propre espace, à l'image des palettes, avec un jeu par défaut modifiable :
 
-* cartons ;
-* bacs ;
-* caisses ;
-* formats standards ;
+* cartons modulaires ;
+* cartons standard ;
+* bacs plastiques ;
+* caisses bois ;
 * dimensions personnalisées.
 
 PalTunes peut :
 
 1. rechercher les caisses compatibles ;
-2. comparer les possibilités ;
-3. proposer le meilleur contenant ;
-4. afficher son contenu ;
+2. comparer les possibilités en fonction de la palette de destination ;
+3. proposer le meilleur contenant (ou en forcer un) ;
+4. afficher son contenu, caisse ouverte ou fermée ;
 5. visualiser le plan intérieur ;
-6. créer l'article correspondant au colis ;
-7. lancer directement sa palettisation.
+6. expliquer pourquoi aucune caisse ne convient (trop lourd, trop grand) ;
+7. créer l'article correspondant au colis ;
+8. lancer directement sa palettisation.
 
 ### Chaîne possible
 
@@ -340,7 +375,7 @@ PALETTE
 
 ---
 
-# 11 / LES VUES
+# 12 / LES VUES
 
 Une solution n'a d'intérêt que si elle peut être comprise rapidement.
 
@@ -348,7 +383,7 @@ PalTunes dispose de plusieurs représentations complémentaires.
 
 ### 3D
 
-Visualisation spatiale de la palette, du support et des produits.
+Visualisation spatiale de la palette, du support, des accessoires et des produits.
 
 La scène permet de contrôler visuellement :
 
@@ -358,6 +393,8 @@ La scène permet de contrôler visuellement :
 * les volumes occupés ;
 * la cohérence globale de la solution.
 
+Pour les très grandes quantités (petits articles par dizaines de milliers), seuls les produits visibles de l'extérieur sont dessinés.
+
 ### 2D
 
 Trois lectures sont disponibles :
@@ -366,11 +403,11 @@ Trois lectures sont disponibles :
 DESSUS        CÔTÉ        FACE
 ```
 
-Elles permettent de lire précisément le plan sans dépendre de la perspective 3D.
+Elles permettent de lire précisément le plan sans dépendre de la perspective 3D. Les cotes de palette, de charge et d'encombrement y figurent ; le détail des calculs reste dans la spécification.
 
 ---
 
-# 12 / INDICATEURS
+# 13 / INDICATEURS
 
 Chaque solution peut être décrite à partir de plusieurs métriques.
 
@@ -393,7 +430,7 @@ Ces informations permettent de comparer les configurations sans se limiter à la
 
 ---
 
-# 13 / ORDRE DE POSE
+# 14 / ORDRE DE POSE ET PLAN DE PALETTISATION
 
 Pour les solutions qui le nécessitent, PalTunes ne conserve pas uniquement la géométrie finale.
 
@@ -406,11 +443,13 @@ Un ordre de placement peut être généré pour rendre la solution exploitable s
 ...
 ```
 
+La fiche imprimée se termine par un **plan de palettisation** : tableau des couches (plan, nombre de produits, intercalaires), puis pour chaque plan de couche une vue de dessus numérotée et la position de chaque produit.
+
 L'objectif est de passer d'un résultat mathématique à une instruction compréhensible.
 
 ---
 
-# 14 / IMPORT ARTICLES
+# 15 / IMPORT ARTICLES
 
 Les articles peuvent être importés depuis un fichier CSV.
 
@@ -444,7 +483,7 @@ Ces données sont fictives et servent uniquement à illustrer le format attendu.
 
 ---
 
-# 15 / FORMAT ARTICLE ÉTENDU
+# 16 / FORMAT ARTICLE ÉTENDU
 
 Des informations complémentaires peuvent enrichir les calculs et l'organisation du catalogue.
 
@@ -454,6 +493,9 @@ TYPE
 LONGUEUR
 LARGEUR
 HAUTEUR
+LONGUEUR_PLIEE
+LARGEUR_PLIEE
+HAUTEUR_PLIEE
 DIAMETRE
 DIAMETRE_INT
 POIDS
@@ -472,48 +514,56 @@ COULEUR
 NOTES
 ```
 
-Les champs nécessaires dépendent du type de produit.
+Les champs nécessaires dépendent du type de produit. La colonne `CLIENT` contient le **code** du client.
 
 ### Minimum par géométrie
 
-| Type   | Dimensions nécessaires         |
-| ------ | ------------------------------ |
-| Caisse | longueur × largeur × hauteur   |
-| Sac    | longueur × largeur × hauteur   |
-| Bac    | longueur × largeur × hauteur   |
-| Plaque | longueur × largeur × épaisseur |
-| Bobine | diamètre × laize               |
-| Tube   | diamètre × longueur            |
-| Fût    | diamètre × hauteur             |
+| Type   | Dimensions nécessaires         | Facultatif                        |
+| ------ | ------------------------------ | --------------------------------- |
+| Caisse | longueur × largeur × hauteur   | dimensions pliées (carton à plat) |
+| Sac    | longueur × largeur × hauteur   |                                   |
+| Bac    | longueur × largeur × hauteur   |                                   |
+| Plaque | longueur × largeur × épaisseur |                                   |
+| Bobine | diamètre × laize               | diamètre du mandrin               |
+| Tube   | diamètre × longueur            | diamètre intérieur (tube creux)   |
+| Fût    | diamètre × hauteur             |                                   |
 
 Le code, le type et le poids complètent ces informations minimales.
 
+Pour un tube, la colonne `HAUTEUR` est lue comme l'épaisseur de paroi (diamètre intérieur = diamètre − 2 × épaisseur) lorsque `DIAMETRE_INT` est vide.
+
 ---
 
-# 16 / MISE À JOUR PAR IMPORT
+# 17 / MISE À JOUR PAR IMPORT
 
-Le code article sert d'identifiant.
+Un article est identifié par son **code pour son client** : le même code peut exister chez deux clients.
 
 Lorsqu'un article importé existe déjà :
 
 ```text
-CODE EXISTANT
+MÊME CODE + MÊME CLIENT
       │
       ├─ colonne présente dans le CSV → mise à jour
       │
       └─ colonne absente              → valeur conservée
+
+MÊME CODE + AUTRE CLIENT  → nouvel article
+SANS COLONNE CLIENT       → le code seul suffit s'il est unique
 ```
+
+Les clients sont importés de la même façon, identifiés par leur code ; deux clients peuvent porter le même nom.
 
 L'import produit un rapport permettant de distinguer :
 
 * les créations ;
 * les mises à jour ;
 * les erreurs ;
+* les avertissements (poids suspect, épaisseur de paroi lue) ;
 * les colonnes inconnues.
 
 ---
 
-# 17 / ORGANISATION DES ARTICLES
+# 18 / ORGANISATION DES ARTICLES
 
 Le catalogue peut être parcouru sous plusieurs angles.
 
@@ -542,11 +592,13 @@ Type
     └── Article
 ```
 
-Une recherche permet également d'accéder directement aux références.
+Lorsque seul le client est affiché, il apparaît sous la forme `CODE - Nom`.
+
+Une recherche permet également d'accéder directement aux références, et chaque liste déroulante (clients, articles, palettes, caisses…) se filtre en tapant. Pour choisir un article, la liste des clients vient d'abord et limite les articles proposés.
 
 ---
 
-# 18 / CONTRAINTES PAR CLIENT
+# 19 / CONTRAINTES PAR CLIENT
 
 Une configuration peut être associée à un client sans modifier les caractéristiques physiques de l'article.
 
@@ -564,14 +616,14 @@ CLIENT-001
 
 Palette préférée : PAL-01
 Hauteur max      : 1 650 mm
-Gerbage max      : 2
+Gerbages max     : 2
 ```
 
 Aucune donnée réelle de client n'est nécessaire au fonctionnement des exemples du projet.
 
 ---
 
-# 19 / EXPORT
+# 20 / EXPORT
 
 PalTunes peut produire une spécification exploitable de la solution calculée.
 
@@ -589,13 +641,15 @@ Pour une palettisation mono-article, l'export CSV peut notamment contenir :
 * intercalaires ;
 * cornières ;
 * poids ;
-* taux de remplissage.
+* taux de remplissage ;
+* plan par couche ;
+* couches avec intercalaire.
 
-Une fiche de palettisation peut également être imprimée ou enregistrée au format PDF via le système d'impression Windows.
+Une fiche de palettisation, avec son plan de palettisation, peut également être imprimée ou enregistrée au format PDF via le système d'impression Windows.
 
 ---
 
-# 20 / VALIDATION
+# 21 / VALIDATION
 
 Trouver une solution et démontrer qu'elle respecte les règles sont deux opérations différentes.
 
@@ -616,11 +670,24 @@ MOTEUR
     VALIDE          REJETÉE
 ```
 
-Cette séparation permet de contrôler les configurations générées avant de les présenter comme utilisables.
+Cette séparation permet de contrôler les configurations générées avant de les présenter comme utilisables. Les contrôles de chevauchement et d'appui reposent sur un index spatial : ils restent rapides même avec des dizaines de milliers de produits.
 
 ---
 
-# 21 / ARCHITECTURE
+# 22 / LES ESPACES
+
+```text
+Ctrl+1  CLIENTS            coordonnées, exigences, articles du client, import / export
+Ctrl+2  ARTICLES           arborescence, fiche selon le type, aperçu 3D, import / export
+Ctrl+3  PALETTES           catalogue, construction, charges, aperçu 3D
+Ctrl+4  CAISSES            catalogue des contenants, aperçu 3D
+Ctrl+5  CONDITIONNEMENTS   homogène / hétérogène, contraintes, accessoires, solutions, vues, spécification
+Ctrl+6  COLISAGE           meilleure caisse, caisse ouverte / fermée, création de l'article caisse
+```
+
+---
+
+# 23 / ARCHITECTURE
 
 Le projet sépare volontairement le moteur métier de l'interface.
 
@@ -652,6 +719,9 @@ PalTunes
 │   └── PalTunes.Tests
 │
 ├── samples
+│   ├── articles_minimal.csv
+│   ├── articles_exemple.csv
+│   └── clients_exemple.csv
 │
 └── docs
     ├── ETUDE_PALETTISATION.md
@@ -665,7 +735,7 @@ Les moteurs de calcul peuvent donc évoluer indépendamment de WPF.
 
 ---
 
-# 22 / MOTEURS
+# 24 / MOTEURS
 
 Le cœur de PalTunes regroupe plusieurs composants spécialisés.
 
@@ -693,6 +763,11 @@ HeterogeneousEngine
 └─ palettisation multi-articles
 
 
+StackingProfile
+│
+└─ profil de gerbage déduit de chaque article
+
+
 CaseEngine
 │
 └─ colisage
@@ -708,6 +783,11 @@ PackagingCalculator
 └─ calcul global du conditionnement
 
 
+PlacementGrid / TopIndex
+│
+└─ index spatial des produits placés
+
+
 SolutionValidator
 │
 └─ contrôle indépendant
@@ -715,7 +795,7 @@ SolutionValidator
 
 ---
 
-# 23 / TECHNOLOGIES
+# 25 / TECHNOLOGIES
 
 ```text
 Language      C#
@@ -730,11 +810,11 @@ Storage       JSON
 
 La base PalTunes est stockée localement dans un fichier JSON.
 
-L'écriture est réalisée de manière atomique afin de limiter les risques de corruption lors d'une sauvegarde.
+L'écriture est réalisée de manière atomique afin de limiter les risques de corruption lors d'une sauvegarde. Une copie de sauvegarde est créée avant toute conversion d'une base par une nouvelle version et avant une réinitialisation ; les noms de fichiers réservés au programme sont refusés comme base.
 
 ---
 
-# 24 / INSTALLATION
+# 26 / INSTALLATION
 
 Les versions prêtes à utiliser, les fichiers nécessaires et les indications associées à chaque version sont disponibles directement dans les Releases GitHub :
 
@@ -742,7 +822,7 @@ https://github.com/rodrigueantunes/PalTunes/releases
 
 ---
 
-# 25 / UTILISATION
+# 27 / UTILISATION
 
 Le point d'entrée pour utiliser PalTunes est également la page Releases :
 
@@ -750,9 +830,18 @@ https://github.com/rodrigueantunes/PalTunes/releases
 
 Choisir la version souhaitée puis suivre les indications fournies avec la release correspondante.
 
+Le panneau « Nouveautés » présente le contenu de chaque version au premier lancement ; la pastille de version permet de le rouvrir.
+
+### Depuis les sources
+
+```bash
+dotnet run --project src/PalTunes.App
+dotnet test
+```
+
 ---
 
-# 26 / DOCUMENTATION TECHNIQUE
+# 28 / DOCUMENTATION TECHNIQUE
 
 Le dépôt contient également les études utilisées comme référence pour le moteur de calcul.
 
@@ -775,6 +864,7 @@ Elle couvre notamment :
 * hauteur ;
 * stabilité ;
 * gerbage ;
+* accessoires ;
 * métriques.
 
 ### Chargements hétérogènes
@@ -787,11 +877,11 @@ Référence spécifique aux palettes multi-articles.
 
 [`docs/FORMAT_IMPORT_ARTICLES.md`](docs/FORMAT_IMPORT_ARTICLES.md)
 
-Description complète du format d'import CSV.
+Description complète du format d'import CSV des articles et des clients.
 
 ---
 
-# 27 / RACCOURCIS
+# 29 / RACCOURCIS
 
 ```text
 F5          Calculer
@@ -803,14 +893,15 @@ F1          Aide import
 Ctrl + 1    Clients
 Ctrl + 2    Articles
 Ctrl + 3    Palettes
-Ctrl + 4    Conditionnements
-Ctrl + 5    Colisage
+Ctrl + 4    Caisses
+Ctrl + 5    Conditionnements
+Ctrl + 6    Colisage
 Échap       Fermer
 ```
 
 ---
 
-# 28 / PALTUNES EN UNE LIGNE
+# 30 / PALTUNES EN UNE LIGNE
 
 ```text
 dimensions + contraintes + support
