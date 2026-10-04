@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PalTunes.App/PalTunes.App.csproj" />
+    <Project Path="src/PalTunes.Core/PalTunes.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PalTunes.Tests/PalTunes.Tests.csproj" />
+  </Folder>
+</Solution>
