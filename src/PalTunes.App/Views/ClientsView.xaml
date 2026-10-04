@@ -1,0 +1,235 @@
+<UserControl x:Class="PalTunes.App.Views.ClientsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:PalTunes.App.ViewModels"
+             mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:ClientsViewModel}"
+             d:DesignWidth="1300" d:DesignHeight="850">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="400" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ===================== Liste ===================== -->
+        <Border Style="{StaticResource CardStyle}" Margin="6">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource Muted}" Text="{Binding CountText}" VerticalAlignment="Center" />
+                        <TextBlock Text="Base clients" FontSize="17" FontWeight="Bold" />
+                    </DockPanel>
+                    <TextBox Style="{StaticResource SearchBox}" Margin="0,10,0,6" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged, Delay=250}"
+                             ToolTip="Recherche sur le code, le nom, la ville, le pays, le contact" />
+                    <WrapPanel Margin="0,2,0,8">
+                        <Button Style="{StaticResource RoundedButton}" Command="{Binding NewCommand}" Padding="12,6" Margin="0,0,6,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,6,0" />
+                                <TextBlock Text="Nouveau client" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" Command="{Binding DeleteCommand}" ToolTip="Supprimer le client (ses articles sont conservés)">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" />
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" ToolTip="Importer des clients (CSV)"
+                                Command="{Binding DataContext.ImportClientsCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" />
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" ToolTip="Exporter la base clients (CSV, réimportable)"
+                                Command="{Binding DataContext.ExportClientsCommand, RelativeSource={RelativeSource AncestorType=Window}}">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xEDE1;" />
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+                <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel>
+                                <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="#EEF2F5" Margin="6,0,0,0"
+                                        ToolTip="Articles rattachés">
+                                    <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}"><Run Text="{Binding ArticleCount, Mode=OneWay}" /><Run Text=" art." /></TextBlock>
+                                </Border>
+                                <Border DockPanel.Dock="Left" Width="34" Height="34" CornerRadius="17" Background="#E8F1F8" Margin="0,0,10,0">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE77B;" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource PanelDarkBrush}" />
+                                </Border>
+                                <StackPanel>
+                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding Name, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Code, Mode=OneWay}" Foreground="{StaticResource MutedBrush}" FontWeight="Normal" FontSize="11.5" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Location}" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- ===================== Fiche client ===================== -->
+        <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="6" Padding="0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="380" />
+                </Grid.ColumnDefinitions>
+
+                <DockPanel Margin="20,16,14,14">
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Style="{StaticResource SuccessButton}" Command="{Binding SaveCommand}" Padding="18,8" Margin="0,0,8,0" ToolTip="Ctrl+S">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,2,8,0" />
+                                <TextBlock Text="Enregistrer" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource RoundedButton}" Command="{Binding NewArticleCommand}" Padding="14,8"
+                                ToolTip="Créer un article déjà rattaché à ce client">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,8,0" />
+                                <TextBlock Text="Nouvel article pour ce client" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock FontSize="19" FontWeight="Bold" TextTrimming="CharacterEllipsis">
+                                <Run Text="{Binding Draft.Name, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Draft.Code, Mode=OneWay}" FontWeight="Normal" FontSize="14" Foreground="{StaticResource MutedBrush}" />
+                            </TextBlock>
+                            <TextBlock Style="{StaticResource Muted}" Text="Nouveau client" Visibility="{Binding IsNew, Converter={StaticResource BoolToVisibility}}" />
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="IDENTIFICATION" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="160" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Code *" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Code}" FontWeight="SemiBold" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Nom *" ToolTip="C'est le nom qui relie les articles (champ Client de l'article). Un renommage est répercuté sur les articles." />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Name}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="COORDONNÉES (facultatives)" />
+                            <TextBlock Style="{StaticResource FormLabel}" Text="Adresse" />
+                            <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Address}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Code postal" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.PostalCode}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Ville" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.City}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Pays" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Country}" />
+                                </StackPanel>
+                            </Grid>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Contact" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Contact}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Téléphone" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Phone}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="E-mail" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Email}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="EXIGENCES DE CONDITIONNEMENT (appliquées en palettisant ses articles)" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Palette imposée" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding PalletChoices}" SelectedItem="{Binding DefaultPallet}" DisplayMemberPath="Label" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Hauteur totale maxi (mm)" ToolTip="Vide = 1800 (standard)" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Draft.MaxTotalHeight, TargetNullValue=''}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Gerbages acceptés" ToolTip="0 = non gerbable, 1 = un conditionnement gerbé dessus… Vide = non imposé" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Draft.MaxStacking, TargetNullValue=''}" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource FormLabel}" Text="Notes" />
+                            <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Notes}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="54" VerticalContentAlignment="Top" />
+
+                            <ItemsControl ItemsSource="{Binding Errors}" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+
+                <!-- Articles du client -->
+                <Border Grid.Column="1" Background="#F4F7F9" CornerRadius="0,10,10,0">
+                    <DockPanel Margin="14">
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource SectionTitle}" Margin="0,0,0,8">
+                            <Run Text="ARTICLES DU CLIENT" /> <Run Text="{Binding ClientArticles.Count, Mode=OneWay}" />
+                        </TextBlock>
+                        <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding ClientArticles}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource LightButton}" Margin="6,0,0,0" ToolTip="Ouvrir l'article"
+                                                Command="{Binding DataContext.OpenArticleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8A7;" />
+                                        </Button>
+                                        <Border DockPanel.Dock="Left" Width="14" Height="14" CornerRadius="3" Margin="0,0,8,0" VerticalAlignment="Center"
+                                                Background="{Binding Color, Converter={StaticResource HexToBrush}}">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Kind, Converter={StaticResource KindGlyph}}" FontSize="9" Foreground="White"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Code}" FontWeight="SemiBold" />
+                                            <TextBlock FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis">
+                                                <Run Text="{Binding KindLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding DimensionsText, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

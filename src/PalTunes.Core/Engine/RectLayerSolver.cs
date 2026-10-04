@@ -1,0 +1,342 @@
+namespace PalTunes.Core.Engine;
+
+/// <summary>Rectangle d'un plan de couche (coin bas-gauche, dimensions selon X et Y), en mm.</summary>
+public readonly record struct Rect2(double X, double Y, double W, double H)
+{
+    public double Right => X + W;
+    public double Top => Y + H;
+}
+
+/// <summary>Plan de couche 2D : rectangles (ou enveloppes de cercles) dans un repère local partant de (0, 0).</summary>
+public sealed class LayerPattern
+{
+    public required string Kind { get; init; }
+    public required List<Rect2> Items { get; init; }
+    public bool Circles { get; init; }
+    public int Count => Items.Count;
+    public double UsedX => Items.Count == 0 ? 0 : Items.Max(r => r.Right);
+    public double UsedY => Items.Count == 0 ? 0 : Items.Max(r => r.Top);
+
+    /// <summary>Nombre de changements d'orientation (pavés tournés de 90° par rapport au premier).</summary>
+    public int RotatedCount(double a) => Items.Count(r => Math.Abs(r.W - a) > 0.01);
+}
+
+public sealed class RectLayerResult
+{
+    public required LayerPattern Best { get; init; }
+    public required LayerPattern Grid { get; init; }
+    public int UpperBound { get; init; }
+    public int GuillotineCount { get; init; }
+    public int PinwheelCount { get; init; }
+}
+
+/// <summary>
+/// Plans de couche pour rectangles identiques a × b (rotation 90° autorisée) dans X × Y (étude §4.3–4.4) :
+/// grille simple, guillotine optimale par programmation dynamique sur les points de discrétisation
+/// (Herz 1972, Christofides &amp; Whitlock 1977, Beasley 1985), moulinet non-guillotine à 5 blocs d'ordre 1
+/// (Smith &amp; De Cani 1980, Bischoff &amp; Dowsland 1982, structure G4 de Scheithauer &amp; Terno 1996),
+/// et borne d'aire sur dimensions efficaces (Barnes 1979, Dowsland 1987).
+/// Calcul en entiers (dixièmes de mm) pour des égalités exactes.
+/// </summary>
+public static class RectLayerSolver
+{
+    private const double Unit = 10;
+
+    /// <summary>Au-delà, le moulinet (O(n⁴)) n'est pas énuméré : les plans guillotine sont alors quasi optimaux.</summary>
+    private const long PinwheelBudget = 30_000_000;
+
+    public static RectLayerResult Solve(double containerX, double containerY, double a, double b, double gap = 0)
+    {
+        // Jeu entre produits : on agrandit produits et contenant du jeu (le dernier produit n'a pas de jeu extérieur).
+        var X = (int)Math.Floor((containerX + gap) * Unit + 1e-6);
+        var Y = (int)Math.Floor((containerY + gap) * Unit + 1e-6);
+        var ia = (int)Math.Round((a + gap) * Unit);
+        var ib = (int)Math.Round((b + gap) * Unit);
+        var empty = new LayerPattern { Kind = "Aucun", Items = [] };
+        if (X <= 0 || Y <= 0 || ia <= 0 || ib <= 0 || (Math.Min(ia, ib) > Math.Max(X, Y)) ||
+            !((ia <= X && ib <= Y) || (ib <= X && ia <= Y)))
+        {
+            return new RectLayerResult { Best = empty, Grid = empty };
+        }
+
+        var solver = new Instance(X, Y, ia, ib);
+        solver.Run();
+
+        var scale = 1 / Unit;
+        LayerPattern ToPattern(string kind, List<(int x, int y, int w, int h)> cells) => new()
+        {
+            Kind = kind,
+            Items = cells.Select(c => new Rect2(c.x * scale, c.y * scale, c.w * scale - gap, c.h * scale - gap)).ToList()
+        };
+
+        var grid = ToPattern("Grille", solver.BestGrid());
+        var guillotine = ToPattern(solver.GuillotineIsGrid ? "Grille" : "Guillotine", solver.BuildGuillotine());
+        var best = guillotine;
+        if (solver.PinwheelValue > guillotine.Count)
+        {
+            best = ToPattern("Moulinet", solver.BuildPinwheel());
+        }
+
+        return new RectLayerResult
+        {
+            Best = best,
+            Grid = grid,
+            UpperBound = solver.UpperBound,
+            GuillotineCount = guillotine.Count,
+            PinwheelCount = Math.Max(solver.PinwheelValue, 0)
+        };
+    }
+
+    private sealed class Instance(int X, int Y, int a, int b)
+    {
+        private int[] _rx = [];
+        private int[] _ry = [];
+        private int[] _normX = [];
+        private int[] _normY = [];
+        private int[,] _f = new int[0, 0];
+
+        // Choix : 0 = grille a×b, 1 = grille b×a, 2 = coupe verticale, 3 = coupe horizontale ; _cut = indice de coupe.
+        private byte[,] _kind = new byte[0, 0];
+        private int[,] _cut = new int[0, 0];
+
+        public int PinwheelValue { get; private set; } = -1;
+        private (int x1, int x2, int y1, int y2, bool chiral) _pin;
+        public int UpperBound { get; private set; }
+        public bool GuillotineIsGrid => _kind[_rx.Length - 1, _ry.Length - 1] <= 1;
+
+        public void Run()
+        {
+            (_rx, _normX) = Raster(X);
+            (_ry, _normY) = Raster(Y);
+            var nx = _rx.Length;
+            var ny = _ry.Length;
+            _f = new int[nx, ny];
+            _kind = new byte[nx, ny];
+            _cut = new int[nx, ny];
+
+            for (var i = 0; i < nx; i++)
+            {
+                for (var j = 0; j < ny; j++)
+                {
+                    var w = _rx[i];
+                    var h = _ry[j];
+                    var g1 = (w / a) * (h / b);
+                    var g2 = (w / b) * (h / a);
+                    var best = g1;
+                    byte kind = 0;
+                    var cut = 0;
+                    if (g2 > best)
+                    {
+                        best = g2;
+                        kind = 1;
+                    }
+
+                    for (var k = 1; k < i && _rx[k] * 2 <= w; k++)
+                    {
+                        var v = _f[k, j] + _f[_normX[w - _rx[k]], j];
+                        if (v > best)
+                        {
+                            best = v;
+                            kind = 2;
+                            cut = k;
+                        }
+                    }
+
+                    for (var k = 1; k < j && _ry[k] * 2 <= h; k++)
+                    {
+                        var v = _f[i, k] + _f[i, _normY[h - _ry[k]]];
+                        if (v > best)
+                        {
+                            best = v;
+                            kind = 3;
+                            cut = k;
+                        }
+                    }
+
+                    _f[i, j] = best;
+                    _kind[i, j] = kind;
+                    _cut[i, j] = cut;
+                }
+            }
+
+            UpperBound = (int)((long)_rx[nx - 1] * _ry[ny - 1] / ((long)a * b));
+            var guillotine = _f[nx - 1, ny - 1];
+            if (guillotine < UpperBound && (long)nx * nx * ny * ny / 2 <= PinwheelBudget)
+            {
+                SearchPinwheel(guillotine);
+            }
+        }
+
+        /// <summary>Points de discrétisation i·a + j·b ≤ L, et table « plus grand point ≤ v ».</summary>
+        private (int[] points, int[] norm) Raster(int length)
+        {
+            var reach = new bool[length + 1];
+            reach[0] = true;
+            for (var v = 0; v <= length; v++)
+            {
+                if (!reach[v])
+                {
+                    continue;
+                }
+
+                if (v + a <= length)
+                {
+                    reach[v + a] = true;
+                }
+
+                if (v + b <= length)
+                {
+                    reach[v + b] = true;
+                }
+            }
+
+            var points = new List<int>();
+            var norm = new int[length + 1];
+            for (var v = 0; v <= length; v++)
+            {
+                if (reach[v])
+                {
+                    points.Add(v);
+                }
+
+                norm[v] = points.Count - 1;
+            }
+
+            return (points.ToArray(), norm);
+        }
+
+        private int F(int w, int h) => w <= 0 || h <= 0 ? 0 : _f[_normX[w], _normY[h]];
+
+        private void SearchPinwheel(int guillotine)
+        {
+            var best = guillotine;
+            var nx = _rx.Length;
+            var ny = _ry.Length;
+            for (var i1 = 1; i1 < nx - 1; i1++)
+            {
+                var x1 = _rx[i1];
+                for (var i2 = 1; i2 < nx - 1; i2++)
+                {
+                    if (i2 == i1)
+                    {
+                        continue;
+                    }
+
+                    var x2 = _rx[i2];
+                    for (var j1 = 1; j1 < ny - 1; j1++)
+                    {
+                        var y1 = _ry[j1];
+                        for (var j2 = 1; j2 < ny - 1; j2++)
+                        {
+                            if (j2 == j1)
+                            {
+                                continue;
+                            }
+
+                            var y2 = _ry[j2];
+                            // Chiralité 1 : x1 < x2 et y2 < y1 ; chiralité 2 : x2 < x1 et y1 < y2.
+                            var chiral = x1 < x2;
+                            if (chiral ? y2 >= y1 : y1 >= y2)
+                            {
+                                continue;
+                            }
+
+                            var v = F(x1, y1) + F(X - x1, y2) + F(X - x2, Y - y2) + F(x2, Y - y1)
+                                    + F(Math.Abs(x2 - x1), Math.Abs(y1 - y2));
+                            if (v > best)
+                            {
+                                best = v;
+                                _pin = (x1, x2, y1, y2, chiral);
+                                PinwheelValue = v;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        public List<(int x, int y, int w, int h)> BestGrid()
+        {
+            var g1 = (X / a) * (Y / b);
+            var g2 = (X / b) * (Y / a);
+            var cells = new List<(int, int, int, int)>();
+            Fill(cells, 0, 0, X, Y, g1 >= g2 ? 0 : 1);
+            return cells;
+        }
+
+        public List<(int x, int y, int w, int h)> BuildGuillotine()
+        {
+            var cells = new List<(int, int, int, int)>();
+            Build(cells, _rx.Length - 1, _ry.Length - 1, 0, 0);
+            return cells;
+        }
+
+        public List<(int x, int y, int w, int h)> BuildPinwheel()
+        {
+            var cells = new List<(int, int, int, int)>();
+            var (x1, x2, y1, y2, chiral) = _pin;
+            Block(cells, 0, 0, x1, y1);
+            Block(cells, x1, 0, X - x1, y2);
+            Block(cells, x2, y2, X - x2, Y - y2);
+            Block(cells, 0, y1, x2, Y - y1);
+            if (chiral)
+            {
+                Block(cells, x1, y2, x2 - x1, y1 - y2);
+            }
+            else
+            {
+                Block(cells, x2, y1, x1 - x2, y2 - y1);
+            }
+
+            return cells;
+        }
+
+        private void Block(List<(int, int, int, int)> cells, int ox, int oy, int w, int h)
+        {
+            if (w > 0 && h > 0)
+            {
+                Build(cells, _normX[w], _normY[h], ox, oy);
+            }
+        }
+
+        private void Build(List<(int, int, int, int)> cells, int i, int j, int ox, int oy)
+        {
+            if (_f[i, j] == 0)
+            {
+                return;
+            }
+
+            var w = _rx[i];
+            var h = _ry[j];
+            switch (_kind[i, j])
+            {
+                case 0:
+                case 1:
+                    Fill(cells, ox, oy, w, h, _kind[i, j]);
+                    break;
+                case 2:
+                    var k = _cut[i, j];
+                    Build(cells, k, j, ox, oy);
+                    Build(cells, _normX[w - _rx[k]], j, ox + _rx[k], oy);
+                    break;
+                default:
+                    var m = _cut[i, j];
+                    Build(cells, i, m, ox, oy);
+                    Build(cells, i, _normY[h - _ry[m]], ox, oy + _ry[m]);
+                    break;
+            }
+        }
+
+        private void Fill(List<(int, int, int, int)> cells, int ox, int oy, int w, int h, int orientation)
+        {
+            var (cw, ch) = orientation == 0 ? (a, b) : (b, a);
+            for (var x = 0; x + cw <= w; x += cw)
+            {
+                for (var y = 0; y + ch <= h; y += ch)
+                {
+                    cells.Add((ox + x, oy + y, cw, ch));
+                }
+            }
+        }
+    }
+}

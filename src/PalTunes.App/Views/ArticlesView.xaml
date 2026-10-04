@@ -1,0 +1,372 @@
+<UserControl x:Class="PalTunes.App.Views.ArticlesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:h="http://helix-toolkit.org/wpf"
+             xmlns:vm="clr-namespace:PalTunes.App.ViewModels"
+             xmlns:m="clr-namespace:PalTunes.Core.Models;assembly=PalTunes.Core"
+             mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:ArticlesViewModel}"
+             d:DesignWidth="1300" d:DesignHeight="850">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="400" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ===================== Arborescence ===================== -->
+        <Border Style="{StaticResource CardStyle}" Margin="6">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource Muted}" Text="{Binding CountText}" VerticalAlignment="Center" />
+                        <TextBlock Text="Base articles" FontSize="17" FontWeight="Bold" />
+                    </DockPanel>
+                    <TextBox x:Name="SearchBox" Style="{StaticResource SearchBox}" Margin="0,10,0,6"
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"
+                             ToolTip="Recherche sur le code, la désignation, le client, la famille, l'EAN, les dimensions…" />
+                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Groupings}" SelectedItem="{Binding Grouping}"
+                              DisplayMemberPath="Label" ToolTip="Regroupement de l'arborescence" />
+                    <WrapPanel Margin="0,8,0,6">
+                        <Button x:Name="NewButton" Style="{StaticResource RoundedButton}" Padding="12,6" Margin="0,0,6,0" Click="NewButton_Click"
+                                ToolTip="Créer un article : choisir son type">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,6,0" />
+                                <TextBlock Text="Nouvel article" />
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" FontSize="9" Margin="6,4,0,0" />
+                            </StackPanel>
+                            <Button.ContextMenu>
+                                <ContextMenu ItemsSource="{Binding Kinds}">
+                                    <ContextMenu.ItemContainerStyle>
+                                        <Style TargetType="MenuItem">
+                                            <Setter Property="Header" Value="{Binding Converter={StaticResource EnumLabel}}" />
+                                            <Setter Property="Command" Value="{Binding DataContext.NewCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <Setter Property="CommandParameter" Value="{Binding}" />
+                                            <Setter Property="Padding" Value="8,5" />
+                                        </Style>
+                                    </ContextMenu.ItemContainerStyle>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" Command="{Binding DuplicateCommand}" ToolTip="Dupliquer l'article sélectionné">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8C8;" />
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" Command="{Binding DeleteCommand}" ToolTip="Supprimer l'article sélectionné">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" />
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" Command="{Binding ExpandAllCommand}" ToolTip="Tout déplier">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70D;" />
+                        </Button>
+                        <Button Style="{StaticResource LightButton}" Command="{Binding CollapseAllCommand}" ToolTip="Tout replier">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70E;" />
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+
+                <TreeView ItemsSource="{Binding Roots}" BorderThickness="0" Background="Transparent"
+                          SelectedItemChanged="Tree_SelectedItemChanged" VirtualizingPanel.IsVirtualizing="True">
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type vm:TreeNode}" ItemsSource="{Binding Children}">
+                            <DockPanel Margin="0,1" ToolTip="{Binding Detail}">
+                                <Border DockPanel.Dock="Right" Background="#EEF2F5" CornerRadius="8" Padding="6,0" Margin="8,0,0,0"
+                                        Visibility="{Binding IsGroup, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="{Binding Count}" FontSize="11" Foreground="{StaticResource MutedBrush}" />
+                                </Border>
+                                <Grid DockPanel.Dock="Left" Width="18" Margin="0,0,7,0">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Glyph}" FontSize="13" VerticalAlignment="Center"
+                                               Foreground="{StaticResource MutedBrush}" Visibility="{Binding IsGroup, Converter={StaticResource BoolToVisibility}}" />
+                                    <Border Width="14" Height="14" CornerRadius="3" VerticalAlignment="Center"
+                                            Background="{Binding Color, Converter={StaticResource HexToBrush}}"
+                                            Visibility="{Binding IsGroup, Converter={StaticResource InverseBoolToVisibility}}">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Glyph}" FontSize="9" Foreground="White"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                </Grid>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Header}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="FontWeight" Value="Normal" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Article.Designation}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0"
+                                               FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="190" />
+                                </StackPanel>
+                            </DockPanel>
+                        </HierarchicalDataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
+            </DockPanel>
+        </Border>
+
+        <!-- ===================== Fiche article ===================== -->
+        <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="6" Padding="0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="360" />
+                </Grid.ColumnDefinitions>
+
+                <DockPanel Margin="20,16,10,14">
+                    <!-- Barre d'actions -->
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Style="{StaticResource SuccessButton}" Command="{Binding SaveCommand}" Padding="18,8" Margin="0,0,8,0" ToolTip="Ctrl+S">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,2,8,0" />
+                                <TextBlock Text="Enregistrer" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource OutlineButton}" Command="{Binding CancelCommand}" Content="Annuler les modifications" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource RoundedButton}" Command="{Binding PalletizeCommand}" Padding="14,8"
+                                ToolTip="Créer un conditionnement homogène pour cet article et calculer les solutions">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE81E;" Margin="0,2,8,0" />
+                                <TextBlock Text="Palettiser cet article" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
+                        <StackPanel DataContext="{Binding Editor}">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="#FDEBD0"
+                                        Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="Modifié – non enregistré" FontSize="11" Foreground="#B9770E" />
+                                </Border>
+                                <TextBlock Text="{Binding Title}" FontSize="19" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="TYPE D'ARTICLE" />
+                            <ListBox ItemsSource="{Binding DataContext.Kinds, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                     SelectedItem="{Binding Kind}" Style="{StaticResource PillListBox}">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Margin="0,2">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding Converter={StaticResource KindGlyph}}" Margin="0,2,6,0" />
+                                            <TextBlock Text="{Binding Converter={StaticResource EnumLabel}}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Style="{StaticResource Muted}" Text="{Binding KindDescription}" TextWrapping="Wrap" Margin="2,2,0,0" />
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="IDENTIFICATION" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Code article *" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" FontWeight="SemiBold" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Désignation" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Designation}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="DONNÉES DE CALCUL (obligatoires selon le type)" />
+                            <UniformGrid Columns="4">
+                                <StackPanel Margin="0,0,10,0" Visibility="{Binding ShowLength, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="{Binding LengthLabel}" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Length}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,10,0" Visibility="{Binding ShowWidth, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="{Binding WidthLabel}" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Width}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,10,0" Visibility="{Binding ShowHeight, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="{Binding HeightLabel}" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Height}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,10,0" Visibility="{Binding ShowDiameter, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="{Binding DiameterLabel}" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Diameter}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,10,0" Visibility="{Binding ShowInnerDiameter, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="{Binding InnerDiameterLabel}" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding InnerDiameter}" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,10,0">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Poids unitaire (kg) *" ToolTip="Jusqu'à 5 décimales (0,00001 kg)" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding Weight, StringFormat={}{0:0.#####}}" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Visibility="{Binding UsesOrientation, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Orientation" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Orientations}" SelectedItem="{Binding Orientation}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource EnumLabel}}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Visibility="{Binding UsesCoilAxis, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Axe autorisé (forçable par conditionnement)" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Axes}" SelectedItem="{Binding CoilAxis}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource EnumLabel}}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="CONTRAINTES DE GERBAGE (facultatives)" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Charge maxi sur le dessus (kg)"
+                                               ToolTip="Poids qu'un exemplaire peut supporter (résistance du carton, du bac…). Vide = non limité." />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding MaxLoadOnTop, TargetNullValue=''}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Couches maxi" ToolTip="Nombre maximal de couches superposées. Vide = non limité." />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding MaxLayers, TargetNullValue=''}" />
+                                </StackPanel>
+                                <CheckBox Grid.Column="4" Style="{StaticResource FormCheck}" IsChecked="{Binding Fragile}" VerticalAlignment="Bottom" Margin="0,0,0,6"
+                                          Content="Fragile (rien dessus)" />
+                            </Grid>
+
+                            <Border Background="#F4F7F9" CornerRadius="8" Padding="10,7" Margin="0,8,0,0"
+                                    ToolTip="Déduit automatiquement (aucune donnée supplémentaire à saisir) ; renseignez « Charge maxi sur le dessus » ou « Fragile » pour l'affiner.">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE81E;" Margin="0,2,8,0" Foreground="{StaticResource PrimaryBrush}" />
+                                    <StackPanel>
+                                        <TextBlock Text="Profil de gerbage (palettes hétérogènes)" FontWeight="SemiBold" FontSize="12" />
+                                        <TextBlock Text="{Binding ProfileText}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextBrush}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <ItemsControl ItemsSource="{Binding Errors}" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="{StaticResource DangerBrush}" Margin="0,2,8,0" />
+                                            <TextBlock Text="{Binding}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Style="{StaticResource SectionTitle}" Text="CLASSEMENT ET INFORMATIONS (facultatifs)" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Client" />
+                                    <ComboBox Style="{StaticResource FormCombo}" IsEditable="True" Text="{Binding Client}"
+                                              ItemsSource="{Binding DataContext.Clients, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Famille" />
+                                    <ComboBox Style="{StaticResource FormCombo}" IsEditable="True" Text="{Binding Family}"
+                                              ItemsSource="{Binding DataContext.Families, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Sous-famille" />
+                                    <ComboBox Style="{StaticResource FormCombo}" IsEditable="True" Text="{Binding SubFamily}"
+                                              ItemsSource="{Binding DataContext.SubFamilies, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Référence client" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding CustomerRef}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="2">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="EAN / GTIN" />
+                                    <TextBox Style="{StaticResource FormBox}" Text="{Binding Ean}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="4">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Couleur d'affichage" />
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Left" Width="30" Height="30" CornerRadius="6" Margin="0,0,6,0"
+                                                Background="{Binding Color, Converter={StaticResource HexToBrush}}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" />
+                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding Color}" ToolTip="#RRGGBB ; vide = couleur automatique" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding Swatches}" Margin="0,6,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel HorizontalAlignment="Right" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Width="20" Height="20" Margin="2" Cursor="Hand" ToolTip="{Binding}"
+                                                Command="{Binding DataContext.PickColorCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border CornerRadius="5" Background="{Binding Converter={StaticResource HexToBrush}}" BorderBrush="White" BorderThickness="1" />
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Style="{StaticResource FormLabel}" Text="Notes" />
+                            <TextBox Style="{StaticResource FormBox}" Text="{Binding Notes}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="54" VerticalContentAlignment="Top" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+
+                <!-- Aperçu 3D -->
+                <Border Grid.Column="1" Background="#F4F7F9" CornerRadius="0,10,10,0">
+                    <DockPanel Margin="14">
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource SectionTitle}" Text="APERÇU" Margin="0,0,0,6" />
+                        <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" DataContext="{Binding SelectedArticle}" Visibility="{Binding Converter={StaticResource NotNullToVisibility}}">
+                            <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap">
+                                <Run Text="Créé le " /><Run Text="{Binding CreatedAt, StringFormat=dd/MM/yyyy, Mode=OneWay}" />
+                                <Run Text=" · modifié le " /><Run Text="{Binding ModifiedAt, StringFormat=dd/MM/yyyy HH:mm, Mode=OneWay}" />
+                            </TextBlock>
+                        </StackPanel>
+                        <Border CornerRadius="10" Background="White" ClipToBounds="True">
+                            <h:HelixViewport3D x:Name="Preview" Background="White" ShowViewCube="False"
+                                               IsHeadLightEnabled="True" ModelUpDirection="0,0,1" ShowCoordinateSystem="True" CoordinateSystemLabelForeground="#7F8C8D">
+                                <h:DefaultLights />
+                                <ModelVisual3D Content="{Binding Preview}" />
+                            </h:HelixViewport3D>
+                        </Border>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

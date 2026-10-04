@@ -1,0 +1,42 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Logo PalTunes (vectoriel, 256 × 256) : une palette vue de face portant une charge hétérogène
+        (cartons croisés aux couleurs du thème et une bobine), sur fond arrondi bleu-vert.
+    -->
+    <DrawingImage x:Key="LogoImage">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <!-- Fond arrondi -->
+                <GeometryDrawing Geometry="M56,0 H200 A56,56 0 0 1 256,56 V200 A56,56 0 0 1 200,256 H56 A56,56 0 0 1 0,200 V56 A56,56 0 0 1 56,0 Z">
+                    <GeometryDrawing.Brush>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#2A9D8F" Offset="0" />
+                            <GradientStop Color="#22313F" Offset="1" />
+                        </LinearGradientBrush>
+                    </GeometryDrawing.Brush>
+                </GeometryDrawing>
+
+                <!-- Charge : couche 1 -->
+                <GeometryDrawing Brush="#5DADE2" Geometry="M38,132 H124 V174 H38 Z" />
+                <GeometryDrawing Brush="#2ECC71" Geometry="M130,132 H218 V174 H130 Z" />
+                <!-- Couche 2 (croisée : joints décalés) -->
+                <GeometryDrawing Brush="#AED6F1" Geometry="M38,88 H96 V126 H38 Z" />
+                <GeometryDrawing Brush="#F39C12" Geometry="M102,88 H164 V126 H102 Z" />
+                <!-- Bobine (axe horizontal) -->
+                <GeometryDrawing Brush="#ECF0F1" Geometry="M193,107 m-21,0 a21,21 0 1 0 42,0 a21,21 0 1 0 -42,0" />
+                <GeometryDrawing Brush="#22313F" Geometry="M193,107 m-7,0 a7,7 0 1 0 14,0 a7,7 0 1 0 -14,0" />
+                <!-- Couche 3 -->
+                <GeometryDrawing Brush="#85C1E9" Geometry="M66,48 H150 V82 H66 Z" />
+
+                <!-- Palette : plateau, blocs, semelle -->
+                <GeometryDrawing Brush="White" Geometry="M28,180 H228 V192 H28 Z" />
+                <GeometryDrawing Brush="White" Geometry="M36,192 H66 V210 H36 Z" />
+                <GeometryDrawing Brush="White" Geometry="M113,192 H143 V210 H113 Z" />
+                <GeometryDrawing Brush="White" Geometry="M190,192 H220 V210 H190 Z" />
+                <GeometryDrawing Brush="White" Geometry="M28,210 H228 V220 H28 Z" />
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+</ResourceDictionary>
