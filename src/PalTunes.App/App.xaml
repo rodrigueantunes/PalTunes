@@ -21,6 +21,7 @@
             <conv:EnumLabelConverter x:Key="EnumLabel" />
             <conv:InverseBoolConverter x:Key="InverseBool" />
             <conv:KindGlyphConverter x:Key="KindGlyph" />
+            <conv:OwnViewConverter x:Key="OwnView" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

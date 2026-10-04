@@ -136,3 +136,15 @@ public sealed class KindGlyphConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Vue propre à chaque liste déroulante sur une collection partagée : la recherche intégrée (ComboFilter) filtre cette
+/// vue sans toucher aux autres listes, et la liste reste virtualisée (milliers d'articles ou de clients).
+/// </summary>
+public sealed class OwnViewConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is System.Collections.IList list ? new ListCollectionView(list) : value;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}

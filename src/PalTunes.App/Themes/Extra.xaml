@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ctl="clr-namespace:PalTunes.App.Views.Controls">
 
     <!-- Compléments PalTunes au thème OptiTunes : formulaires, tuiles de type, cartes de solution. -->
 
@@ -46,9 +47,14 @@
         <Setter Property="TextAlignment" Value="Right" />
     </Style>
 
+    <!-- Liste déroulante de formulaire : recherche intégrée (ComboFilter) dès 8 éléments, ou toujours avec MinItems="0" -->
     <Style x:Key="FormCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
         <Setter Property="Padding" Value="8,5" />
         <Setter Property="MinHeight" Value="30" />
+        <Setter Property="ctl:ComboFilter.IsEnabled" Value="True" />
+        <!-- Vue propre (OwnView) : la sélection suit la liaison SelectedItem / SelectedValue, jamais l'élément courant de la vue. -->
+        <Setter Property="IsSynchronizedWithCurrentItem" Value="False" />
+        <Setter Property="MaxDropDownHeight" Value="420" />
     </Style>
 
     <Style x:Key="FormCheck" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">

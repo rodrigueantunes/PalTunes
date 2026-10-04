@@ -109,6 +109,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
     public PackagingsViewModel(MainViewModel main)
     {
         _main = main;
+        Picker = new ArticlePicker(() => _main.Db, () => Lines.Select(l => l.Article).Append(Article));
         Lines.CollectionChanged += (_, e) =>
         {
             foreach (LineViewModel l in e.NewItems ?? Array.Empty<LineViewModel>())
@@ -132,6 +133,9 @@ public sealed partial class PackagingsViewModel : ObservableObject
     public ObservableCollection<Article> Articles { get; } = [];
     public ObservableCollection<PalletType> Pallets { get; } = [];
     public ObservableCollection<LineViewModel> Lines { get; } = [];
+
+    /// <summary>Choix du client puis de l'article (homogène et lignes hétérogènes).</summary>
+    public ArticlePicker Picker { get; }
 
     /// <summary>Total de la commande hétérogène et rappel de la charge admissible de la base.</summary>
     public string LinesSummary
@@ -166,7 +170,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
         var selected = SelectedPackaging?.Id;
         Packagings.Clear();
         foreach (var p in _main.Db.Packagings
-                     .Where(p => Filter.Length == 0 || $"{p.Code} {p.Name} {_main.Db.FindArticle(p.ArticleId)?.Code} {_main.Db.FindArticle(p.ArticleId)?.Client}".Contains(Filter, StringComparison.CurrentCultureIgnoreCase))
+                     .Where(p => Filter.Length == 0 || $"{p.Code} {p.Name} {_main.Db.FindArticle(p.ArticleId)?.Code} {_main.Db.ClientLabel(_main.Db.FindArticle(p.ArticleId)?.Client)}".Contains(Filter, StringComparison.CurrentCultureIgnoreCase))
                      .OrderBy(p => p.Code, StringComparer.CurrentCultureIgnoreCase))
         {
             Packagings.Add(p);
@@ -201,13 +205,18 @@ public sealed partial class PackagingsViewModel : ObservableObject
         }
 
         _loading = true;
-        Article = article == null ? null : Articles.FirstOrDefault(a => a.Id == article.Id);
+        // Les articles relus de la base entrent dans la liste avant d'être choisis (la sélection n'est jamais perdue).
+        var newArticle = article == null ? null : Articles.FirstOrDefault(a => a.Id == article.Id);
+        var newLines = Lines.Select(l => l.Article == null ? null : Articles.FirstOrDefault(a => a.Id == l.Article.Id)).ToList();
+        Picker.Sync([newArticle, .. newLines]);
+        Article = newArticle;
         Pallet = pallet == null ? null : Pallets.FirstOrDefault(p => p.Id == pallet.Id);
-        foreach (var line in Lines)
+        for (var i = 0; i < Lines.Count; i++)
         {
-            line.Article = line.Article == null ? null : Articles.FirstOrDefault(a => a.Id == line.Article.Id);
+            Lines[i].Article = newLines[i];
         }
 
+        Picker.Refresh();
         _loading = false;
         BuildColorMap();
     }
@@ -217,7 +226,10 @@ public sealed partial class PackagingsViewModel : ObservableObject
     [ObservableProperty] private Packaging _draft = new();
     [ObservableProperty] private bool _isEditingNew;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsHomogeneous), nameof(IsHeterogeneous))] private PackagingKind _kind;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText), nameof(ShowAxis))] private Article? _article;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText), nameof(ShowAxis), nameof(ArticleWarning))] private Article? _article;
+
+    /// <summary>Poids unitaire impossible pour les dimensions (erreur de saisie ou d'unité).</summary>
+    public string? ArticleWarning => Article == null ? null : ArticleSchema.WeightWarning(Article);
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private PalletType? _pallet;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private bool _palletRotated;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private int _countAlongLength = 1;
@@ -281,7 +293,10 @@ public sealed partial class PackagingsViewModel : ObservableObject
         Draft = p.Clone();
         IsEditingNew = isNew;
         Kind = p.Kind;
-        Article = Articles.FirstOrDefault(a => a.Id == p.ArticleId);
+        var article = Articles.FirstOrDefault(a => a.Id == p.ArticleId);
+        var lineArticles = p.Lines.Select(l => Articles.FirstOrDefault(a => a.Id == l.ArticleId)).ToList();
+        Picker.Sync([article, .. lineArticles]);
+        Article = article;
         Pallet = Pallets.FirstOrDefault(x => x.Id == p.PalletId) ?? Pallets.FirstOrDefault(x => x.Code == "EUR1");
         PalletRotated = p.PalletRotated;
         CountAlongLength = Math.Max(1, p.CountAlongLength);
@@ -289,11 +304,12 @@ public sealed partial class PackagingsViewModel : ObservableObject
         Axis = AxisChoices.First(a => a.Value == p.Constraints.ForcedAxis);
         Corners = p.Constraints.Corners;
         Lines.Clear();
-        foreach (var l in p.Lines)
+        for (var i = 0; i < p.Lines.Count; i++)
         {
-            Lines.Add(new LineViewModel { Article = Articles.FirstOrDefault(a => a.Id == l.ArticleId), Quantity = l.Quantity });
+            Lines.Add(new LineViewModel { Article = lineArticles[i], Quantity = p.Lines[i].Quantity });
         }
 
+        Picker.Sync();
         _loading = false;
         IsDirty = isNew;
         ClearSolutions();
@@ -503,7 +519,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void AddLine() => Lines.Add(new LineViewModel { Article = Articles.FirstOrDefault() });
+    private void AddLine() => Lines.Add(new LineViewModel { Article = Picker.Articles.FirstOrDefault() });
 
     [RelayCommand]
     private void RemoveLine(LineViewModel? line)
@@ -652,10 +668,10 @@ public sealed partial class PackagingsViewModel : ObservableObject
                     Kind = s.Kind, Base = s.Base, Units = [unit], ItemsPerUnit = unit.Items.Count, LayerCount = unit.Layers.Count,
                     StackLevels = s.StackLevels, StackLimitReason = s.StackLimitReason, Pattern = s.Pattern, OrientationText = s.OrientationText
                 };
-                return PackagingSpec.Rows(view, Constraints);
+                return PackagingSpec.Rows(view, Constraints, Article);
             }
 
-            return PackagingSpec.Rows(s, Constraints);
+            return PackagingSpec.Rows(s, Constraints, Article);
         }
     }
 

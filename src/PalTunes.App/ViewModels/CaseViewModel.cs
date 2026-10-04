@@ -31,19 +31,37 @@ public sealed partial class CaseViewModel : ObservableObject
     public CaseViewModel(MainViewModel main)
     {
         _main = main;
+        Picker = new ArticlePicker(() => _main.Db, () => [Article]);
+        _axisChoice = AxisChoices[0];
         RefreshPallets();
         RefreshCatalog();
         RefreshArticles();
         _loading = true;
-        Article = Articles.Where(a => a.Volume > 0).OrderBy(a => a.Volume).FirstOrDefault() ?? Articles.FirstOrDefault();
+        Article = Articles.FirstOrDefault();
+        Picker.Refresh();
         _loading = false;
-        RefreshPossibleCases();
-        Compute();
+        // Calcul différé à la première ouverture de l'espace Colisage : le démarrage reste immédiat quelle que soit la base.
+    }
+
+    private bool _computed;
+
+    /// <summary>Premier affichage de l'espace Colisage : caisses possibles et solutions de l'article choisi.</summary>
+    public void EnsureComputed()
+    {
+        if (!_computed)
+        {
+            RefreshPossibleCases();
+            Compute();
+        }
     }
 
     // ------------------------------------------------------------------ Mise en caisse
 
     public ObservableCollection<Article> Articles { get; } = [];
+
+    /// <summary>Choix du client puis du produit à mettre en caisse.</summary>
+    public ArticlePicker Picker { get; }
+
     public ObservableCollection<CaseType> PossibleCases { get; } = [];
 
     /// <summary>Caisses proposées au choix : les seules possibles, ou tout le catalogue si la caisse est forcée.</summary>
@@ -52,7 +70,47 @@ public sealed partial class CaseViewModel : ObservableObject
     public ObservableCollection<PalletType> Pallets { get; } = [];
     public ObservableCollection<SolutionViewModel> Solutions { get; } = [];
 
-    [ObservableProperty] private Article? _article;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ArticleWarning), nameof(ShowFixArticle), nameof(ShowAxis))] private Article? _article;
+
+    /// <summary>Axe des tubes, bagues et bobines dans la caisse (comme en palettisation).</summary>
+    public IReadOnlyList<AxisChoice> AxisChoices { get; } =
+    [
+        new(CoilAxis.Indifferent, "Le meilleur (axe horizontal ou vertical)"),
+        new(CoilAxis.Vertical, "Forcer l'axe vertical (debout)"),
+        new(CoilAxis.Horizontal, "Forcer l'axe horizontal (couché)")
+    ];
+
+    [ObservableProperty] private AxisChoice? _axisChoice;
+
+    private CoilAxis? Axis => ShowAxis ? AxisChoice?.Value ?? CoilAxis.Indifferent : null;
+
+    public bool ShowAxis => Article is { Kind: ArticleKind.Tube or ArticleKind.Bobine };
+
+    partial void OnAxisChoiceChanged(AxisChoice? value)
+    {
+        if (!_loading && _computed)
+        {
+            RefreshPossibleCases();
+            Compute();
+        }
+    }
+
+    /// <summary>Poids unitaire impossible pour les dimensions (erreur de saisie ou d'unité).</summary>
+    public string? ArticleWarning => Article == null ? null : ArticleSchema.WeightWarning(Article);
+
+    /// <summary>Bouton « Corriger la fiche article » : poids suspect ou aucune solution.</summary>
+    public bool ShowFixArticle => Article != null && (ArticleWarning != null || (_computed && Solutions.Count == 0));
+
+    [RelayCommand]
+    private void OpenArticle()
+    {
+        if (Article is { } a)
+        {
+            _main.SelectedSection = "Articles";
+            _main.Articles.SelectedArticle = a;
+            _main.Articles.RebuildTree();
+        }
+    }
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsCatalogMode), nameof(IsCustomMode), nameof(IsPalletChoiceEnabled))] private CaseMode _mode = CaseMode.Best;
     [ObservableProperty] private CaseType? _selectedCase;
     [ObservableProperty] private CaseSpec _spec = new() { InnerLength = 600, InnerWidth = 400, InnerHeight = 300, WallThickness = 5, Tare = 0.6 };
@@ -156,7 +214,10 @@ public sealed partial class CaseViewModel : ObservableObject
             Articles.Add(a);
         }
 
-        Article = Articles.FirstOrDefault(a => a.Id == current) ?? Article;
+        var article = Articles.FirstOrDefault(a => a.Id == current) ?? (Article != null && Articles.Contains(Article) ? Article : null);
+        Picker.Sync(article);
+        Article = article;
+        Picker.Refresh();
         _loading = false;
     }
 
@@ -278,7 +339,7 @@ public sealed partial class CaseViewModel : ObservableObject
         PossibleCases.Clear();
         if (Article != null)
         {
-            foreach (var c in CaseEngine.PossibleCases(Article, _main.Db.Cases, Gap).OrderBy(c => c.InnerLength * c.InnerWidth * c.InnerHeight))
+            foreach (var c in CaseEngine.PossibleCases(Article, _main.Db.Cases, Gap, Axis).OrderBy(c => c.InnerLength * c.InnerWidth * c.InnerHeight))
             {
                 PossibleCases.Add(c);
             }
@@ -327,6 +388,7 @@ public sealed partial class CaseViewModel : ObservableObject
     [RelayCommand]
     private void Compute()
     {
+        _computed = true;
         Solutions.Clear();
         Message = null;
         if (Article == null)
@@ -340,19 +402,21 @@ public sealed partial class CaseViewModel : ObservableObject
         switch (Mode)
         {
             case CaseMode.Best:
-                result = CaseEngine.Propose(Article, _main.Db.Cases, Gap, TargetQuantity, ManualLimit, ActivePallet, PalletConstraints);
+                result = CaseEngine.Propose(Article, _main.Db.Cases, Gap, TargetQuantity, ManualLimit, ActivePallet, PalletConstraints, Axis);
                 break;
             case CaseMode.Catalog:
                 if (SelectedCase == null)
                 {
                     Message = ForceCase
                         ? "Choisissez la caisse à imposer."
-                        : "Aucune caisse du catalogue ne peut contenir cet article : cochez « Forcer la caisse », utilisez une caisse spécifique ou ajoutez une caisse au catalogue.";
+                        : CaseEngine.Diagnose(Article, _main.Db.Cases, Gap, Axis) +
+                          " Vous pouvez aussi cocher « Forcer la caisse », utiliser une caisse spécifique ou ajouter une caisse au catalogue.";
+                    OnPropertyChanged(nameof(ShowFixArticle));
                     SelectedSolution = null;
                     return;
                 }
 
-                result = CaseEngine.Solve(Article, SelectedCase.ToSpec(Gap), TargetQuantity, SelectedCase, ActivePallet, PalletConstraints);
+                result = CaseEngine.Solve(Article, SelectedCase.ToSpec(Gap), TargetQuantity, SelectedCase, ActivePallet, PalletConstraints, Axis);
                 if (ForceCase && result.Solutions.Count > 0 && !PossibleCases.Contains(SelectedCase))
                 {
                     result.Messages.Add($"Caisse {SelectedCase.Code} forcée.");
@@ -360,7 +424,7 @@ public sealed partial class CaseViewModel : ObservableObject
 
                 break;
             default:
-                result = CaseEngine.Solve(Article, WithGap(Spec), TargetQuantity, null, ActivePallet, PalletConstraints);
+                result = CaseEngine.Solve(Article, WithGap(Spec), TargetQuantity, null, ActivePallet, PalletConstraints, Axis);
                 break;
         }
 
@@ -371,6 +435,7 @@ public sealed partial class CaseViewModel : ObservableObject
 
         Message = result.Messages.Count > 0 ? string.Join(Environment.NewLine, result.Messages) : null;
         SelectedSolution = Solutions.FirstOrDefault(s => s.Recommended) ?? Solutions.FirstOrDefault();
+        OnPropertyChanged(nameof(ShowFixArticle));
     }
 
     [RelayCommand]
@@ -426,6 +491,9 @@ public sealed partial class CaseViewModel : ObservableObject
 
     [ObservableProperty] private CaseType? _catalogSelected;
     [ObservableProperty] private CaseType _catalogDraft = new();
+    [ObservableProperty] private Model3DGroup? _catalogPreview;
+
+    partial void OnCatalogDraftChanged(CaseType value) => CatalogPreview = Scene3DBuilder.BuildCasePreview(value);
     [ObservableProperty] private IReadOnlyList<string> _catalogErrors = [];
 
     partial void OnCatalogSelectedChanged(CaseType? value)

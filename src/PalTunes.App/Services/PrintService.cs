@@ -71,7 +71,7 @@ public static class PrintService
         {
             content.Inlines.Add(new Run("Article : ") { FontWeight = FontWeights.SemiBold });
             content.Inlines.Add(new Run($"{a.DisplayName} · {a.KindLabel} · {a.DimensionsText} · {a.Weight.ToString(Formats.UnitWeight, Fr)} kg" +
-                                        (string.IsNullOrWhiteSpace(a.Client) ? "" : $" · client {a.Client}")));
+                                        (string.IsNullOrWhiteSpace(a.Client) ? "" : $" · client {db.ClientLabel(a.Client)}")));
         }
         else
         {
@@ -93,7 +93,7 @@ public static class PrintService
                 Kind = s.Kind, Base = s.Base, Units = [unit], ItemsPerUnit = unit.Items.Count, LayerCount = unit.Layers.Count,
                 StackLevels = s.StackLevels, StackLimitReason = s.StackLimitReason, Pattern = s.Pattern
             };
-        var rows = PackagingSpec.Rows(view, p.Constraints);
+        var rows = PackagingSpec.Rows(view, p.Constraints, p.Kind == PackagingKind.Homogene ? db.FindArticle(p.ArticleId) : null);
         var table = new Table { CellSpacing = 0, Margin = new Thickness(0, 6, 0, 6) };
         table.Columns.Add(new TableColumn { Width = new GridLength(3, GridUnitType.Star) });
         table.Columns.Add(new TableColumn { Width = new GridLength(1.2, GridUnitType.Star) });
@@ -157,7 +157,146 @@ public static class PrintService
 
         grid.RowGroups.Add(ig);
         doc.Blocks.Add(grid);
+
+        AddPalletizationPlan(doc, p, s, unit, db, colors, dark, muted);
         return doc;
+    }
+
+    /// <summary>
+    /// Plan de palettisation (fin de fiche, nouvelle page) : vue 3D, tableau des couches (produits par couche, cote,
+    /// intercalaire), puis pour chaque plan de couche distinct la vue de dessus numérotée et la position de chaque produit.
+    /// </summary>
+    private static void AddPalletizationPlan(FlowDocument doc, Packaging p, Solution s, LoadUnit unit, Database db,
+        IReadOnlyDictionary<Guid, Color> colors, Brush dark, Brush muted)
+    {
+        string Code(Guid id) => db.FindArticle(id)?.Code ?? "";
+        var groups = PalletizationPlan.Groups(unit, Code);
+        var section = new Section { BreakPageBefore = true };
+        section.Blocks.Add(new Paragraph(new Run("Plan de palettisation")) { FontSize = 18, FontWeight = FontWeights.Bold, Foreground = dark, Margin = new Thickness(0, 0, 0, 2) });
+        section.Blocks.Add(new Paragraph(new Run(
+            $"{p.Code} · {unit.Items.Count} produit(s) en {unit.Layers.Count} couche(s) sur {s.Base.Label} · " +
+            $"intercalaires : {PalletizationPlan.SlipSheetSummary(unit)}" +
+            (s.Units.Count > 1 ? $" · unité {unit.Index} / {s.Units.Count}" : "")))
+        { Foreground = muted, Margin = new Thickness(0, 0, 0, 8) });
+
+        var view3D = Render3D(s, unit, p.Constraints, colors, 700, 380);
+        section.Blocks.Add(new BlockUIContainer(new Image { Source = view3D, Width = 700 }) { Margin = new Thickness(0, 0, 0, 8) });
+
+        // Tableau des couches (du bas vers le haut).
+        var table = new Table { CellSpacing = 0 };
+        foreach (var w in new[] { 1.0, 1.0, 1.2, 1.2, 1.2, 1.6 })
+        {
+            table.Columns.Add(new TableColumn { Width = new GridLength(w, GridUnitType.Star) });
+        }
+
+        var rows = new TableRowGroup();
+        var header = new TableRow { Background = new SolidColorBrush(Color.FromRgb(0x34, 0x49, 0x5E)) };
+        foreach (var h in new[] { "Couche", "Plan", "Produits", "Z (mm)", "Hauteur (mm)", "Intercalaire dessous" })
+        {
+            header.Cells.Add(new TableCell(new Paragraph(new Run(h)) { Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 3, 6, 3) }));
+        }
+
+        rows.Rows.Add(header);
+        var odd = false;
+        foreach (var r in PalletizationPlan.LayerRows(unit, groups))
+        {
+            var row = new TableRow { Background = odd ? new SolidColorBrush(Color.FromRgb(0xF4, 0xF6, 0xF7)) : Brushes.White };
+            row.Cells.Add(Cell(r.Layer.ToString(Fr), dark, bold: true));
+            row.Cells.Add(Cell(r.Plan, dark));
+            row.Cells.Add(Cell(r.Count.ToString(Fr), dark, bold: true));
+            row.Cells.Add(Cell(r.Z.ToString("0", Fr), dark));
+            row.Cells.Add(Cell(r.Height.ToString("0", Fr), dark));
+            row.Cells.Add(Cell(r.SlipSheetBelow ? "oui" : "", dark));
+            rows.Rows.Add(row);
+            odd = !odd;
+        }
+
+        table.RowGroups.Add(rows);
+        section.Blocks.Add(table);
+        doc.Blocks.Add(section);
+
+        // Un plan par disposition de couche distincte : vue numérotée + positions.
+        foreach (var g in groups)
+        {
+            var plan = new Section { BreakPageBefore = true };
+            plan.Blocks.Add(new Paragraph(new Run($"Plan {g.Name} — couche(s) {g.LayersText}")) { FontSize = 16, FontWeight = FontWeights.Bold, Foreground = dark, Margin = new Thickness(0, 0, 0, 2) });
+            plan.Blocks.Add(new Paragraph(new Run(
+                $"{g.Count} produit(s) par couche · {g.Layers.Count} couche(s) · intercalaire dessous : " +
+                (g.SlipSheetLayers.Count == 0 ? "non" : g.SlipSheetLayers.Count == g.Layers.Count ? "oui" : $"couches {PalletizationPlan.Ranges(g.SlipSheetLayers)}") +
+                " · position = coin du produit depuis le coin de la palette (X le long de la longueur, Y le long de la largeur)"))
+            { Foreground = muted, Margin = new Thickness(0, 0, 0, 6) });
+            var image = Render(s, unit, p.Constraints, colors, PlanViewMode.Top, g.RepresentativeLayer, 700, 400, showNumbers: true);
+            plan.Blocks.Add(new BlockUIContainer(new Image { Source = image, Width = 700 }) { Margin = new Thickness(0, 0, 0, 6) });
+
+            var pos = new Table { CellSpacing = 0 };
+            foreach (var w in new[] { 0.7, 1.6, 1.0, 1.0, 1.6, 1.8 })
+            {
+                pos.Columns.Add(new TableColumn { Width = new GridLength(w, GridUnitType.Star) });
+            }
+
+            var pr = new TableRowGroup();
+            var ph = new TableRow { Background = new SolidColorBrush(Color.FromRgb(0x34, 0x49, 0x5E)) };
+            foreach (var h in new[] { "N°", "Article", "X (mm)", "Y (mm)", "Empreinte posée (mm)", "Forme" })
+            {
+                ph.Cells.Add(new TableCell(new Paragraph(new Run(h)) { Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 3, 6, 3) }));
+            }
+
+            pr.Rows.Add(ph);
+            var alt = false;
+            foreach (var q in g.Positions)
+            {
+                var row = new TableRow { Background = alt ? new SolidColorBrush(Color.FromRgb(0xF4, 0xF6, 0xF7)) : Brushes.White };
+                row.Cells.Add(Cell(q.Number.ToString(Fr), dark, bold: true));
+                row.Cells.Add(Cell(q.Article, dark));
+                row.Cells.Add(Cell(q.X.ToString("0", Fr), dark));
+                row.Cells.Add(Cell(q.Y.ToString("0", Fr), dark));
+                row.Cells.Add(Cell($"{q.DX:0} × {q.DY:0}", dark));
+                row.Cells.Add(Cell(q.Shape, muted));
+                pr.Rows.Add(row);
+                alt = !alt;
+            }
+
+            pos.RowGroups.Add(pr);
+            plan.Blocks.Add(pos);
+            doc.Blocks.Add(plan);
+        }
+    }
+
+    /// <summary>Vue 3D 3/4 de l'unité rendue hors écran (Viewport3D WPF), pour la fiche imprimée.</summary>
+    public static BitmapSource Render3D(Solution s, LoadUnit unit, PackagingConstraints c, IReadOnlyDictionary<Guid, Color> colors, int width, int height)
+    {
+        const double scale = 2;
+        var model = Scene3DBuilder.Build(s, unit, c, id => colors.TryGetValue(id, out var col) ? col : Colors.SteelBlue, int.MaxValue).Root;
+        var bounds = model.Bounds;
+        var center = new System.Windows.Media.Media3D.Point3D(bounds.X + bounds.SizeX / 2, bounds.Y + bounds.SizeY / 2, bounds.Z + bounds.SizeZ / 2);
+        var radius = Math.Max(0.05, Math.Sqrt(bounds.SizeX * bounds.SizeX + bounds.SizeY * bounds.SizeY + bounds.SizeZ * bounds.SizeZ) / 2);
+        const double fov = 30;
+        var halfH = fov / 2 * Math.PI / 180;
+        var halfV = Math.Atan(Math.Tan(halfH) * height / width);
+        var distance = radius / Math.Sin(Math.Min(halfH, halfV)) * 1.1;
+        var dir = new System.Windows.Media.Media3D.Vector3D(-0.75, -0.9, 0.6);
+        dir.Normalize();
+        var position = center + dir * distance;
+        var camera = new System.Windows.Media.Media3D.PerspectiveCamera(position, center - position, new System.Windows.Media.Media3D.Vector3D(0, 0, 1), fov)
+        {
+            NearPlaneDistance = Math.Max(0.001, distance - radius * 2),
+            FarPlaneDistance = distance + radius * 4
+        };
+        var lights = new System.Windows.Media.Media3D.Model3DGroup();
+        lights.Children.Add(new System.Windows.Media.Media3D.AmbientLight(Color.FromRgb(0x60, 0x60, 0x60)));
+        lights.Children.Add(new System.Windows.Media.Media3D.DirectionalLight(Color.FromRgb(0xC0, 0xC0, 0xC0), new System.Windows.Media.Media3D.Vector3D(1, 1.5, -2)));
+        lights.Children.Add(new System.Windows.Media.Media3D.DirectionalLight(Color.FromRgb(0x50, 0x50, 0x50), new System.Windows.Media.Media3D.Vector3D(-1, -0.5, -1)));
+        var viewport = new Viewport3D { Camera = camera, Width = width, Height = height };
+        viewport.Children.Add(new System.Windows.Media.Media3D.ModelVisual3D { Content = lights });
+        viewport.Children.Add(new System.Windows.Media.Media3D.ModelVisual3D { Content = model });
+        var host = new Border { Background = new SolidColorBrush(Color.FromRgb(0xF7, 0xF9, 0xF9)), Child = viewport, Width = width, Height = height };
+        host.Measure(new Size(width, height));
+        host.Arrange(new Rect(0, 0, width, height));
+        host.UpdateLayout();
+        var bmp = new RenderTargetBitmap((int)(width * scale), (int)(height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bmp.Render(host);
+        bmp.Freeze();
+        return bmp;
     }
 
     private static TableCell Cell(string text, Brush brush, bool bold = false, bool right = false) =>
@@ -170,10 +309,10 @@ public static class PrintService
         });
 
     public static BitmapSource Render(Solution s, LoadUnit unit, PackagingConstraints c, IReadOnlyDictionary<Guid, Color> colors,
-        PlanViewMode mode, int layer, int width, int height)
+        PlanViewMode mode, int layer, int width, int height, bool showNumbers = false)
     {
         const double scale = 2;
-        var view = new PlanView2D { Solution = s, Unit = unit, Constraints = c, ColorMap = colors, Mode = mode, Layer = layer, Width = width, Height = height };
+        var view = new PlanView2D { Solution = s, Unit = unit, Constraints = c, ColorMap = colors, Mode = mode, Layer = layer, Width = width, Height = height, ShowNumbers = showNumbers };
         var host = new Border { Background = Brushes.White, Child = view, Width = width, Height = height };
         host.Measure(new Size(width, height));
         host.Arrange(new Rect(0, 0, width, height));

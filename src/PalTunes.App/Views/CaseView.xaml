@@ -1,6 +1,7 @@
 <UserControl x:Class="PalTunes.App.Views.CaseView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:b="clr-namespace:PalTunes.App.Views.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:h="http://helix-toolkit.org/wpf"
@@ -58,8 +59,12 @@
                                            Text="Combien de produits dans une caisse ? Mêmes plans de couche optimaux que la palettisation ; la caisse obtenue devient un article à palettiser." />
 
                                 <TextBlock Style="{StaticResource SectionTitle}" Text="PRODUIT À METTRE EN CAISSE" />
-                                <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Articles}" SelectedItem="{Binding Article}"
-                                          IsTextSearchEnabled="True" TextSearch.TextPath="Code">
+                                <TextBlock Style="{StaticResource FormLabel}" Text="Client" Margin="0,0,0,2" />
+                                <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Clients, Converter={StaticResource OwnView}}" SelectedItem="{Binding Picker.Client}"
+                                          b:ComboFilter.MinItems="0" ToolTip="Limite la liste des produits à ceux du client" />
+                                <TextBlock Style="{StaticResource FormLabel}" Text="Produit" />
+                                <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Articles, Converter={StaticResource OwnView}}" SelectedItem="{Binding Article}"
+                                          b:ComboFilter.MinItems="0">
                                     <ComboBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
@@ -67,6 +72,7 @@
                                                         Background="{Binding Color, Converter={StaticResource HexToBrush}}" />
                                                 <TextBlock Text="{Binding Code}" FontWeight="SemiBold" />
                                                 <TextBlock Text="{Binding DimensionsText}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" />
+                                                <TextBlock Text="{Binding Designation}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" MaxWidth="180" TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>
@@ -74,6 +80,13 @@
                                 <TextBlock Style="{StaticResource Muted}" Margin="2,3,0,0">
                                     <Run Text="{Binding Article.KindLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Article.Weight, Mode=OneWay, StringFormat={}{0:0.#####} kg}" />
                                 </TextBlock>
+                                <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,4,0,0" FontSize="11.5"
+                                           Visibility="{Binding ArticleWarning, Converter={StaticResource NotNullToVisibility}}" />
+                                <StackPanel Visibility="{Binding ShowAxis, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Axe des tubes dans la caisse" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding AxisChoices}" SelectedItem="{Binding AxisChoice}" DisplayMemberPath="Label"
+                                              ToolTip="Comme en palettisation : debout (axe vertical) et couché (axe horizontal) sont calculés, le meilleur est recommandé ; ou un axe imposé" />
+                                </StackPanel>
 
                                 <TextBlock Style="{StaticResource SectionTitle}" Text="PALETTE DE DESTINATION" />
                                 <Grid IsEnabled="{Binding IsPalletChoiceEnabled}">
@@ -137,7 +150,11 @@
                                         </StackPanel>
                                     </RadioButton>
                                 </WrapPanel>
-                                <TextBlock Style="{StaticResource Muted}" Text="{Binding PossibleText}" Margin="2,2,0,0" />
+                                <DockPanel Margin="2,2,0,0">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Padding="4,0" Content="Gérer le catalogue des caisses"
+                                            Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="CaseTypes" />
+                                    <TextBlock Style="{StaticResource Muted}" Text="{Binding PossibleText}" VerticalAlignment="Center" />
+                                </DockPanel>
                                 <DockPanel Margin="0,6,0,0" Visibility="{Binding Mode, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Best}">
                                     <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="70" Text="{Binding ManualLimit}" />
                                     <TextBlock Style="{StaticResource FormLabel}" VerticalAlignment="Center" Margin="0,0,8,0"
@@ -203,159 +220,19 @@
                                     </StackPanel>
                                 </UniformGrid>
                                 <TextBlock Text="{Binding Message}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                <Button Style="{StaticResource OutlineButton}" Command="{Binding OpenArticleCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                        Visibility="{Binding ShowFixArticle, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTip="Ouvre la fiche de l'article (poids, dimensions, axe) dans l'espace Articles">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" Margin="0,2,6,0" />
+                                        <TextBlock Text="Corriger la fiche article" />
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
                         </ScrollViewer>
                     </DockPanel>
                 </TabItem>
 
-                <TabItem Header="Catalogue des caisses">
-                    <DockPanel Margin="4,4,4,0">
-                        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <Button Style="{StaticResource RoundedButton}" Command="{Binding CatalogNewCommand}" Padding="12,6" Margin="0,0,6,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,6,0" />
-                                    <TextBlock Text="Nouvelle caisse" />
-                                </StackPanel>
-                            </Button>
-                            <Button Style="{StaticResource LightButton}" Command="{Binding CatalogDuplicateCommand}" ToolTip="Dupliquer">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8C8;" />
-                            </Button>
-                            <Button Style="{StaticResource LightButton}" Command="{Binding CatalogDeleteCommand}" ToolTip="Supprimer">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" />
-                            </Button>
-                            <Button Style="{StaticResource LightButton}" Command="{Binding CatalogRestoreCommand}" ToolTip="Restaurer les caisses du catalogue supprimées">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE777;" />
-                            </Button>
-                        </WrapPanel>
-
-                        <!-- Fiche caisse -->
-                        <Border DockPanel.Dock="Bottom" Background="#F4F7F9" CornerRadius="10" Padding="12,8" Margin="0,8,0,0">
-                            <StackPanel>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="110" />
-                                        <ColumnDefinition Width="8" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Code *" />
-                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding CatalogDraft.Code}" FontWeight="SemiBold" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Désignation" />
-                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding CatalogDraft.Name}" />
-                                    </StackPanel>
-                                </Grid>
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="8" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Famille" />
-                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding CatalogDraft.Family}" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2">
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Matériau" />
-                                        <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Materials}" SelectedItem="{Binding CatalogDraft.Material}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding Converter={StaticResource EnumLabel}}" />
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                    </StackPanel>
-                                </Grid>
-                                <UniformGrid Columns="3">
-                                    <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Long. int. *" />
-                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.InnerLength}" />
-                                    </StackPanel>
-                                    <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Larg. int. *" />
-                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.InnerWidth}" />
-                                    </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Haut. int. *" />
-                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.InnerHeight}" />
-                                    </StackPanel>
-                                    <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Paroi (mm)" />
-                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.WallThickness}" />
-                                    </StackPanel>
-                                    <StackPanel Margin="0,0,6,0">
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Tare (kg)" />
-                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.Tare}" />
-                                    </StackPanel>
-                                    <StackPanel>
-                                        <TextBlock Style="{StaticResource FormLabel}" Text="Charge maxi (kg)" ToolTip="0 = non limitée" />
-                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.MaxWeight}" />
-                                    </StackPanel>
-                                </UniformGrid>
-                                <DockPanel Margin="0,8,0,0">
-                                    <Border DockPanel.Dock="Left" Width="24" Height="24" CornerRadius="5" Margin="0,0,8,0"
-                                            Background="{Binding CatalogDraft.Color, Converter={StaticResource HexToBrush}}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" />
-                                    <ItemsControl ItemsSource="{Binding Swatches}" VerticalAlignment="Center">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Button Width="18" Height="18" Margin="2" Cursor="Hand" ToolTip="{Binding}"
-                                                        Command="{Binding DataContext.CatalogPickColorCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
-                                                    <Button.Template>
-                                                        <ControlTemplate TargetType="Button">
-                                                            <Border CornerRadius="4" Background="{Binding Converter={StaticResource HexToBrush}}" BorderBrush="White" BorderThickness="1" />
-                                                        </ControlTemplate>
-                                                    </Button.Template>
-                                                </Button>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </DockPanel>
-                                <CheckBox Style="{StaticResource FormCheck}" IsChecked="{Binding CatalogDraft.Active}" Content="Active : comparée par « La meilleure »" />
-                                <ItemsControl ItemsSource="{Binding CatalogErrors}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <Button Style="{StaticResource SuccessButton}" Command="{Binding CatalogSaveCommand}" Margin="0,8,0,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,2,8,0" />
-                                        <TextBlock Text="Enregistrer la caisse" />
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </Border>
-
-                        <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding CatalogCases}" SelectedItem="{Binding CatalogSelected}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <DockPanel>
-                                        <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="#EEF2F5" Margin="6,0,0,0">
-                                            <TextBlock Text="{Binding Family}" FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
-                                        </Border>
-                                        <Border DockPanel.Dock="Left" Width="30" Height="22" CornerRadius="3" Margin="0,0,10,0"
-                                                Background="{Binding Color, Converter={StaticResource HexToBrush}}">
-                                            <Border Height="4" Background="#E8D5A8" VerticalAlignment="Center" Opacity="0.9" />
-                                        </Border>
-                                        <StackPanel>
-                                            <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
-                                                <Run Text="{Binding Code, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding InnerText, Mode=OneWay}" Foreground="{StaticResource MutedBrush}" FontWeight="Normal" />
-                                            </TextBlock>
-                                            <TextBlock Text="{Binding Name}" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </DockPanel>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </DockPanel>
-                </TabItem>
             </TabControl>
         </Border>
 

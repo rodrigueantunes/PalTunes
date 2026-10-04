@@ -29,6 +29,7 @@ public sealed class PlanView2D : FrameworkElement
     public static readonly DependencyProperty CaseClosedProperty = Register(nameof(CaseClosed), typeof(bool), false);
     public static readonly DependencyProperty CaseWallProperty = Register(nameof(CaseWall), typeof(double), 0.0);
     public static readonly DependencyProperty CaseColorProperty = Register(nameof(CaseColor), typeof(string), null);
+    public static readonly DependencyProperty ShowNumbersProperty = Register(nameof(ShowNumbers), typeof(bool), false);
 
     private static DependencyProperty Register(string name, Type type, object? def) =>
         DependencyProperty.Register(name, type, typeof(PlanView2D), new FrameworkPropertyMetadata(def, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -45,6 +46,9 @@ public sealed class PlanView2D : FrameworkElement
     public bool CaseClosed { get => (bool)GetValue(CaseClosedProperty); set => SetValue(CaseClosedProperty, value); }
 
     public double CaseWall { get => (double)GetValue(CaseWallProperty); set => SetValue(CaseWallProperty, value); }
+
+    /// <summary>Vue de dessus : numéro de chaque produit dans la couche (ordre du plan de palettisation imprimé).</summary>
+    public bool ShowNumbers { get => (bool)GetValue(ShowNumbersProperty); set => SetValue(ShowNumbersProperty, value); }
 
     /// <summary>Couleur de la caisse fermée (#RRGGBB) ; kraft par défaut.</summary>
     public string? CaseColor { get => (string?)GetValue(CaseColorProperty); set => SetValue(CaseColorProperty, value); }
@@ -286,12 +290,27 @@ public sealed class PlanView2D : FrameworkElement
             DrawTopItem(dc, p, brush, OutlinePen);
         }
 
+        if (ShowNumbers)
+        {
+            var number = 0;
+            foreach (var p in PalTunes.Core.Export.PalletizationPlan.ReadingOrder(unit.Items.Where(p => p.Layer == layer)))
+            {
+                number++;
+                var size = Math.Clamp(Math.Min(p.DX, p.DY) * _scale * 0.35, 7, 16);
+                var ft = Format(number.ToString(CultureInfo.CurrentCulture), size, TextBrush, true);
+                var center = P(p.X + p.DX / 2, p.Y + p.DY / 2);
+                dc.DrawEllipse(Brushes.White, null, center, ft.Width / 2 + 3, ft.Height / 2);
+                dc.DrawText(ft, new Point(center.X - ft.Width / 2, center.Y - ft.Height / 2));
+            }
+        }
+
         var m = unit.Metrics;
         if (c.Corners && unit.Items.Count > 0)
         {
             var t = Math.Max(1, c.CornerThickness);
             var leg = Math.Max(10, c.CornerLeg);
-            foreach (var (cx, cy, sx, sy) in new[] { (m.MinX, m.MinY, 1, 1), (m.MaxX, m.MinY, -1, 1), (m.MinX, m.MaxY, 1, -1), (m.MaxX, m.MaxY, -1, -1) })
+            var (fx0, fy0, fx1, fy1) = unit.CornerBounds(m);
+            foreach (var (cx, cy, sx, sy) in new[] { (fx0, fy0, 1, 1), (fx1, fy0, -1, 1), (fx0, fy1, 1, -1), (fx1, fy1, -1, -1) })
             {
                 dc.DrawRectangle(CornerBrush, null, R(Math.Min(cx - sx * t, cx + sx * leg), Math.Min(cy - sy * t, cy), Math.Max(cx - sx * t, cx + sx * leg), Math.Max(cy - sy * t, cy)));
                 dc.DrawRectangle(CornerBrush, null, R(Math.Min(cx - sx * t, cx), Math.Min(cy - sy * t, cy + sy * leg), Math.Max(cx - sx * t, cx), Math.Max(cy - sy * t, cy + sy * leg)));
@@ -424,7 +443,16 @@ public sealed class PlanView2D : FrameworkElement
         }
 
         // Produits : les plus éloignés d'abord (peintre), vue depuis Y = 0 (côté) ou X = 0 (face).
-        var items = side ? unit.Items.OrderByDescending(p => p.Y) : unit.Items.OrderByDescending(p => p.X);
+        IEnumerable<Placement> source = unit.Items;
+        if (unit.Items.Count > 5000)
+        {
+            // Petits produits par milliers : seules les rangées de devant sont visibles, les autres sont cachées.
+            var front = side ? unit.Items.Min(p => p.Y) : unit.Items.Min(p => p.X);
+            var depth = side ? unit.Items.Max(p => p.DY) : unit.Items.Max(p => p.DX);
+            source = unit.Items.Where(p => (side ? p.Y : p.X) <= front + 2 * depth);
+        }
+
+        var items = side ? source.OrderByDescending(p => p.Y) : source.OrderByDescending(p => p.X);
         foreach (var p in items)
         {
             var col = ColorOf(p.ArticleId);
@@ -461,8 +489,10 @@ public sealed class PlanView2D : FrameworkElement
             {
                 var ct = Math.Max(3, c.CornerThickness);
                 var ch = c.CornerHeight > 0 ? c.CornerHeight : m.LoadHeight;
-                dc.DrawRectangle(CornerBrush, null, R(l0 - ct, 0, l0, ch));
-                dc.DrawRectangle(CornerBrush, null, R(l1, 0, l1 + ct, ch));
+                var (fx0, fy0, fx1, fy1) = unit.CornerBounds(m);
+                var (k0, k1) = side ? (fx0, fx1) : (fy0, fy1);
+                dc.DrawRectangle(CornerBrush, null, R(k0 - ct, 0, k0, ch));
+                dc.DrawRectangle(CornerBrush, null, R(k1, 0, k1 + ct, ch));
             }
 
             var w = Wrap(c);

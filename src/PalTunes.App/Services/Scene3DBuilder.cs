@@ -25,6 +25,7 @@ public static class Scene3DBuilder
     private const double Scale = 0.001;
     private const double Gap = 0.0015;
     private const int MergeThreshold = 1500;
+    private const int ShellThreshold = 8000;
 
     private static readonly Dictionary<Color, Material> Cache = [];
 
@@ -95,8 +96,13 @@ public static class Scene3DBuilder
         }
 
         var visible = closedCase ? [] : unit.Items.Where(p => p.Layer <= visibleLayers).ToList();
+        if (visible.Count > ShellThreshold)
+        {
+            visible = Shell(visible);
+        }
+
         var merge = visible.Count > MergeThreshold;
-        var segments = visible.Count > 600 ? 12 : 24;
+        var segments = visible.Count > ShellThreshold ? 8 : visible.Count > 600 ? 12 : 24;
         if (merge)
         {
             foreach (var group in visible.GroupBy(p => (p.Layer, p.ArticleId)))
@@ -142,6 +148,32 @@ public static class Scene3DBuilder
         scene.SizeY = Math.Max(solution.Base.Width, m.EnclosureWidth) * Scale;
         scene.SizeZ = Math.Max(m.EnclosureHeight, solution.Base.PalletHeight) * Scale;
         return scene;
+    }
+
+    /// <summary>
+    /// Très grand nombre de produits (petits articles : des dizaines de milliers) : seuls les produits visibles de
+    /// l'extérieur sont dessinés — pourtour de chaque couche et couche du dessus. Les autres sont cachés par eux.
+    /// </summary>
+    private static List<Placement> Shell(List<Placement> items)
+    {
+        var top = items.Max(p => p.Layer);
+        var shell = new List<Placement>();
+        foreach (var layer in items.GroupBy(p => p.Layer))
+        {
+            if (layer.Key == top)
+            {
+                shell.AddRange(layer);
+                continue;
+            }
+
+            var minX = layer.Min(p => p.X);
+            var maxX = layer.Max(p => p.MaxX);
+            var minY = layer.Min(p => p.Y);
+            var maxY = layer.Max(p => p.MaxY);
+            shell.AddRange(layer.Where(p => p.X <= minX + p.DX || p.MaxX >= maxX - p.DX || p.Y <= minY + p.DY || p.MaxY >= maxY - p.DY));
+        }
+
+        return shell;
     }
 
     /// <summary>Nuances en damier (pose et couche) pour distinguer deux produits voisins du même article.</summary>
@@ -202,11 +234,13 @@ public static class Scene3DBuilder
 
         if (c.Corners)
         {
+            var (fx0, fy0, fx1, fy1) = unit.CornerBounds(m);
+            var (k0, j0, k1, j1) = (fx0 * Scale, fy0 * Scale, fx1 * Scale, fy1 * Scale);
             var t = Math.Max(1, c.CornerThickness) * Scale;
             var leg = Math.Max(10, c.CornerLeg) * Scale;
             var h = (c.CornerHeight > 0 ? c.CornerHeight : m.LoadHeight) * Scale;
             var corners = new MeshGeometry3D();
-            foreach (var (cx, cy, sx, sy) in new[] { (x0, y0, 1, 1), (x1, y0, -1, 1), (x0, y1, 1, -1), (x1, y1, -1, -1) })
+            foreach (var (cx, cy, sx, sy) in new[] { (k0, j0, 1, 1), (k1, j0, -1, 1), (k0, j1, 1, -1), (k1, j1, -1, -1) })
             {
                 // Aile le long de X et aile le long de Y, posées contre la charge, à l'extérieur.
                 AddBox(corners, Math.Min(cx - sx * t, cx + sx * leg), Math.Min(cy - sy * t, cy), 0,
@@ -260,6 +294,18 @@ public static class Scene3DBuilder
             material.Freeze();
             root.Children.Add(new GeometryModel3D(film, material) { BackMaterial = material });
         }
+    }
+
+    /// <summary>Aperçu d'une caisse du catalogue, fermée (espace Caisses).</summary>
+    public static Model3DGroup BuildCasePreview(CaseType type)
+    {
+        var root = new Model3DGroup();
+        if (type.InnerLength > 0 && type.InnerWidth > 0 && type.InnerHeight > 0)
+        {
+            AddCase(root, type.InnerLength, type.InnerWidth, type.InnerHeight, new CaseRender(type.WallThickness, type.Color, Open: false), translucent: []);
+        }
+
+        return root;
     }
 
     /// <summary>

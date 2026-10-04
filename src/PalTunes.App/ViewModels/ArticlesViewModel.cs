@@ -69,6 +69,9 @@ public sealed partial class ArticlesViewModel : ObservableObject
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private Article? _selectedArticle;
     [ObservableProperty] private Model3DGroup? _preview;
+
+    /// <summary>Poids unitaire impossible pour les dimensions saisies (erreur de saisie ou d'unité).</summary>
+    [ObservableProperty] private string? _weightWarning;
     [ObservableProperty] private string _countText = "";
 
     partial void OnGroupingChanged(GroupingChoice value)
@@ -102,9 +105,28 @@ public sealed partial class ArticlesViewModel : ObservableObject
         _main.Db.Articles.Select(f).Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v!.Trim())
             .Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(v => v, StringComparer.CurrentCultureIgnoreCase).ToList();
 
-    /// <summary>Clients proposés : base clients, plus les noms encore portés par des articles.</summary>
-    public IReadOnlyList<string> Clients => _main.Db.Clients.Select(c => c.Name).Concat(Distinct(a => a.Client))
-        .Distinct(StringComparer.CurrentCultureIgnoreCase).OrderBy(v => v, StringComparer.CurrentCultureIgnoreCase).ToList();
+    /// <summary>
+    /// Clients proposés à la fiche article : « Aucun client », la base clients (« CODE - Nom »), plus les codes encore
+    /// portés par des articles sans fiche client. La valeur retenue est le code.
+    /// </summary>
+    public IReadOnlyList<ClientChoice> Clients
+    {
+        get
+        {
+            var db = _main.Db;
+            var list = new List<ClientChoice> { new("", "(Aucun client)") };
+            list.AddRange(db.Clients.OrderBy(c => c.Code, StringComparer.CurrentCultureIgnoreCase).Select(c => new ClientChoice(c.Code, c.Label)));
+            list.AddRange(Distinct(a => a.Client).Where(code => db.FindClient(code) == null).Select(code => new ClientChoice(code, code + " (client inconnu)")));
+            if (Editor.Client is { Length: > 0 } current && list.All(c => c.Code != current))
+            {
+                list.Add(new ClientChoice(current, db.ClientLabel(current)));
+            }
+
+            return list;
+        }
+    }
+
+    private string ClientGroup(Article a) => Group(_main.Db.ClientLabel(a.Client));
     public IReadOnlyList<string> Families => Distinct(a => a.Family);
     public IReadOnlyList<string> SubFamilies => Distinct(a => a.SubFamily);
 
@@ -128,9 +150,9 @@ public sealed partial class ArticlesViewModel : ObservableObject
 
         Func<Article, string>[] levels = Grouping.Key switch
         {
-            "Client" => [a => Group(a.Client), a => Group(a.Family), a => Group(a.SubFamily)],
+            "Client" => [ClientGroup, a => Group(a.Family), a => Group(a.SubFamily)],
             "Family" => [a => Group(a.Family), a => ArticleSchema.KindLabel(a.Kind)],
-            "Kind" => [a => ArticleSchema.KindLabel(a.Kind), a => Group(a.Client)],
+            "Kind" => [a => ArticleSchema.KindLabel(a.Kind), ClientGroup],
             _ => []
         };
         string[] glyphs = Grouping.Key switch
@@ -182,9 +204,9 @@ public sealed partial class ArticlesViewModel : ObservableObject
 
     private static IEnumerable<TreeNode> Flatten(IEnumerable<TreeNode> nodes) => nodes.SelectMany(n => new[] { n }.Concat(Flatten(n.Children)));
 
-    private static bool Matches(Article a, string q)
+    private bool Matches(Article a, string q)
     {
-        var fields = new[] { a.Code, a.Designation, a.Client, a.Family, a.SubFamily, a.CustomerRef, a.Ean, a.Notes, a.KindLabel, a.DimensionsText };
+        var fields = new[] { a.Code, a.Designation, _main.Db.ClientLabel(a.Client), a.Family, a.SubFamily, a.CustomerRef, a.Ean, a.Notes, a.KindLabel, a.DimensionsText };
         return fields.Any(f => f?.Contains(q, StringComparison.CurrentCultureIgnoreCase) == true);
     }
 
@@ -194,6 +216,7 @@ public sealed partial class ArticlesViewModel : ObservableObject
         Editor.ApplyTo(a);
         var color = ArticleColors.Parse(a.Color, Color.FromRgb(0x5D, 0xAD, 0xE2));
         Preview = Scene3DBuilder.BuildArticle(a, color).Root;
+        WeightWarning = ArticleSchema.WeightWarning(a);
     }
 
     [RelayCommand]
@@ -278,9 +301,13 @@ public sealed partial class ArticlesViewModel : ObservableObject
         var draft = Editor.Original?.Clone() ?? new Article();
         Editor.ApplyTo(draft);
         var errors = ArticleSchema.Validate(draft);
-        if (_main.Db.Articles.Any(a => a.Id != draft.Id && string.Equals(a.Code.Trim(), draft.Code.Trim(), StringComparison.OrdinalIgnoreCase)))
+        // Un code article est unique pour un client (le même code peut exister chez un autre client).
+        if (_main.Db.Articles.Any(a => a.Id != draft.Id && string.Equals(a.Code.Trim(), draft.Code.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                                       string.Equals(a.Client?.Trim() ?? "", draft.Client?.Trim() ?? "", StringComparison.OrdinalIgnoreCase)))
         {
-            errors.Insert(0, $"Le code {draft.Code} existe déjà.");
+            errors.Insert(0, string.IsNullOrWhiteSpace(draft.Client)
+                ? $"Le code {draft.Code} existe déjà (sans client)."
+                : $"Le code {draft.Code} existe déjà pour le client {_main.Db.ClientLabel(draft.Client)}.");
         }
 
         Editor.Errors = errors;
@@ -362,8 +389,8 @@ public sealed partial class ArticleEditor : ObservableObject
     [ObservableProperty] private IReadOnlyList<string> _errors = [];
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Fields), nameof(KindDescription), nameof(UsesOrientation), nameof(UsesCoilAxis),
-        nameof(ShowLength), nameof(ShowWidth), nameof(ShowHeight), nameof(ShowDiameter), nameof(ShowInnerDiameter),
-        nameof(LengthLabel), nameof(WidthLabel), nameof(HeightLabel), nameof(DiameterLabel), nameof(InnerDiameterLabel), nameof(Title))]
+        nameof(ShowLength), nameof(ShowWidth), nameof(ShowHeight), nameof(ShowDiameter), nameof(ShowInnerDiameter), nameof(ShowFoldedLength), nameof(ShowFoldedWidth), nameof(ShowFoldedHeight),
+        nameof(LengthLabel), nameof(WidthLabel), nameof(HeightLabel), nameof(DiameterLabel), nameof(InnerDiameterLabel), nameof(FoldedLengthLabel), nameof(FoldedWidthLabel), nameof(FoldedHeightLabel), nameof(Title))]
     private ArticleKind _kind;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _code = "";
@@ -373,6 +400,9 @@ public sealed partial class ArticleEditor : ObservableObject
     [ObservableProperty] private double _height;
     [ObservableProperty] private double _diameter;
     [ObservableProperty] private double _innerDiameter;
+    [ObservableProperty] private double _foldedLength;
+    [ObservableProperty] private double _foldedWidth;
+    [ObservableProperty] private double _foldedHeight;
     [ObservableProperty] private double _weight;
     [ObservableProperty] private OrientationRule _orientation;
     [ObservableProperty] private CoilAxis _coilAxis;
@@ -423,11 +453,17 @@ public sealed partial class ArticleEditor : ObservableObject
     public bool ShowHeight => Spec(ArticleField.Height) != null;
     public bool ShowDiameter => Spec(ArticleField.Diameter) != null;
     public bool ShowInnerDiameter => Spec(ArticleField.InnerDiameter) != null;
+    public bool ShowFoldedLength => Spec(ArticleField.FoldedLength) != null;
+    public bool ShowFoldedWidth => Spec(ArticleField.FoldedWidth) != null;
+    public bool ShowFoldedHeight => Spec(ArticleField.FoldedHeight) != null;
     public string LengthLabel => Label(ArticleField.Length);
     public string WidthLabel => Label(ArticleField.Width);
     public string HeightLabel => Label(ArticleField.Height);
     public string DiameterLabel => Label(ArticleField.Diameter);
     public string InnerDiameterLabel => Label(ArticleField.InnerDiameter);
+    public string FoldedLengthLabel => Label(ArticleField.FoldedLength);
+    public string FoldedWidthLabel => Label(ArticleField.FoldedWidth);
+    public string FoldedHeightLabel => Label(ArticleField.FoldedHeight);
 
     private bool _loading;
 
@@ -472,13 +508,16 @@ public sealed partial class ArticleEditor : ObservableObject
         Height = a.Height;
         Diameter = a.Diameter;
         InnerDiameter = a.InnerDiameter;
+        FoldedLength = a.FoldedLength;
+        FoldedWidth = a.FoldedWidth;
+        FoldedHeight = a.FoldedHeight;
         Weight = a.Weight;
         Orientation = a.Orientation;
         CoilAxis = a.CoilAxis;
         MaxLoadOnTop = a.MaxLoadOnTop;
         MaxLayers = a.MaxLayers;
         Fragile = a.Fragile;
-        Client = a.Client;
+        Client = a.Client ?? "";
         Family = a.Family;
         SubFamily = a.SubFamily;
         CustomerRef = a.CustomerRef;
@@ -520,6 +559,9 @@ public sealed partial class ArticleEditor : ObservableObject
         a.Height = ShowHeight ? Height : 0;
         a.Diameter = ShowDiameter ? Diameter : 0;
         a.InnerDiameter = ShowInnerDiameter ? InnerDiameter : 0;
+        a.FoldedLength = ShowFoldedLength ? FoldedLength : 0;
+        a.FoldedWidth = ShowFoldedWidth ? FoldedWidth : 0;
+        a.FoldedHeight = ShowFoldedHeight ? FoldedHeight : 0;
         a.Weight = Weight;
         a.Orientation = Orientation;
         a.CoilAxis = CoilAxis;

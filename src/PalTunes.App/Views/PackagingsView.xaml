@@ -1,6 +1,7 @@
 <UserControl x:Class="PalTunes.App.Views.PackagingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:b="clr-namespace:PalTunes.App.Views.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:h="http://helix-toolkit.org/wpf"
@@ -23,6 +24,7 @@
                         Background="{Binding Color, Converter={StaticResource HexToBrush}}" />
                 <TextBlock Text="{Binding Code}" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding DimensionsText}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" />
+                <TextBlock Text="{Binding Designation}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" MaxWidth="180" TextTrimming="CharacterEllipsis" />
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
@@ -419,12 +421,19 @@
                                          IsChecked="{Binding Kind, Converter={StaticResource Equals}, ConverterParameter=Heterogene}" />
                         </StackPanel>
 
+                        <!-- Client : filtre la liste des articles (homogène et lignes hétérogènes) -->
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="CLIENT" />
+                        <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Clients, Converter={StaticResource OwnView}}" SelectedItem="{Binding Picker.Client}"
+                                  b:ComboFilter.MinItems="0" AutomationProperties.Name="Client du conditionnement" ToolTip="Limite la liste des articles à ceux du client" />
+
                         <!-- Contenu homogène -->
                         <StackPanel Visibility="{Binding IsHomogeneous, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Style="{StaticResource SectionTitle}" Text="ARTICLE" />
-                            <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Articles}" SelectedItem="{Binding Article}"
-                                      ItemTemplate="{StaticResource ArticleItem}" IsTextSearchEnabled="True" TextSearch.TextPath="Code" />
+                            <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Articles, Converter={StaticResource OwnView}}" SelectedItem="{Binding Article}"
+                                      ItemTemplate="{StaticResource ArticleItem}" b:ComboFilter.MinItems="0" AutomationProperties.Name="Article du conditionnement" />
                             <TextBlock Style="{StaticResource Muted}" Text="{Binding Article.Designation}" Margin="2,3,0,0" />
+                            <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,3,0,0" FontSize="11.5"
+                                       Visibility="{Binding ArticleWarning, Converter={StaticResource NotNullToVisibility}}" />
                             <TextBlock Style="{StaticResource FormLabel}" Text="Quantité imposée par conditionnement (vide = maximum)" />
                             <TextBox Style="{StaticResource NumBox}" Text="{Binding Draft.TargetQuantity, TargetNullValue=''}" Width="120" HorizontalAlignment="Left" />
                         </StackPanel>
@@ -443,8 +452,8 @@
                                             <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="60" Margin="5,0,0,0" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, Delay=300}" />
                                             <StackPanel>
                                                 <ComboBox Style="{StaticResource FormCombo}" SelectedItem="{Binding Article}" ItemTemplate="{StaticResource ArticleItem}"
-                                                          ItemsSource="{Binding DataContext.Articles, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                          IsTextSearchEnabled="True" TextSearch.TextPath="Code" />
+                                                          ItemsSource="{Binding DataContext.Picker.Articles, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource OwnView}}"
+                                                          b:ComboFilter.MinItems="0" />
                                                 <DockPanel Margin="4,1,0,0">
                                                     <TextBlock DockPanel.Dock="Right" Text="{Binding SubtotalText}" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
                                                     <TextBlock Text="{Binding ProfileText}" FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis"
@@ -623,6 +632,7 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <StackPanel>
                                     <TextBlock Style="{StaticResource FormLabel}" Text="Épaisseur (mm)" />
@@ -640,6 +650,10 @@
                                     <TextBlock Style="{StaticResource FormLabel}" Text="Poids unitaire (kg)" />
                                     <TextBox Style="{StaticResource NumBox}" Text="{Binding Draft.Constraints.CornerWeight}" />
                                 </StackPanel>
+                                <CheckBox Grid.Row="3" Grid.ColumnSpan="3" Style="{StaticResource FormCheck}" IsChecked="{Binding Draft.Constraints.CornersFollowTubes}"
+                                          ToolTip="Tubes couchés qui dépassent de la palette seulement. Décoché (défaut) : les cornières restent au niveau de la palette, car elles ne tiendraient pas au bout des tubes ; les tubes qui les gênent sont retirés du lit. Coché : les cornières suivent les tubes, comme pour les autres produits.">
+                                    <TextBlock Text="Tubes en débord : les cornières suivent les tubes (sinon elles restent au niveau de la palette)" TextWrapping="Wrap" />
+                                </CheckBox>
                                 <CheckBox Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource FormCheck}" IsChecked="{Binding Draft.Constraints.CornersInside}"
                                           ToolTip="Coché : la charge est mise en retrait de l'épaisseur des cornières pour qu'elles restent dans l'emprise de la palette (l'encombrement ne dépasse pas). Décoché : cornières à l'extérieur de la charge.">
                                     <TextBlock Text="Cornières contenues dans la palette (charge en retrait de leur épaisseur)" TextWrapping="Wrap" />

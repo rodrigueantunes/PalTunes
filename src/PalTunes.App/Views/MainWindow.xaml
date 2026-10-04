@@ -23,8 +23,9 @@
         <KeyBinding Key="D1" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Clients" />
         <KeyBinding Key="D2" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Articles" />
         <KeyBinding Key="D3" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Pallets" />
-        <KeyBinding Key="D4" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Packagings" />
-        <KeyBinding Key="D5" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Cases" />
+        <KeyBinding Key="D4" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="CaseTypes" />
+        <KeyBinding Key="D5" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Packagings" />
+        <KeyBinding Key="D6" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Cases" />
         <KeyBinding Key="Escape" Command="{Binding EscapeCommand}" />
     </Window.InputBindings>
 
@@ -101,7 +102,17 @@
                                 <TextBlock Text="Palettes" />
                             </DockPanel>
                         </RadioButton>
-                        <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+4"
+                        <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+4 · catalogue des caisses (cartons, bacs, caisses bois)"
+                                     AutomationProperties.Name="Espace Caisses" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=CaseTypes}">
+                            <DockPanel>
+                                <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
+                                    <TextBlock Text="{Binding CaseCount}" FontSize="11" Foreground="#ECF0F1" />
+                                </Border>
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,10,0" />
+                                <TextBlock Text="Caisses" />
+                            </DockPanel>
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+5"
                                      AutomationProperties.Name="Espace Conditionnements" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=Packagings}">
                             <DockPanel>
                                 <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
@@ -112,7 +123,7 @@
                             </DockPanel>
                         </RadioButton>
 
-                        <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+5 · produits dans une caisse, puis article caisse à palettiser"
+                        <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+6 · produits dans une caisse, puis article caisse à palettiser"
                                      AutomationProperties.Name="Espace Colisage" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=Cases}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,10,0" />
@@ -188,6 +199,13 @@
                                         <TextBlock Text="Nouvelle base…" FontSize="12" />
                                     </StackPanel>
                                 </Button>
+                                <Button Style="{StaticResource NavButton}" Command="{Binding ResetDatabaseCommand}" Padding="12,6"
+                                        ToolTip="Vide la base courante (sauvegarde automatique avant) et remet les catalogues de palettes et de caisses par défaut">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE777;" Margin="0,2,10,0" FontSize="11" />
+                                        <TextBlock Text="Réinitialiser la base…" FontSize="12" />
+                                    </StackPanel>
+                                </Button>
                                 <Button Style="{StaticResource NavButton}" Command="{Binding ShowDatabaseFolderCommand}" Padding="12,6" ToolTip="{Binding DatabasePath}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE838;" Margin="0,2,10,0" FontSize="11" />
@@ -209,6 +227,8 @@
                                 Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Articles}" />
             <views:PalletsView DataContext="{Binding Pallets}"
                                Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Pallets}" />
+            <views:CaseTypesView DataContext="{Binding Cases}"
+                                 Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=CaseTypes}" />
             <views:CaseView DataContext="{Binding Cases}"
                             Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Cases}" />
             <views:PackagingsView DataContext="{Binding Packagings}"

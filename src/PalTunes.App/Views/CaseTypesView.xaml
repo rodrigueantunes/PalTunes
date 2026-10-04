@@ -1,0 +1,194 @@
+<UserControl x:Class="PalTunes.App.Views.CaseTypesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:h="http://helix-toolkit.org/wpf"
+             xmlns:vm="clr-namespace:PalTunes.App.ViewModels"
+             mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:CaseViewModel}"
+             d:DesignWidth="1300" d:DesignHeight="850">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="460" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Style="{StaticResource CardStyle}" Margin="6">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="4,0,4,8">
+                    <TextBlock Text="Caisses" FontSize="17" FontWeight="Bold" />
+                    <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap"
+                               Text="Catalogue des caisses (cartons modulaires ISO, cartons standard, bacs plastiques, caisses bois). Les caisses actives sont comparées par le colisage ; ajoutez les vôtres." />
+                </StackPanel>
+                <DockPanel Margin="4,4,4,0">
+                        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <Button Style="{StaticResource RoundedButton}" Command="{Binding CatalogNewCommand}" Padding="12,6" Margin="0,0,6,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,6,0" />
+                                    <TextBlock Text="Nouvelle caisse" />
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{StaticResource LightButton}" Command="{Binding CatalogDuplicateCommand}" ToolTip="Dupliquer">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8C8;" />
+                            </Button>
+                            <Button Style="{StaticResource LightButton}" Command="{Binding CatalogDeleteCommand}" ToolTip="Supprimer">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" />
+                            </Button>
+                            <Button Style="{StaticResource LightButton}" Command="{Binding CatalogRestoreCommand}" ToolTip="Restaurer les caisses du catalogue supprimées">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE777;" />
+                            </Button>
+                        </WrapPanel>
+
+                        <!-- Fiche caisse -->
+                        <Border DockPanel.Dock="Bottom" Background="#F4F7F9" CornerRadius="10" Padding="12,8" Margin="0,8,0,0">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Code *" />
+                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding CatalogDraft.Code}" FontWeight="SemiBold" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Désignation" />
+                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding CatalogDraft.Name}" />
+                                    </StackPanel>
+                                </Grid>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Famille" />
+                                        <TextBox Style="{StaticResource FormBox}" Text="{Binding CatalogDraft.Family}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Matériau" />
+                                        <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Materials}" SelectedItem="{Binding CatalogDraft.Material}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding Converter={StaticResource EnumLabel}}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </Grid>
+                                <UniformGrid Columns="3">
+                                    <StackPanel Margin="0,0,6,0">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Long. int. *" />
+                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.InnerLength}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,6,0">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Larg. int. *" />
+                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.InnerWidth}" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Haut. int. *" />
+                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.InnerHeight}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,6,0">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Paroi (mm)" />
+                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.WallThickness}" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,6,0">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Tare (kg)" />
+                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.Tare}" />
+                                    </StackPanel>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Charge maxi (kg)" ToolTip="0 = non limitée" />
+                                        <TextBox Style="{StaticResource NumBox}" Text="{Binding CatalogDraft.MaxWeight}" />
+                                    </StackPanel>
+                                </UniformGrid>
+                                <DockPanel Margin="0,8,0,0">
+                                    <Border DockPanel.Dock="Left" Width="24" Height="24" CornerRadius="5" Margin="0,0,8,0"
+                                            Background="{Binding CatalogDraft.Color, Converter={StaticResource HexToBrush}}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" />
+                                    <ItemsControl ItemsSource="{Binding Swatches}" VerticalAlignment="Center">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Width="18" Height="18" Margin="2" Cursor="Hand" ToolTip="{Binding}"
+                                                        Command="{Binding DataContext.CatalogPickColorCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
+                                                    <Button.Template>
+                                                        <ControlTemplate TargetType="Button">
+                                                            <Border CornerRadius="4" Background="{Binding Converter={StaticResource HexToBrush}}" BorderBrush="White" BorderThickness="1" />
+                                                        </ControlTemplate>
+                                                    </Button.Template>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </DockPanel>
+                                <CheckBox Style="{StaticResource FormCheck}" IsChecked="{Binding CatalogDraft.Active}" Content="Active : comparée par « La meilleure »" />
+                                <ItemsControl ItemsSource="{Binding CatalogErrors}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Style="{StaticResource SuccessButton}" Command="{Binding CatalogSaveCommand}" Margin="0,8,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,2,8,0" />
+                                        <TextBlock Text="Enregistrer la caisse" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding CatalogCases}" SelectedItem="{Binding CatalogSelected}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="#EEF2F5" Margin="6,0,0,0">
+                                            <TextBlock Text="{Binding Family}" FontSize="10.5" Foreground="{StaticResource MutedBrush}" />
+                                        </Border>
+                                        <Border DockPanel.Dock="Left" Width="30" Height="22" CornerRadius="3" Margin="0,0,10,0"
+                                                Background="{Binding Color, Converter={StaticResource HexToBrush}}">
+                                            <Border Height="4" Background="#E8D5A8" VerticalAlignment="Center" Opacity="0.9" />
+                                        </Border>
+                                        <StackPanel>
+                                            <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                                                <Run Text="{Binding Code, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding InnerText, Mode=OneWay}" Foreground="{StaticResource MutedBrush}" FontWeight="Normal" />
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Name}" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+            </DockPanel>
+        </Border>
+
+        <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="6" Padding="0">
+            <Grid>
+                <h:HelixViewport3D x:Name="Preview" Background="#F4F7F9" ShowViewCube="True" IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
+                    <h:HelixViewport3D.Camera>
+                        <PerspectiveCamera FieldOfView="30" />
+                    </h:HelixViewport3D.Camera>
+                    <h:DefaultLights />
+                    <ModelVisual3D Content="{Binding CatalogPreview}" />
+                </h:HelixViewport3D>
+                <StackPanel VerticalAlignment="Top" HorizontalAlignment="Left" Margin="16">
+                    <TextBlock FontSize="19" FontWeight="Bold">
+                        <Run Text="{Binding CatalogSelected.Code, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding CatalogSelected.Name, Mode=OneWay}" FontWeight="Normal" FontSize="14" />
+                    </TextBlock>
+                    <TextBlock Style="{StaticResource Muted}" FontSize="12.5">
+                        <Run Text="Intérieur " /><Run Text="{Binding CatalogSelected.InnerText, Mode=OneWay}" /><Run Text=" mm · extérieur " /><Run Text="{Binding CatalogSelected.OuterText, Mode=OneWay}" /><Run Text=" mm" />
+                    </TextBlock>
+                    <TextBlock Style="{StaticResource Muted}" Text="{Binding CatalogSelected.MaterialLabel}" FontSize="12.5" />
+                </StackPanel>
+                <TextBlock VerticalAlignment="Bottom" HorizontalAlignment="Left" Margin="16" Style="{StaticResource Muted}" Text="Clic droit : rotation · molette : zoom" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

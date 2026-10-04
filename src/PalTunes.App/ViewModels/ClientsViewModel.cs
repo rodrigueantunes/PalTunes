@@ -11,7 +11,7 @@ public sealed record ClientRow(Client Client, int ArticleCount)
     public string Name => Client.Name;
     public string Code => Client.Code;
     public string Location => Client.Location;
-    public override string ToString() => Client.Name;
+    public override string ToString() => Client.Label;
 }
 
 public sealed record PalletChoice(Guid? Id, string Label);
@@ -66,11 +66,12 @@ public sealed partial class ClientsViewModel : ObservableObject
 
         Rows.Clear();
         var query = Filter.Trim();
+        var counts = _main.Db.ArticleCountsByClient();
         foreach (var c in _main.Db.Clients
                      .Where(c => query.Length == 0 || $"{c.Code} {c.Name} {c.City} {c.Country} {c.Contact} {c.Email}".Contains(query, StringComparison.CurrentCultureIgnoreCase))
                      .OrderBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase))
         {
-            Rows.Add(new ClientRow(c, _main.Db.ArticleCountOf(c)));
+            Rows.Add(new ClientRow(c, counts.GetValueOrDefault(c.Id)));
         }
 
         CountText = Rows.Count == _main.Db.Clients.Count ? $"{Rows.Count} client(s)" : $"{Rows.Count} / {_main.Db.Clients.Count} client(s)";
@@ -95,15 +96,13 @@ public sealed partial class ClientsViewModel : ObservableObject
     private void RefreshArticles()
     {
         ClientArticles.Clear();
-        var name = SelectedRow?.Client.Name;
-        if (IsNew || name == null)
+        var client = SelectedRow?.Client;
+        if (IsNew || client == null)
         {
             return;
         }
 
-        foreach (var a in _main.Db.Articles
-                     .Where(a => string.Equals(a.Client?.Trim(), name.Trim(), StringComparison.CurrentCultureIgnoreCase))
-                     .OrderBy(a => a.Code))
+        foreach (var a in _main.Db.ArticlesOf(client).OrderBy(a => a.Code))
         {
             ClientArticles.Add(a);
         }
@@ -135,10 +134,6 @@ public sealed partial class ClientsViewModel : ObservableObject
             errors.Insert(0, $"Le code {c.Code} existe déjà.");
         }
 
-        if (_main.Db.Clients.Any(x => x.Id != c.Id && string.Equals(x.Name.Trim(), c.Name, StringComparison.CurrentCultureIgnoreCase)))
-        {
-            errors.Insert(0, $"Le nom « {c.Name} » est déjà utilisé.");
-        }
 
         Errors = errors;
         if (errors.Count > 0)
@@ -153,12 +148,14 @@ public sealed partial class ClientsViewModel : ObservableObject
         if (index >= 0)
         {
             var old = _main.Db.Clients[index];
-            if (!string.Equals(old.Name, c.Name, StringComparison.Ordinal))
+            // Les articles citent le code du client : un changement de code leur est répercuté.
+            if (!string.Equals(old.Code, c.Code, StringComparison.Ordinal))
             {
-                renamed = _main.Db.RenameClient(old.Name, c.Name);
+                renamed = _main.Db.RenameClientCode(old.Code, c.Code);
             }
 
             _main.Db.Clients[index] = c;
+            _main.Db.InvalidateClientIndex();
         }
         else
         {
@@ -189,7 +186,7 @@ public sealed partial class ClientsViewModel : ObservableObject
             return;
         }
 
-        foreach (var a in _main.Db.Articles.Where(a => string.Equals(a.Client?.Trim(), c.Name.Trim(), StringComparison.CurrentCultureIgnoreCase)))
+        foreach (var a in _main.Db.ArticlesOf(c).ToList())
         {
             a.Client = null;
         }
@@ -218,7 +215,7 @@ public sealed partial class ClientsViewModel : ObservableObject
         if (SelectedRow?.Client is { } c)
         {
             _main.SelectedSection = "Articles";
-            _main.Articles.NewForClient(c.Name);
+            _main.Articles.NewForClient(c.Code);
         }
     }
 }

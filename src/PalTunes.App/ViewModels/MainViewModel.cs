@@ -24,7 +24,17 @@ public sealed partial class MainViewModel : ObservableObject
     {
         Dialogs = dialogs;
         Settings = settings;
-        _store = new DatabaseStore(settings.Current.DatabasePath ?? DatabaseStore.DefaultPath);
+        // Une base pointant vers un fichier réservé (ex. PalTunes.deps.json) ou étranger est écartée au démarrage.
+        var path = settings.Current.DatabasePath ?? DatabaseStore.DefaultPath;
+        if (DatabaseStore.CheckUsable(path, mustExist: false) is { } problem)
+        {
+            dialogs.ShowError($"{problem}\n\nLa base par défaut est utilisée : {DatabaseStore.DefaultPath}");
+            path = DatabaseStore.DefaultPath;
+            settings.Current.DatabasePath = null;
+            settings.Save();
+        }
+
+        _store = new DatabaseStore(path);
         Db = LoadDatabase(_store);
         _toastTimer.Tick += (_, _) =>
         {
@@ -37,8 +47,13 @@ public sealed partial class MainViewModel : ObservableObject
         Pallets = new PalletsViewModel(this);
         Packagings = new PackagingsViewModel(this);
         Cases = new CaseViewModel(this);
-        _selectedSection = settings.Current.Section is "Clients" or "Articles" or "Pallets" or "Packagings" or "Cases" ? settings.Current.Section : "Packagings";
+        _selectedSection = settings.Current.Section is "Clients" or "Articles" or "Pallets" or "CaseTypes" or "Packagings" or "Cases" ? settings.Current.Section : "Packagings";
         _isReleaseNotesOpen = settings.Current.LastSeenVersion != VersionNumber;
+        if (_selectedSection == "Cases")
+        {
+            // Rouvert sur le colisage : calcul après l'affichage de la fenêtre.
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(Cases.EnsureComputed, System.Windows.Threading.DispatcherPriority.Background);
+        }
     }
 
     private Database LoadDatabase(DatabaseStore store)
@@ -47,7 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             return store.Load();
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
         {
             Dialogs.ShowError($"Base illisible ({store.Path}) : {ex.Message}\nUne base vide est utilisée pour cette session.");
             return Database.CreateDefault(withDemo: false);
@@ -79,11 +94,16 @@ public sealed partial class MainViewModel : ObservableObject
     {
         Settings.Current.Section = value;
         Settings.Save();
+        if (value == "Cases")
+        {
+            Cases.EnsureComputed();
+        }
     }
 
     public int ClientCount => Db.Clients.Count;
     public int ArticleCount => Db.Articles.Count;
     public int PalletCount => Db.Pallets.Count;
+    public int CaseCount => Db.Cases.Count;
     public int PackagingCount => Db.Packagings.Count;
 
     // ------------------------------------------------------------------ Persistance
@@ -94,7 +114,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _store.Save(Db);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             Dialogs.ShowError($"Enregistrement impossible dans {_store.Path} : {ex.Message}");
         }
@@ -102,6 +122,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ClientCount));
         OnPropertyChanged(nameof(ArticleCount));
         OnPropertyChanged(nameof(PalletCount));
+        OnPropertyChanged(nameof(CaseCount));
         OnPropertyChanged(nameof(PackagingCount));
     }
 
@@ -124,6 +145,8 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         Clients.Refresh();
+        Packagings.Picker.Refresh();
+        Cases?.Picker.Refresh();
         OnPropertyChanged(nameof(ClientCount));
     }
 
@@ -138,23 +161,76 @@ public sealed partial class MainViewModel : ObservableObject
     private void OpenDatabase()
     {
         var path = Dialogs.OpenFile("Ouvrir une base PalTunes", "Base PalTunes (*.json)|*.json|Tous les fichiers (*.*)|*.*");
-        if (path != null)
-        {
-            SwitchDatabase(path);
-        }
-    }
-
-    [RelayCommand]
-    private void NewDatabase()
-    {
-        var path = Dialogs.SaveFile("Créer une base PalTunes (catalogue palettes inclus)", "Base PalTunes (*.json)|*.json", "paltunes-base.json");
         if (path == null)
         {
             return;
         }
 
-        new DatabaseStore(path).Save(Database.CreateDefault(withDemo: false));
+        if (DatabaseStore.CheckUsable(path, mustExist: true) is { } problem)
+        {
+            Dialogs.ShowError(problem);
+            return;
+        }
+
         SwitchDatabase(path);
+    }
+
+    [RelayCommand]
+    private void NewDatabase()
+    {
+        var path = Dialogs.SaveFile("Créer une base PalTunes (catalogues palettes et caisses inclus)", "Base PalTunes (*.json)|*.json", "base-paltunes.json");
+        if (path == null)
+        {
+            return;
+        }
+
+        if (DatabaseStore.CheckUsable(path, mustExist: false) is { } problem)
+        {
+            Dialogs.ShowError(problem);
+            return;
+        }
+
+        try
+        {
+            new DatabaseStore(path).Save(Database.CreateDefault(withDemo: false));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            Dialogs.ShowError($"Création impossible : {ex.Message}");
+            return;
+        }
+
+        SwitchDatabase(path);
+    }
+
+    /// <summary>
+    /// Remise à zéro de la base courante : sauvegarde horodatée, puis base vide avec les catalogues par défaut
+    /// (palettes, caisses). Le fichier reste le même, aucun nom à choisir.
+    /// </summary>
+    [RelayCommand]
+    private void ResetDatabase()
+    {
+        if (!Dialogs.Confirm($"Réinitialiser la base « {DatabaseName} » ?\n\nClients, articles, conditionnements et palettes / caisses ajoutées seront supprimés ; " +
+                             "les catalogues de palettes et de caisses par défaut sont remis.\nUne copie de sauvegarde est faite avant, dans le même dossier."))
+        {
+            return;
+        }
+
+        string? backup;
+        try
+        {
+            backup = _store.Backup();
+            Db = Database.CreateDefault(withDemo: false);
+            _store.Save(Db);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            Dialogs.ShowError($"Réinitialisation impossible : {ex.Message}");
+            return;
+        }
+
+        ReloadAll();
+        ShowToast($"Base réinitialisée" + (backup != null ? $" ; sauvegarde : {Path.GetFileName(backup)}." : "."), "Ok");
     }
 
     private void SwitchDatabase(string path)
@@ -165,7 +241,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             db = store.Load(seedDemoIfMissing: false);
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or InvalidDataException)
         {
             Dialogs.ShowError($"Base illisible : {ex.Message}");
             return;
@@ -175,6 +251,15 @@ public sealed partial class MainViewModel : ObservableObject
         Db = db;
         Settings.Current.DatabasePath = path;
         Settings.Save();
+        ReloadAll();
+        ShowToast($"Base « {Path.GetFileName(path)} » ouverte : {db.Articles.Count} articles, {db.Packagings.Count} conditionnements.", "Ok");
+    }
+
+    /// <summary>Toutes les vues suivent la base courante (ouverture, création, remise à zéro).</summary>
+    private void ReloadAll()
+    {
+        Articles.SelectedArticle = null;
+        Articles.Editor.Load(new Article(), isNew: true);
         Articles.RebuildTree();
         Clients.Refresh();
         Pallets.Refresh();
@@ -187,7 +272,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ArticleCount));
         OnPropertyChanged(nameof(PalletCount));
         OnPropertyChanged(nameof(PackagingCount));
-        ShowToast($"Base « {Path.GetFileName(path)} » ouverte : {db.Articles.Count} articles, {db.Packagings.Count} conditionnements.", "Ok");
+        OnPropertyChanged(nameof(ClientCount));
     }
 
     [RelayCommand]
@@ -224,7 +309,7 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        var report = ArticleCsv.Import(text, Db.Articles);
+        var report = ArticleCsv.Import(text, Db.Articles, v => Db.FindClient(v)?.Code ?? v);
         if (report.Created + report.Updated > 0)
         {
             var newClients = Db.MergeClients();
@@ -329,7 +414,7 @@ public sealed partial class MainViewModel : ObservableObject
             rows.Add((copy, Db.FindArticle(p.ArticleId)));
         }
 
-        var csv = PackagingSpec.ExportCsv(rows, out var skipped);
+        var csv = PackagingSpec.ExportCsv(rows, out var skipped, null, Db.ClientLabel);
         var exported = rows.Count - skipped;
         WriteCsv("Exporter les conditionnements mono-article", "conditionnements_paltunes.csv", csv,
             $"{exported} conditionnement(s) mono-article exporté(s)" + (computed > 0 ? $", dont {computed} sans solution enregistrée (recommandée calculée)" : "") +
@@ -422,6 +507,9 @@ public sealed partial class MainViewModel : ObservableObject
                 break;
             case "Pallets":
                 Pallets.SaveCommand.Execute(null);
+                break;
+            case "CaseTypes":
+                Cases.CatalogSaveCommand.Execute(null);
                 break;
             case "Clients":
                 Clients.SaveCommand.Execute(null);
