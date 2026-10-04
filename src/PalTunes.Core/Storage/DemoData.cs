@@ -21,16 +21,16 @@ public static class DemoData
             return a;
         }
 
-        var carton = A("CAR-400", ArticleKind.Caisse, "Carton 400 × 300 × 250", "Démo Agro", "Emballages", "Cartons", "#5DADE2", 400, 300, 250, weight: 12, top: 90);
-        var carton2 = A("CAR-600", ArticleKind.Caisse, "Carton 600 × 400 × 300", "Démo Agro", "Emballages", "Cartons", "#48C9B0", 600, 400, 300, weight: 9, top: 120);
-        var carton3 = A("CAR-300", ArticleKind.Caisse, "Carton 300 × 200 × 150", "Démo Agro", "Emballages", "Cartons", "#F5B041", 300, 200, 150, weight: 4, top: 60);
-        A("SAC-25", ArticleKind.Sac, "Sac 25 kg", "Démo Agro", "Vrac", "Sacs", "#D7BDE2", 600, 400, 120, weight: 25);
-        A("BOB-1000", ArticleKind.Bobine, "Bobine film Ø1000 laize 700", "Démo Plasturgie", "Films", "Bobines", "#F39C12", w: 700, d: 1000, weight: 380);
-        A("BOB-250", ArticleKind.Bobine, "Bobine étiquettes Ø250 laize 330", "Démo Plasturgie", "Films", "Bobines", "#EB984E", w: 330, d: 250, weight: 9);
-        var tube = A("TUB-110", ArticleKind.Tube, "Tube PVC Ø110 × 1200", "Démo Bâtiment", "Tubes", "PVC", "#AEB6BF", l: 1200, d: 110, weight: 4.5);
-        var plaque = A("PLQ-1600", ArticleKind.Plaque, "Plaque 1600 × 1200 ép. 10", "Démo Bâtiment", "Plaques", "Composite", "#7FB3D5", 1600, 1200, 10, weight: 15);
-        A("FUT-200", ArticleKind.Fut, "Fût 200 L", "Démo Chimie", "Liquides", "Fûts", "#2E86C1", h: 880, d: 585, weight: 220);
-        A("BAC-6040", ArticleKind.Bac, "Bac plastique 600 × 400 × 300", "Démo Chimie", "Contenants", "Bacs", "#52BE80", 600, 400, 300, weight: 8, top: 200);
+        var carton = A("CAR-400", ArticleKind.Caisse, "Carton 400 × 300 × 250", "AGRO", "Emballages", "Cartons", "#5DADE2", 400, 300, 250, weight: 12, top: 90);
+        var carton2 = A("CAR-600", ArticleKind.Caisse, "Carton 600 × 400 × 300", "AGRO", "Emballages", "Cartons", "#48C9B0", 600, 400, 300, weight: 9, top: 120);
+        var carton3 = A("CAR-300", ArticleKind.Caisse, "Carton 300 × 200 × 150", "AGRO", "Emballages", "Cartons", "#F5B041", 300, 200, 150, weight: 4, top: 60);
+        A("SAC-25", ArticleKind.Sac, "Sac 25 kg", "AGRO", "Vrac", "Sacs", "#D7BDE2", 600, 400, 120, weight: 25);
+        A("BOB-1000", ArticleKind.Bobine, "Bobine film Ø1000 laize 700", "PLAS", "Films", "Bobines", "#F39C12", w: 700, d: 1000, weight: 380);
+        A("BOB-250", ArticleKind.Bobine, "Bobine étiquettes Ø250 laize 330", "PLAS", "Films", "Bobines", "#EB984E", w: 330, d: 250, weight: 9);
+        var tube = A("TUB-110", ArticleKind.Tube, "Tube PVC Ø110 × 1200", "BATI", "Tubes", "PVC", "#AEB6BF", l: 1200, d: 110, weight: 4.5);
+        var plaque = A("PLQ-1600", ArticleKind.Plaque, "Plaque 1600 × 1200 ép. 10", "BATI", "Plaques", "Composite", "#7FB3D5", 1600, 1200, 10, weight: 15);
+        A("FUT-200", ArticleKind.Fut, "Fût 200 L", "CHIM", "Liquides", "Fûts", "#2E86C1", h: 880, d: 585, weight: 220);
+        A("BAC-6040", ArticleKind.Bac, "Bac plastique 600 × 400 × 300", "CHIM", "Contenants", "Bacs", "#52BE80", 600, 400, 300, weight: 8, top: 200);
         db.Articles.Single(a => a.Code == "BOB-250").InnerDiameter = 76;
         db.Articles.Single(a => a.Code == "BOB-1000").InnerDiameter = 152;
 

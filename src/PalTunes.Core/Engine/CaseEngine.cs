@@ -47,8 +47,11 @@ public static class CaseEngine
         IsCase = true
     };
 
-    public static PackagingConstraints CaseConstraints(CaseSpec spec) => new()
+    /// <param name="axis">Tubes, bagues, bobines : axe dans la caisse (Indifferent = horizontal et vertical calculés,
+    /// le meilleur est proposé ; null = axe de la fiche article).</param>
+    public static PackagingConstraints CaseConstraints(CaseSpec spec, CoilAxis? axis = null) => new()
     {
+        ForcedAxis = axis,
         MaxTotalHeight = spec.InnerHeight,
         Gap = spec.Gap,
         CenterLoad = true,
@@ -58,9 +61,9 @@ public static class CaseEngine
     };
 
     public static EngineResult Solve(Article article, CaseSpec spec, int? targetQuantity = null, CaseType? type = null,
-        PalletType? pallet = null, PackagingConstraints? palletConstraints = null)
+        PalletType? pallet = null, PackagingConstraints? palletConstraints = null, CoilAxis? axis = null)
     {
-        var result = HomogeneousEngine.Solve(article, CaseBase(spec, type), CaseConstraints(spec), targetQuantity);
+        var result = HomogeneousEngine.Solve(article, CaseBase(spec, type), CaseConstraints(spec, axis), targetQuantity);
         if (result.Solutions.Count == 0 && result.Messages.Count > 0 && result.Messages[^1].StartsWith("Aucune disposition", StringComparison.Ordinal))
         {
             result.Messages[^1] = $"{article.DimensionsText} ne tient pas dans une caisse intérieure {spec.InnerLength:0} × {spec.InnerWidth:0} × {spec.InnerHeight:0} mm : agrandissez la caisse ou autorisez une autre orientation de l'article.";
@@ -70,7 +73,11 @@ public static class CaseEngine
         {
             s.StackLevels = 1;
             s.StackLimitReason = "";
-            s.Warnings.RemoveAll(w => w.StartsWith("Élancement", StringComparison.Ordinal));
+            // Dans une caisse, les parois tiennent les produits : pas de cornières, cales ni cerclage à prévoir.
+            s.Warnings.RemoveAll(w => w.StartsWith("Élancement", StringComparison.Ordinal) ||
+                                      w.StartsWith("Tubes couchés", StringComparison.Ordinal) ||
+                                      w.StartsWith("Tubes debout élancés", StringComparison.Ordinal) ||
+                                      w.StartsWith("Bobines couchées", StringComparison.Ordinal));
             s.Recommendation = s.Recommendation?
                 .Replace("produits par conditionnement", "produit(s) par caisse")
                 .Replace("plan de couche optimal prouvé", "plan optimal prouvé");
@@ -102,9 +109,57 @@ public static class CaseEngine
     }
 
     /// <summary>Caisses du catalogue dans lesquelles l'article tient (au moins un produit, poids compris).</summary>
-    public static List<CaseType> PossibleCases(Article article, IEnumerable<CaseType> cases, double gap = 0) =>
+    public static List<CaseType> PossibleCases(Article article, IEnumerable<CaseType> cases, double gap = 0, CoilAxis? axis = null) =>
         cases.Where(c => c.Validate().Count == 0 && (c.MaxWeight <= 0 || article.Weight <= c.MaxWeight) &&
-                         Solve(article, c.ToSpec(gap), null, c).Solutions.Count > 0).ToList();
+                         Solve(article, c.ToSpec(gap), null, c, axis: axis).Solutions.Count > 0).ToList();
+
+    /// <summary>Produits cylindriques debout (axe vertical) dans la solution.</summary>
+    public static bool IsUpright(Solution s) => s.FirstUnit is { Items.Count: > 0 } u && u.Items[0].Shape == ShapeKind.CylinderZ;
+
+    /// <summary>
+    /// Pourquoi aucune caisse active ne convient : trop lourd (charge maxi des caisses), trop grand (dimensions
+    /// intérieures), ou les deux ; poids unitaire suspect signalé (erreur de saisie la plus fréquente).
+    /// </summary>
+    public static string Diagnose(Article article, IEnumerable<CaseType> cases, double gap = 0, CoilAxis? axis = null)
+    {
+        var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+        var active = cases.Where(c => c.Active && c.Validate().Count == 0).ToList();
+        var name = $"{article.Code} ({article.DimensionsText} mm, {article.Weight.ToString("0.#####", fr)} kg)";
+        if (active.Count == 0)
+        {
+            return $"Aucune caisse active dans le catalogue : activez ou ajoutez des caisses (espace Caisses).";
+        }
+
+        bool Fits(CaseType c)
+        {
+            var spec = c.ToSpec(gap);
+            spec.MaxWeight = 0;
+            return Solve(article, spec, 1, c, axis: axis).Solutions.Count > 0;
+        }
+
+        var fitting = active.Where(Fits).ToList();
+        var parts = new List<string>();
+        if (fitting.Count == 0)
+        {
+            var largest = active.OrderByDescending(c => c.InnerLength * c.InnerWidth * c.InnerHeight).First();
+            parts.Add($"Aucune caisse active pour {name} : il ne tient dans aucune caisse (la plus grande : {largest.Code}, intérieur {largest.InnerText} mm).");
+        }
+        else
+        {
+            var maxLoad = fitting.Max(c => c.MaxWeight <= 0 ? double.MaxValue : c.MaxWeight);
+            parts.Add(maxLoad == double.MaxValue
+                ? $"Aucune caisse active pour {name}."
+                : $"Aucune caisse active pour {name} : le poids unitaire dépasse la charge maxi de toutes les caisses où il tient " +
+                  $"({fitting.Count} caisse(s), charge maxi {fitting.Min(c => c.MaxWeight).ToString("0.#", fr)} à {maxLoad.ToString("0.#", fr)} kg).");
+        }
+
+        if (ArticleSchema.WeightWarning(article) is { } warning)
+        {
+            parts.Add(warning);
+        }
+
+        return string.Join(" ", parts);
+    }
 
     /// <summary>Poids brut maximal d'une caisse manutentionnée à la main (NF X35-109 : 25 kg, valeur courante).</summary>
     public const double DefaultManualHandlingLimit = 25;
@@ -115,22 +170,25 @@ public static class CaseEngine
     /// d'abord, puis taux de remplissage du volume intérieur, puis nombre de produits, puis caisse la plus légère.
     /// </summary>
     public static EngineResult Propose(Article article, IEnumerable<CaseType> cases, double gap = 0, int? targetQuantity = null,
-        double manualHandlingLimit = DefaultManualHandlingLimit, PalletType? pallet = null, PackagingConstraints? palletConstraints = null)
+        double manualHandlingLimit = DefaultManualHandlingLimit, PalletType? pallet = null, PackagingConstraints? palletConstraints = null,
+        CoilAxis? axis = null)
     {
         var result = new EngineResult();
         var list = new List<Solution>();
         foreach (var c in cases.Where(c => c.Active && c.Validate().Count == 0))
         {
-            var best = Solve(article, c.ToSpec(gap), targetQuantity, c, pallet, palletConstraints).Recommended;
-            if (best == null || !best.IsCompliant)
+            var solved = Solve(article, c.ToSpec(gap), targetQuantity, c, pallet, palletConstraints, axis);
+            // Tubes, bagues, bobines : la meilleure solution debout et la meilleure couchée de chaque caisse sont proposées,
+            // comme en palettisation (axe horizontal ou vertical, le meilleur est recommandé).
+            foreach (var group in solved.Solutions.Where(s => s.IsCompliant && s.FirstUnit is { Items.Count: > 0 })
+                         .GroupBy(s => article.Kind is ArticleKind.Tube or ArticleKind.Bobine ? (IsUpright(s) ? 1 : 2) : 0))
             {
-                continue;
+                var best = group.OrderByDescending(s => s.Recommended).ThenByDescending(s => s.ItemsPerUnit).ThenByDescending(s => s.Score).First();
+                best.Recommended = false;
+                best.Recommendation = null;
+                best.Title = $"{c.Code} · {best.ItemsPerUnit} produits" + group.Key switch { 1 => " debout", 2 => " couchés", _ => "" };
+                list.Add(best);
             }
-
-            best.Recommended = false;
-            best.Recommendation = null;
-            best.Title = $"{c.Code} · {best.ItemsPerUnit} produits";
-            list.Add(best);
         }
 
         double Gross(Solution s) => s.FirstUnit!.Items.Sum(p => p.Weight) + cases.First(c => c.Id == s.Base.PalletId).Tare;
@@ -150,7 +208,7 @@ public static class CaseEngine
             .ToList();
         if (list.Count == 0)
         {
-            result.Messages.Add($"Aucune caisse active du catalogue ne peut contenir {article.DimensionsText} ({article.Weight:0.#####} kg).");
+            result.Messages.Add(Diagnose(article, cases, gap));
             return result;
         }
 

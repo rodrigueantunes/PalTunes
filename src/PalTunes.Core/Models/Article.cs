@@ -16,6 +16,17 @@ public sealed class Article
     public double Length { get; set; }
     public double Width { get; set; }
     public double Height { get; set; }
+
+    /// <summary>
+    /// Carton livré plié (à plat) : longueur, largeur et hauteur une fois plié. Chacune, renseignée (> 0), remplace la
+    /// dimension montée pour le conditionnement (palettisation, colisage).
+    /// </summary>
+    public double FoldedLength { get; set; }
+
+    public double FoldedWidth { get; set; }
+
+    public double FoldedHeight { get; set; }
+
     public double Diameter { get; set; }
     public double InnerDiameter { get; set; }
     public double Weight { get; set; }
@@ -46,6 +57,29 @@ public sealed class Article
 
     public Article Clone() => (Article)MemberwiseClone();
 
+    /// <summary>Carton plié : sa hauteur pliée remplace la hauteur pour la palettisation et le colisage.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsFolded => Kind == ArticleKind.Caisse && (FoldedLength > 0 || FoldedWidth > 0 || FoldedHeight > 0);
+
+    /// <summary>Dimensions prises en compte pour le conditionnement (pliées si renseignées).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public (double Length, double Width, double Height) PackedDimensions => IsFolded
+        ? (FoldedLength > 0 ? FoldedLength : Length, FoldedWidth > 0 ? FoldedWidth : Width, FoldedHeight > 0 ? FoldedHeight : Height)
+        : (Length, Width, Height);
+
+    /// <summary>Article tel qu'il est palettisé : un carton plié prend sa hauteur pliée (même identifiant).</summary>
+    public Article ForPalletizing()
+    {
+        if (!IsFolded)
+        {
+            return this;
+        }
+
+        var folded = Clone();
+        (folded.Length, folded.Width, folded.Height) = PackedDimensions;
+        return folded;
+    }
+
     public bool IsCylinder => Kind is ArticleKind.Bobine or ArticleKind.Tube or ArticleKind.Fut;
 
     /// <summary>Longueur d'axe d'un cylindre (laize, longueur de tube, hauteur de fût).</summary>
@@ -61,6 +95,12 @@ public sealed class Article
     public double Volume => IsCylinder
         ? Math.PI * (Diameter * Diameter - (Kind == ArticleKind.Bobine ? InnerDiameter * InnerDiameter : 0)) / 4 * AxisLength
         : Length * Width * Height;
+
+    /// <summary>Volume de matière en mm³ : enveloppe moins l'alésage des tubes et bobines creux (contrôle du poids).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double MaterialVolume => IsCylinder && Kind is ArticleKind.Tube or ArticleKind.Bobine && InnerDiameter > 0 && InnerDiameter < Diameter
+        ? Math.PI * (Diameter * Diameter - InnerDiameter * InnerDiameter) / 4 * AxisLength
+        : Volume;
 
     /// <summary>Charge admissible sur le dessus : 0 si fragile, null si non limitée.</summary>
     public double? EffectiveMaxLoadOnTop => Fragile ? 0 : MaxLoadOnTop;
@@ -80,6 +120,8 @@ public sealed class Article
                 ArticleKind.Tube => $"Ø{F(Diameter)} × {F(Length)}",
                 ArticleKind.Fut => $"Ø{F(Diameter)} × h {F(Height)}",
                 ArticleKind.Plaque => $"{F(Length)} × {F(Width)} × ép. {F(Height)}",
+                ArticleKind.Caisse when IsFolded =>
+                    $"{F(Length)} × {F(Width)} × {F(Height)} (plié {F(PackedDimensions.Length)} × {F(PackedDimensions.Width)} × {F(PackedDimensions.Height)})",
                 _ => $"{F(Length)} × {F(Width)} × {F(Height)}"
             };
         }

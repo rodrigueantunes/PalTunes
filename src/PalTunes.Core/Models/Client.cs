@@ -1,8 +1,8 @@
 namespace PalTunes.Core.Models;
 
 /// <summary>
-/// Client de la base. Les articles le référencent par son nom (champ « Client » de l'article), ce qui garde l'import
-/// CSV et l'arborescence simples ; un renommage est répercuté sur les articles.
+/// Client de la base. Les articles le référencent par son code (champ « Client » de l'article, colonne CLIENT de
+/// l'import) ; un changement de code est répercuté sur les articles. Affiché seul, il apparaît « CODE - Nom ».
 /// </summary>
 public sealed class Client
 {
@@ -42,10 +42,13 @@ public sealed class Client
 
     public string DisplayName => string.IsNullOrWhiteSpace(Code) || Code == Name ? Name : $"{Name} ({Code})";
 
+    /// <summary>Libellé quand seul le client est affiché : « CODE - Nom ».</summary>
+    public string Label => string.IsNullOrWhiteSpace(Code) ? Name : string.IsNullOrWhiteSpace(Name) || Code == Name ? Code : $"{Code} - {Name}";
+
     public string Location => string.Join(" ", new[] { PostalCode, City }.Where(s => !string.IsNullOrWhiteSpace(s))) +
                               (string.IsNullOrWhiteSpace(Country) ? "" : $" · {Country}");
 
-    public override string ToString() => Name;
+    public override string ToString() => Label;
 
     public List<string> Validate()
     {

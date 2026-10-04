@@ -42,6 +42,12 @@ public static class PackagingSpec
         if (s.Kind == PackagingKind.Homogene)
         {
             rows.Add(new(GroupSpec, "Produits par couche", s.ItemsPerLayer.ToString(Fr)));
+            if (article is { IsFolded: true })
+            {
+                var (fl, fw, fh) = article.PackedDimensions;
+                rows.Add(new(GroupSpec, "Dimensions du produit prises en compte", $"{Mm(fl)} × {Mm(fw)} × {Mm(fh)} mm",
+                    $"carton plié (monté : {Mm(article.Length)} × {Mm(article.Width)} × {Mm(article.Height)} mm)"));
+            }
         }
         else
         {
@@ -83,7 +89,8 @@ public static class PackagingSpec
         if (c.Corners)
         {
             rows.Add(new(GroupAccessories, "Cornières", "4", $"{Mm(c.CornerLeg)} × {Mm(c.CornerLeg)} × ép. {Mm(c.CornerThickness)}, h {Mm(c.CornerHeight > 0 ? c.CornerHeight : m.LoadHeight)} mm" +
-                (c.CornersInside ? " · contenues dans la palette (charge en retrait de " + Mm(c.CornerThickness) + " mm par côté)" : " · à l'extérieur de la charge")));
+                (c.CornersInside ? " · contenues dans la palette (charge en retrait de " + Mm(c.CornerThickness) + " mm par côté)" : " · à l'extérieur de la charge") +
+                (u?.CornerFrame != null ? $" · au niveau de la palette (tubes en débord) : {u.RemovedForCorners} tube(s) retiré(s)" : "")));
         }
 
         if (c.FilmThickness > 0)
@@ -201,11 +208,17 @@ public static class PackagingSpec
         "Longueur de la charge (mm)", "Largeur de la charge (mm)", "Hauteur de la charge (mm)",
         "Longueur d'encombrement de la charge (mm)", "Largeur d'encombrement de la charge (mm)", "Hauteur d'encombrement de la charge (mm)",
         "Produits par couche", "Nombre de couches", "Schéma", "Orientation", "Intercalaires", "Cornières",
-        "Poids de la charge (kg)", "Poids total (kg)", "Taux de remplissage (%)"
+        "Poids de la charge (kg)", "Poids total (kg)", "Taux de remplissage (%)",
+        "Plan par couche", "Intercalaires (couches)"
     ];
 
     /// <summary>Export CSV (« ; », UTF-8 BOM) des conditionnements mono-article ayant une solution retenue.</summary>
-    public static string ExportCsv(IEnumerable<(Packaging Packaging, Article? Article)> rows, out int skipped)
+    public static string ExportCsv(IEnumerable<(Packaging Packaging, Article? Article)> rows, out int skipped) =>
+        ExportCsv(rows, out skipped, null);
+
+    /// <param name="clientLabel">Libellé du client cité par l'article (« CODE - Nom ») ; null = code brut.</param>
+    public static string ExportCsv(IEnumerable<(Packaging Packaging, Article? Article)> rows, out int skipped, Func<Guid, string>? codeOf,
+        Func<string?, string>? clientLabel = null)
     {
         skipped = 0;
         var sb = new StringBuilder();
@@ -222,14 +235,15 @@ public static class PackagingSpec
             var b = s.Base;
             sb.AppendLine(Csv.Line(
             [
-                p.Code, p.Name, a?.Code, a?.Designation, a?.Client, a?.KindLabel, $"{b.PalletCode} – {b.PalletName}",
+                p.Code, p.Name, a?.Code, a?.Designation, clientLabel != null ? clientLabel(a?.Client) : a?.Client, a?.KindLabel, $"{b.PalletCode} – {b.PalletName}",
                 s.ItemsPerUnit.ToString(Fr), b.PhysicalCount.ToString(Fr), s.Stackings.ToString(Fr),
                 Mm(b.Length), Mm(b.Width), Mm(b.PalletHeight),
                 Mm(m.LoadLength), Mm(m.LoadWidth), Mm(m.LoadHeight),
                 Mm(m.EnclosureLength), Mm(m.EnclosureWidth), Mm(m.EnclosureHeight),
                 s.ItemsPerLayer.ToString(Fr), s.LayerCount.ToString(Fr), s.PatternLabel, s.OrientationText,
                 m.SlipSheetCount.ToString(Fr), p.Constraints.Corners ? "4" : "0",
-                m.LoadWeight.ToString("0.###", Fr), m.TotalWeight.ToString("0.###", Fr), Pct(m.FillRate)
+                m.LoadWeight.ToString("0.###", Fr), m.TotalWeight.ToString("0.###", Fr), Pct(m.FillRate),
+                PalletizationPlan.Summary(s.FirstUnit!, id => codeOf?.Invoke(id) ?? a?.Code ?? ""), PalletizationPlan.SlipSheetSummary(s.FirstUnit!)
             ]));
         }
 

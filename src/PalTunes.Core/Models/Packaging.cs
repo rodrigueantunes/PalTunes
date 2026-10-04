@@ -46,6 +46,12 @@ public sealed class PackagingConstraints
     /// </summary>
     public bool CornersInside { get; set; }
 
+    /// <summary>
+    /// Tubes couchés en débord : coché, les cornières suivent les tubes comme pour les autres produits ; décoché (défaut),
+    /// elles restent au niveau de la palette (elles ne tiendraient pas au bout des tubes) et les tubes qui les gênent sont retirés.
+    /// </summary>
+    public bool CornersFollowTubes { get; set; }
+
     /// <summary>Retrait de la charge dû aux cornières contenues (mm par côté).</summary>
     public double CornerInset => Corners && CornersInside ? Math.Max(0, CornerThickness) : 0;
 

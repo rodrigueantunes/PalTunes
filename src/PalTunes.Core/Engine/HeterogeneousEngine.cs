@@ -31,7 +31,7 @@ public static class HeterogeneousEngine
                 continue;
             }
 
-            valid.Add((article, qty));
+            valid.Add((article.ForPalletizing(), qty)); // carton plié : hauteur pliée
         }
 
         if (valid.Count == 0)

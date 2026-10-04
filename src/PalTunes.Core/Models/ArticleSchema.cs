@@ -6,7 +6,10 @@ public enum ArticleField
     Width,
     Height,
     Diameter,
-    InnerDiameter
+    InnerDiameter,
+    FoldedLength,
+    FoldedWidth,
+    FoldedHeight
 }
 
 /// <summary>Champ dimensionnel d'un type d'article : libellé métier et caractère obligatoire.</summary>
@@ -68,12 +71,22 @@ public static class ArticleSchema
         ArticleKind.Tube =>
         [
             new(ArticleField.Diameter, "Diamètre extérieur (mm)", true, "Ø hors tout du tube"),
-            new(ArticleField.Length, "Longueur (mm)", true, "Longueur du tube")
+            new(ArticleField.Length, "Longueur (mm)", true, "Longueur du tube"),
+            new(ArticleField.InnerDiameter, "Diamètre intérieur (mm)", false, "Facultatif : tube creux (mandrin, bague) = Ø extérieur − 2 × épaisseur")
         ],
         ArticleKind.Fut =>
         [
             new(ArticleField.Diameter, "Diamètre (mm)", true, "Ø hors tout (fût 200 L : 585)"),
             new(ArticleField.Height, "Hauteur (mm)", true, "Hauteur du fût debout")
+        ],
+        ArticleKind.Caisse =>
+        [
+            new(ArticleField.Length, "Longueur (mm)", true, "Dimension au sol la plus grande"),
+            new(ArticleField.Width, "Largeur (mm)", true, "Dimension au sol la plus petite"),
+            new(ArticleField.Height, "Hauteur (mm)", true, "Hauteur, haut en haut"),
+            new(ArticleField.FoldedLength, "Longueur pliée (mm)", false, "Facultatif : carton livré plié (à plat). Renseignée, elle remplace la longueur pour le conditionnement"),
+            new(ArticleField.FoldedWidth, "Largeur pliée (mm)", false, "Facultatif : carton plié. Renseignée, elle remplace la largeur pour le conditionnement"),
+            new(ArticleField.FoldedHeight, "Hauteur pliée (mm)", false, "Facultatif : carton plié. Renseignée, elle remplace la hauteur pour le conditionnement")
         ],
         ArticleKind.Plaque =>
         [
@@ -103,8 +116,34 @@ public static class ArticleSchema
         ArticleField.Width => a.Width,
         ArticleField.Height => a.Height,
         ArticleField.Diameter => a.Diameter,
+        ArticleField.FoldedLength => a.FoldedLength,
+        ArticleField.FoldedWidth => a.FoldedWidth,
+        ArticleField.FoldedHeight => a.FoldedHeight,
         _ => a.InnerDiameter
     };
+
+    /// <summary>Densité au-delà de laquelle un poids unitaire est physiquement impossible (kg/dm³ ; tungstène 19,3).</summary>
+    public const double MaxPlausibleDensity = 20;
+
+    /// <summary>Densité apparente de la matière (kg/dm³) : poids / volume de matière (alésage des tubes creux déduit).</summary>
+    public static double Density(Article a) => a.MaterialVolume > 0 ? a.Weight / (a.MaterialVolume / 1e6) : 0;
+
+    /// <summary>
+    /// Poids unitaire impossible pour les dimensions saisies (plus dense que tout matériau courant) : erreur de saisie
+    /// ou d'unité (g au lieu de kg, poids d'un lot…). Null si le poids est plausible.
+    /// </summary>
+    public static string? WeightWarning(Article a)
+    {
+        var density = Density(a);
+        if (a.Weight <= 0 || density <= MaxPlausibleDensity)
+        {
+            return null;
+        }
+
+        var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+        return $"Poids unitaire suspect : {a.Weight.ToString("0.#####", fr)} kg pour {a.DimensionsText} mm, soit {density.ToString("#,0", fr)} kg/dm³ de matière " +
+               "(acier 7,8 ; plomb 11,3) : vérifiez le poids, en kg pour un article.";
+    }
 
     /// <summary>Contrôle les données minimales ; une liste vide signifie « article calculable ».</summary>
     public static List<string> Validate(Article a)
@@ -136,6 +175,11 @@ public static class ArticleSchema
         if (a.Kind == ArticleKind.Bobine && a.InnerDiameter > 0 && a.InnerDiameter >= a.Diameter)
         {
             errors.Add("Le diamètre mandrin doit être inférieur au diamètre extérieur.");
+        }
+
+        if (a.Kind == ArticleKind.Tube && a.InnerDiameter > 0 && a.InnerDiameter >= a.Diameter)
+        {
+            errors.Add("Le diamètre intérieur doit être inférieur au diamètre extérieur.");
         }
 
         if (a.MaxLoadOnTop is < 0)

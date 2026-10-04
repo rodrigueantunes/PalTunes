@@ -22,6 +22,7 @@ public static class HomogeneousEngine
 
     public static EngineResult Solve(Article article, BaseInfo baseInfo, PackagingConstraints c, int? targetQuantity = null)
     {
+        article = article.ForPalletizing(); // carton plié : hauteur pliée
         var result = new EngineResult();
         var errors = ArticleSchema.Validate(article);
         if (errors.Count > 0)
@@ -86,6 +87,7 @@ public static class HomogeneousEngine
     /// </summary>
     public static EngineResult Propose(Article article, IEnumerable<PalletType> pallets, PackagingConstraints c, int? targetQuantity = null)
     {
+        article = article.ForPalletizing(); // carton plié : hauteur pliée
         var result = new EngineResult();
         var errors = ArticleSchema.Validate(article);
         if (errors.Count > 0)
@@ -735,9 +737,25 @@ public static class HomogeneousEngine
             });
         }
 
+        if (c.Corners && !c.CornersFollowTubes && a.Kind == ArticleKind.Tube)
+        {
+            PalletLevelCorners(ctx, unit, alongX, d + g, staggered);
+            total = unit.Items.Count;
+            if (total == 0)
+            {
+                return null;
+            }
+        }
+
         var upper = staggered ? 0 : nAxis * n1;
         var s = NewSolution(ctx, unit, staggered ? StackPattern.Quinconce : StackPattern.Colonne, description, upper,
             nAxis * n1, levels, 1, reason, sheets, total < Enumerable.Range(0, levels).Sum(Count));
+        if (unit.RemovedForCorners > 0)
+        {
+            s.Warnings.Add($"Tubes en débord : cornières au niveau de la palette, {unit.RemovedForCorners} tube(s) retiré(s) pour leur laisser la place " +
+                           "(cochez « les cornières suivent les tubes » pour les placer au bout des tubes).");
+        }
+
         if (a.Kind == ArticleKind.Bobine)
         {
             s.Warnings.Add(c.Corners
@@ -757,6 +775,89 @@ public static class HomogeneousEngine
         }
 
         return s;
+    }
+
+    /// <summary>
+    /// Tubes couchés qui dépassent de la palette dans le sens de leur axe : les cornières ne tiendraient pas au bout des
+    /// tubes, elles restent donc au niveau de la palette (aux extrémités de la base, de part et d'autre du lit). Leur aile
+    /// transversale occupe alors une bande du lit : les tubes qui la traversent sont retirés, puis ceux qui perdent leur
+    /// appui (lits en quinconce). Sans débord, rien ne change.
+    /// </summary>
+    private static void PalletLevelCorners(Context ctx, LoadUnit unit, bool alongX, double pitch, bool staggered)
+    {
+        var c = ctx.C;
+        if (unit.Items.Count == 0)
+        {
+            return;
+        }
+
+        double AxisMin(Placement p) => alongX ? p.X : p.Y;
+        double AxisMax(Placement p) => alongX ? p.MaxX : p.MaxY;
+        double CrossMin(Placement p) => alongX ? p.Y : p.X;
+        double CrossMax(Placement p) => alongX ? p.MaxY : p.MaxX;
+        double CrossMid(Placement p) => (CrossMin(p) + CrossMax(p)) / 2;
+
+        var baseAxis = alongX ? ctx.Base.Length : ctx.Base.Width;
+        var overhang = unit.Items.Min(AxisMin) < -0.5 || unit.Items.Max(AxisMax) > baseAxis + 0.5;
+        if (!overhang)
+        {
+            return;
+        }
+
+        var crossMin = unit.Items.Min(CrossMin);
+        var crossMax = unit.Items.Max(CrossMax);
+        var t = Math.Max(0, c.CornerThickness);
+        var leg = Math.Max(t, c.CornerLeg);
+        var height = c.CornerHeight > 0 ? c.CornerHeight : unit.Items.Max(p => p.MaxZ);
+        // Cadre intérieur des cornières : leur face extérieure affleure les extrémités de la palette (aile transversale sur [0, t]).
+        unit.CornerFrame = alongX
+            ? new CornerFrame { X0 = t, X1 = baseAxis - t, Y0 = crossMin, Y1 = crossMax }
+            : new CornerFrame { X0 = crossMin, X1 = crossMax, Y0 = t, Y1 = baseAxis - t };
+
+        // Ailes transversales aux deux extrémités de la palette : bandes [crossMin, crossMin + aile] et [crossMax − aile, crossMax].
+        bool InLegBand(Placement p) =>
+            p.Z < height - 0.5 &&
+            (Geometry.OverlapLength(CrossMin(p), CrossMax(p), crossMin, crossMin + leg) > 0.5 ||
+             Geometry.OverlapLength(CrossMin(p), CrossMax(p), crossMax - leg, crossMax) > 0.5) &&
+            (Geometry.OverlapLength(AxisMin(p), AxisMax(p), 0, t) > 0.5 ||
+             Geometry.OverlapLength(AxisMin(p), AxisMax(p), baseAxis - t, baseAxis) > 0.5);
+
+        var removed = unit.Items.RemoveAll(InLegBand);
+
+        // Appuis : un tube posé repose sur 1 tube (lits superposés) ou 2 tubes (quinconce) du lit inférieur.
+        var needed = staggered ? 2 : 1;
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var p in unit.Items.Where(p => p.Layer > 1).OrderBy(p => p.Layer).ToList())
+            {
+                var supports = unit.Items.Count(q => q.Layer == p.Layer - 1 &&
+                                                     Geometry.OverlapLength(AxisMin(q), AxisMax(q), AxisMin(p), AxisMax(p)) > 0.5 &&
+                                                     Math.Abs(CrossMid(q) - CrossMid(p)) < pitch * 0.75);
+                if (supports < needed)
+                {
+                    unit.Items.Remove(p);
+                    removed++;
+                    changed = true;
+                }
+            }
+        }
+        while (changed);
+
+        unit.RemovedForCorners = removed;
+        var seq = 0;
+        foreach (var p in unit.Items.OrderBy(p => p.Sequence))
+        {
+            p.Sequence = ++seq;
+        }
+
+        foreach (var layer in unit.Layers)
+        {
+            layer.Count = unit.Items.Count(p => p.Layer == layer.Index);
+        }
+
+        unit.Layers.RemoveAll(l => l.Count == 0);
     }
 
     // ------------------------------------------------------------------ Solution, gerbage, contrôles

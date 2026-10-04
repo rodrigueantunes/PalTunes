@@ -156,9 +156,28 @@ public sealed class UnitMetrics
     public double CapacityUseMax { get; set; }
 }
 
+/// <summary>Rectangle autour duquel sont posées les cornières (par défaut : l'emprise de la charge).</summary>
+public sealed class CornerFrame
+{
+    public double X0 { get; set; }
+    public double Y0 { get; set; }
+    public double X1 { get; set; }
+    public double Y1 { get; set; }
+}
+
 public sealed class LoadUnit
 {
     public int Index { get; set; } = 1;
+
+    /// <summary>Cornières au niveau de la palette (tubes en débord) : leur cadre ; null = emprise de la charge.</summary>
+    public CornerFrame? CornerFrame { get; set; }
+
+    /// <summary>Tubes retirés pour laisser la place aux cornières restées au niveau de la palette.</summary>
+    public int RemovedForCorners { get; set; }
+
+    /// <summary>Cadre effectif des cornières.</summary>
+    public (double X0, double Y0, double X1, double Y1) CornerBounds(UnitMetrics m) =>
+        CornerFrame is { } f ? (f.X0, f.Y0, f.X1, f.Y1) : (m.MinX, m.MinY, m.MaxX, m.MaxY);
     public List<Placement> Items { get; set; } = [];
     public List<LayerInfo> Layers { get; set; } = [];
     public UnitMetrics Metrics { get; set; } = new();

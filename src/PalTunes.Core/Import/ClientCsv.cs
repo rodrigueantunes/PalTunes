@@ -116,11 +116,8 @@ public static class ClientCsv
                 client.MaxStacking = Csv.TryParseNumber(Get("GERBAGE_MAX"), out var g) ? (int)Math.Round(g) : null;
             }
 
+            // Le client est identifié par son code (mis à jour s'il existe) ; deux clients peuvent porter le même nom.
             var errors = client.Validate();
-            if (db.Clients.Any(c => c.Id != client.Id && string.Equals(c.Name.Trim(), client.Name.Trim(), StringComparison.CurrentCultureIgnoreCase)))
-            {
-                errors.Add($"Le nom « {client.Name} » est déjà utilisé par un autre client.");
-            }
 
             if (messages.Count + errors.Count > 0)
             {
@@ -131,12 +128,8 @@ public static class ClientCsv
             client.ModifiedAt = DateTime.Now;
             if (existing != null)
             {
-                if (!string.Equals(existing.Name, client.Name, StringComparison.Ordinal))
-                {
-                    db.RenameClient(existing.Name, client.Name);
-                }
-
                 db.Clients[db.Clients.IndexOf(existing)] = client;
+                db.InvalidateClientIndex();
                 report.Updated++;
                 report.Lines.Add(new ImportLine { Row = r + 1, Code = code, Status = "Mis à jour", Message = client.Name });
             }

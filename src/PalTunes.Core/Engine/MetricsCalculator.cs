@@ -29,9 +29,15 @@ public static class MetricsCalculator
         m.LoadWidth = m.MaxY - m.MinY;
         m.LoadHeight = items.Max(p => p.MaxZ);
         // Cornières et film entourent la charge : ils s'ajoutent à l'encombrement de chaque côté (§10.5).
-        var wrap = (c.Corners ? c.CornerThickness : 0) + c.FilmThickness;
-        m.EnclosureLength = Math.Max(baseInfo.Length, m.MaxX + wrap) - Math.Min(0, m.MinX - wrap);
-        m.EnclosureWidth = Math.Max(baseInfo.Width, m.MaxY + wrap) - Math.Min(0, m.MinY - wrap);
+        var film = c.FilmThickness;
+        var t = c.Corners ? c.CornerThickness : 0;
+        var (f0, g0, f1, g1) = unit.CornerBounds(m);
+        var x0 = Math.Min(0, Math.Min(m.MinX - film, c.Corners ? f0 - t - film : double.MaxValue));
+        var x1 = Math.Max(baseInfo.Length, Math.Max(m.MaxX + film, c.Corners ? f1 + t + film : double.MinValue));
+        var y0 = Math.Min(0, Math.Min(m.MinY - film, c.Corners ? g0 - t - film : double.MaxValue));
+        var y1 = Math.Max(baseInfo.Width, Math.Max(m.MaxY + film, c.Corners ? g1 + t + film : double.MinValue));
+        m.EnclosureLength = x1 - x0;
+        m.EnclosureWidth = y1 - y0;
         m.EnclosureHeight = baseInfo.PalletHeight + m.LoadHeight + c.CapHeight;
         m.LoadWeight = items.Sum(p => p.Weight);
         m.SlipSheetCount = unit.Layers.Count(l => l.SlipSheetBelow);
@@ -44,7 +50,7 @@ public static class MetricsCalculator
         m.AreaRate = Math.Min(100, items.Where(p => p.Z <= Geometry.Eps).Sum(Geometry.FootprintArea) / usableArea * 100);
 
         // Supports : produits dont le dessus est exactement à la cote de la base du produit (§6.1).
-        var byTop = items.GroupBy(p => Math.Round(p.MaxZ)).ToDictionary(g => g.Key, g => g.ToList());
+        var tops = new TopIndex(items);
         double supportSum = 0, supportMin = 1;
         int above = 0, interlocked = 0;
         foreach (var p in items)
@@ -60,28 +66,15 @@ public static class MetricsCalculator
                 var area = p.DX * p.DY;
                 double covered = 0;
                 var supporters = 0;
-                foreach (var key in new[] { Math.Round(p.Z) - 1, Math.Round(p.Z), Math.Round(p.Z) + 1 })
+                foreach (var q in tops.Below(p))
                 {
-                    if (!byTop.TryGetValue(key, out var below))
+                    var o = Geometry.FootprintOverlap(p, q);
+                    if (o > 0)
                     {
-                        continue;
-                    }
-
-                    foreach (var q in below)
-                    {
-                        if (Math.Abs(q.MaxZ - p.Z) > Geometry.Eps)
+                        covered += o;
+                        if (o > area * 0.05)
                         {
-                            continue;
-                        }
-
-                        var o = Geometry.FootprintOverlap(p, q);
-                        if (o > 0)
-                        {
-                            covered += o;
-                            if (o > area * 0.05)
-                            {
-                                supporters++;
-                            }
+                            supporters++;
                         }
                     }
                 }

@@ -34,9 +34,12 @@ public static class ArticleCsv
         new("TYPE", ["TYPE_ARTICLE", "NATURE", "KIND"], "Obligatoire", "CAISSE, BOBINE, TUBE, PLAQUE, SAC, FUT, BAC ou AUTRE (synonymes acceptés : CARTON, ROULEAU, PANNEAU…).", "CAISSE"),
         new("LONGUEUR", ["L", "LONG", "LENGTH"], "Selon type", "mm. Caisse, sac, bac, plaque, autre ; longueur du tube.", "400"),
         new("LARGEUR", ["LARG", "WIDTH", "LAIZE"], "Selon type", "mm. Caisse, sac, bac, plaque, autre ; laize de la bobine.", "300"),
-        new("HAUTEUR", ["H", "HAUT", "HEIGHT", "EPAISSEUR", "EP"], "Selon type", "mm. Hauteur (caisse, sac, bac, fût, autre) ou épaisseur (plaque).", "250"),
+        new("HAUTEUR", ["H", "HAUT", "HEIGHT", "EPAISSEUR", "EP"], "Selon type", "mm. Hauteur (caisse, sac, bac, fût, autre) ou épaisseur (plaque) ; tube : épaisseur de paroi (Ø intérieur = Ø − 2 × épaisseur, si DIAMETRE_INT est vide).", "250"),
+        new("LONGUEUR_PLIEE", ["LONGUEUR_PLIE", "L_PLIEE", "LONGUEUR_A_PLAT", "FOLDED_LENGTH"], "Facultatif", "mm. Carton livré plié : longueur une fois plié ; renseignée, elle remplace la longueur pour le conditionnement.", ""),
+        new("LARGEUR_PLIEE", ["LARGEUR_PLIE", "LARG_PLIEE", "LARGEUR_A_PLAT", "FOLDED_WIDTH"], "Facultatif", "mm. Carton plié : largeur une fois plié ; renseignée, elle remplace la largeur pour le conditionnement.", ""),
+        new("HAUTEUR_PLIEE", ["HAUTEUR_PLIE", "H_PLIEE", "HAUTEUR_A_PLAT", "EPAISSEUR_PLIEE", "FOLDED_HEIGHT"], "Facultatif", "mm. Carton plié : hauteur (épaisseur) une fois plié ; renseignée, elle remplace la hauteur pour le conditionnement.", ""),
         new("DIAMETRE", ["DIAM", "D", "DIAMETRE_EXT", "DIAMETER", "OD"], "Selon type", "mm. Diamètre extérieur (bobine, tube, fût).", ""),
-        new("DIAMETRE_INT", ["MANDRIN", "DIAM_INT", "ID", "CORE"], "Facultatif", "mm. Diamètre du mandrin d'une bobine.", ""),
+        new("DIAMETRE_INT", ["MANDRIN", "DIAM_INT", "ID", "CORE"], "Facultatif", "mm. Diamètre du mandrin d'une bobine, diamètre intérieur d'un tube creux.", ""),
         new("POIDS", ["POIDS_KG", "MASSE", "WEIGHT", "KG"], "Obligatoire", "kg par article.", "12,5"),
         new("ORIENTATION", ["HAUT_IMPOSE", "ROTATION"], "Facultatif", "HAUT_IMPOSE (défaut) ou LIBRE : caisses et « autre ».", "HAUT_IMPOSE"),
         new("AXE", ["AXE_BOBINE", "AXE_TUBE", "AXIS"], "Facultatif", "VERTICAL, HORIZONTAL ou INDIFFERENT : bobines (défaut VERTICAL) et tubes (défaut INDIFFERENT, le meilleur est proposé).", ""),
@@ -44,7 +47,7 @@ public static class ArticleCsv
         new("COUCHES_MAX", ["NB_COUCHES_MAX", "MAX_LAYERS"], "Facultatif", "Nombre maximal de couches superposées de ce produit.", ""),
         new("FRAGILE", [], "Facultatif", "OUI / NON : rien ne sera posé dessus.", "NON"),
         new("DESIGNATION", ["LIBELLE", "DESCRIPTION", "NOM"], "Facultatif", "Libellé de l'article.", "Carton 400 × 300"),
-        new("CLIENT", ["NOM_CLIENT", "CUSTOMER"], "Facultatif", "Client : 1er niveau de l'arborescence par défaut.", "Client A"),
+        new("CLIENT", ["CODE_CLIENT", "CLIENT_CODE", "CUSTOMER"], "Facultatif", "Code du client (base clients) ; un code inconnu crée le client. 1er niveau de l'arborescence par défaut.", "AGRO"),
         new("FAMILLE", ["FAMILY", "GROUPE"], "Facultatif", "Famille d'articles.", "Emballages"),
         new("SOUS_FAMILLE", ["SOUSFAMILLE", "SUB_FAMILY"], "Facultatif", "Sous-famille.", "Cartons"),
         new("REF_CLIENT", ["REFERENCE_CLIENT", "CUSTOMER_REF"], "Facultatif", "Référence de l'article chez le client.", ""),
@@ -76,7 +79,15 @@ public static class ArticleCsv
         return t is "OUI" or "O" or "1" or "TRUE" or "VRAI" or "X" or "YES" or "Y";
     }
 
-    public static ImportReport Import(string text, IList<Article> database)
+    public static ImportReport Import(string text, IList<Article> database) => Import(text, database, null);
+
+    /// <summary>
+    /// Import avec mise à jour : un article est identifié par son code <b>pour son client</b> (le même code peut exister
+    /// chez deux clients). Code + client déjà présents : l'article est mis à jour ; sinon il est créé. Sans colonne
+    /// CLIENT, le code seul suffit s'il est unique dans la base.
+    /// </summary>
+    /// <param name="clientKey">Code client normalisé d'une valeur de la colonne CLIENT (code ou nom) ; null = valeur brute.</param>
+    public static ImportReport Import(string text, IList<Article> database, Func<string?, string?>? clientKey)
     {
         var report = new ImportReport();
         var rows = Csv.Parse(text, out _);
@@ -111,7 +122,11 @@ public static class ArticleCsv
             return report;
         }
 
-        var byCode = database.GroupBy(a => a.Code.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var byCode = database.GroupBy(a => a.Code.Trim(), StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+        var hasClientColumn = map.ContainsKey("CLIENT");
+        string Key(string? client) => (clientKey != null ? clientKey(client) : client)?.Trim() ?? "";
+        var wallFromHeight = 0;
+        var suspect = 0;
         for (var r = 1; r < rows.Count; r++)
         {
             var row = rows[r];
@@ -125,7 +140,29 @@ public static class ArticleCsv
                 continue;
             }
 
-            var exists = byCode.TryGetValue(code, out var existing);
+            // Article existant : même code chez le même client (ou code unique si le fichier n'a pas de colonne CLIENT).
+            var candidates = byCode.TryGetValue(code, out var list) ? list : [];
+            Article? existing;
+            if (hasClientColumn)
+            {
+                var client = Key(Get("CLIENT"));
+                existing = candidates.FirstOrDefault(a => string.Equals(Key(a.Client), client, StringComparison.OrdinalIgnoreCase));
+            }
+            else if (candidates.Count > 1)
+            {
+                report.Lines.Add(new ImportLine
+                {
+                    Row = r + 1, Code = code, Status = "Erreur", IsError = true,
+                    Message = $"Le code {code} existe chez {candidates.Count} clients : ajoutez la colonne CLIENT pour désigner l'article à mettre à jour."
+                });
+                continue;
+            }
+            else
+            {
+                existing = candidates.FirstOrDefault();
+            }
+
+            var exists = existing != null;
             var article = exists ? existing!.Clone() : new Article { Code = code };
             var messages = new List<string>();
 
@@ -171,11 +208,26 @@ public static class ArticleCsv
             Num("LONGUEUR", v => article.Length = v);
             Num("LARGEUR", v => article.Width = v);
             Num("HAUTEUR", v => article.Height = v);
+            Num("LONGUEUR_PLIEE", v => article.FoldedLength = v);
+            Num("LARGEUR_PLIEE", v => article.FoldedWidth = v);
+            Num("HAUTEUR_PLIEE", v => article.FoldedHeight = v);
             Num("DIAMETRE", v => article.Diameter = v);
             Num("DIAMETRE_INT", v => article.InnerDiameter = v);
             Num("POIDS", v => article.Weight = v);
             Num("CHARGE_MAX", v => article.MaxLoadOnTop = v);
             Num("COUCHES_MAX", v => article.MaxLayers = (int)Math.Round(v));
+
+            // Tube : la hauteur n'a pas de sens ; HAUTEUR (ou EPAISSEUR) donne l'épaisseur de paroi d'un tube creux.
+            if (article.Kind == ArticleKind.Tube && Has("HAUTEUR") && !Has("DIAMETRE_INT") && article.Height > 0 && article.Diameter > 0)
+            {
+                if (article.Height < article.Diameter / 2)
+                {
+                    article.InnerDiameter = Math.Round(article.Diameter - 2 * article.Height, 3);
+                    wallFromHeight++;
+                }
+
+                article.Height = 0;
+            }
 
             if (Has("ORIENTATION"))
             {
@@ -228,17 +280,38 @@ public static class ArticleCsv
             {
                 var index = database.IndexOf(existing!);
                 database[index] = article;
-                byCode[code] = article;
+                candidates[candidates.IndexOf(existing!)] = article;
                 report.Updated++;
                 report.Lines.Add(new ImportLine { Row = r + 1, Code = code, Status = "Mis à jour", Message = article.DimensionsText });
             }
             else
             {
                 database.Add(article);
-                byCode[code] = article;
+                if (!byCode.TryGetValue(code, out var same))
+                {
+                    byCode[code] = same = [];
+                }
+
+                same.Add(article);
                 report.Created++;
                 report.Lines.Add(new ImportLine { Row = r + 1, Code = code, Status = "Créé", Message = article.DimensionsText });
             }
+
+            if (ArticleSchema.WeightWarning(article) is { } warning)
+            {
+                suspect++;
+                report.Lines.Add(new ImportLine { Row = r + 1, Code = code, Status = "Avertissement", Message = warning });
+            }
+        }
+
+        if (wallFromHeight > 0)
+        {
+            report.Lines.Add(new ImportLine { Status = "Info", Message = $"{wallFromHeight} tube(s) : HAUTEUR lue comme épaisseur de paroi, Ø intérieur = Ø − 2 × épaisseur." });
+        }
+
+        if (suspect > 0)
+        {
+            report.Lines.Add(new ImportLine { Status = "Avertissement", Message = $"{suspect} article(s) au poids unitaire suspect (impossible pour leurs dimensions) : vérifiez la colonne POIDS (kg par article)." });
         }
 
         return report;
@@ -268,6 +341,9 @@ public static class ArticleCsv
         yield return N(a.Length);
         yield return N(a.Width);
         yield return N(a.Height);
+        yield return a.Kind == ArticleKind.Caisse ? N(a.FoldedLength) : "";
+        yield return a.Kind == ArticleKind.Caisse ? N(a.FoldedWidth) : "";
+        yield return a.Kind == ArticleKind.Caisse ? N(a.FoldedHeight) : "";
         yield return N(a.Diameter);
         yield return N(a.InnerDiameter);
         yield return W(a.Weight);
@@ -291,13 +367,13 @@ public static class ArticleCsv
     {
         var examples = new[]
         {
-            new Article { Code = "CAR-400", Kind = ArticleKind.Caisse, Length = 400, Width = 300, Height = 250, Weight = 12, MaxLoadOnTop = 90, Designation = "Carton 400 × 300 × 250", Client = "Client A", Family = "Emballages", SubFamily = "Cartons" },
-            new Article { Code = "BOB-1000", Kind = ArticleKind.Bobine, Diameter = 1000, Width = 700, InnerDiameter = 76, Weight = 380, CoilAxis = CoilAxis.Vertical, Designation = "Bobine film Ø1000 laize 700", Client = "Client A", Family = "Films" },
-            new Article { Code = "TUB-110", Kind = ArticleKind.Tube, Diameter = 110, Length = 1200, Weight = 4.5, CoilAxis = CoilAxis.Indifferent, Designation = "Tube PVC Ø110 × 1200", Client = "Client B", Family = "Tubes" },
-            new Article { Code = "PLQ-1600", Kind = ArticleKind.Plaque, Length = 1600, Width = 1200, Height = 10, Weight = 15, Designation = "Plaque 1600 × 1200 ép. 10", Client = "Client B", Family = "Plaques" },
-            new Article { Code = "SAC-25", Kind = ArticleKind.Sac, Length = 600, Width = 400, Height = 120, Weight = 25, Designation = "Sac 25 kg", Client = "Client C", Family = "Vrac" },
-            new Article { Code = "FUT-200", Kind = ArticleKind.Fut, Diameter = 585, Height = 880, Weight = 220, Designation = "Fût 200 L", Client = "Client C", Family = "Liquides" },
-            new Article { Code = "BAC-6040", Kind = ArticleKind.Bac, Length = 600, Width = 400, Height = 300, Weight = 8, MaxLoadOnTop = 200, Designation = "Bac plastique 600 × 400", Client = "Client C", Family = "Contenants" }
+            new Article { Code = "CAR-400", Kind = ArticleKind.Caisse, Length = 400, Width = 300, Height = 250, Weight = 12, MaxLoadOnTop = 90, Designation = "Carton 400 × 300 × 250", Client = "AGRO", Family = "Emballages", SubFamily = "Cartons" },
+            new Article { Code = "BOB-1000", Kind = ArticleKind.Bobine, Diameter = 1000, Width = 700, InnerDiameter = 76, Weight = 380, CoilAxis = CoilAxis.Vertical, Designation = "Bobine film Ø1000 laize 700", Client = "AGRO", Family = "Films" },
+            new Article { Code = "TUB-110", Kind = ArticleKind.Tube, Diameter = 110, Length = 1200, Weight = 4.5, CoilAxis = CoilAxis.Indifferent, Designation = "Tube PVC Ø110 × 1200", Client = "BATI", Family = "Tubes" },
+            new Article { Code = "PLQ-1600", Kind = ArticleKind.Plaque, Length = 1600, Width = 1200, Height = 10, Weight = 15, Designation = "Plaque 1600 × 1200 ép. 10", Client = "BATI", Family = "Plaques" },
+            new Article { Code = "SAC-25", Kind = ArticleKind.Sac, Length = 600, Width = 400, Height = 120, Weight = 25, Designation = "Sac 25 kg", Client = "CHIM", Family = "Vrac" },
+            new Article { Code = "FUT-200", Kind = ArticleKind.Fut, Diameter = 585, Height = 880, Weight = 220, Designation = "Fût 200 L", Client = "CHIM", Family = "Liquides" },
+            new Article { Code = "BAC-6040", Kind = ArticleKind.Bac, Length = 600, Width = 400, Height = 300, Weight = 8, MaxLoadOnTop = 200, Designation = "Bac plastique 600 × 400", Client = "CHIM", Family = "Contenants" }
         };
         return Export(examples);
     }

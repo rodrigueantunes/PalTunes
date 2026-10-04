@@ -55,7 +55,8 @@ public static class SolutionValidator
             if (checkSupport)
             {
                 var minSupport = c.MinSupportPercent / 100 - 1e-6;
-                var unsupported = unit.Items.Count(p => SupportRatio(p, unit.Items) < minSupport);
+                var tops = new TopIndex(unit.Items);
+                var unsupported = unit.Items.Count(p => SupportRatio(p, tops) < minSupport);
                 if (unsupported > 0)
                 {
                     issues.Add($"{label}{unsupported} produit(s) avec un taux de support < {c.MinSupportPercent:0} %.");
@@ -68,18 +69,33 @@ public static class SolutionValidator
 
     private static int CountOverlaps(List<Placement> items)
     {
-        // Balayage par Z : seuls les produits dont les intervalles verticaux se recouvrent sont comparés.
-        var sorted = items.OrderBy(p => p.Z).ToList();
-        var active = new List<Placement>();
+        // Grille 3D : seuls les produits voisins sont comparés, chaque paire une seule fois.
+        var grid = new PlacementGrid(items, useZ: true);
         var count = 0;
-        foreach (var p in sorted)
+        for (var i = 0; i < items.Count; i++)
         {
-            active.RemoveAll(q => q.MaxZ <= p.Z + Geometry.Eps);
-            count += active.Count(q => Geometry.Intersects(p, q));
-            active.Add(p);
+            foreach (var j in grid.Near(items[i]))
+            {
+                if (j > i && Geometry.Intersects(items[i], items[j]))
+                {
+                    count++;
+                }
+            }
         }
 
         return count;
+    }
+
+    internal static double SupportRatio(Placement p, TopIndex tops)
+    {
+        if (p.Z <= Geometry.Eps || p.Shape is ShapeKind.CylinderX or ShapeKind.CylinderY)
+        {
+            return 1;
+        }
+
+        var area = p.DX * p.DY;
+        var covered = tops.Below(p).Sum(q => Geometry.FootprintOverlap(p, q));
+        return Math.Min(1, covered / area);
     }
 
     internal static double SupportRatio(Placement p, List<Placement> items)
