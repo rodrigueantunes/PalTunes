@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.0.8` · Windows · .NET 10 · WPF
+`v0.0.9` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -76,7 +76,7 @@ PalTunes calcule plusieurs configurations possibles, contrôle leur validité pu
 | Produit         | Géométrie prise en compte                | Exemples d'utilisation            |
 | --------------- | ---------------------------------------- | --------------------------------- |
 | Caisse / carton | parallélépipède, monté ou **plié**       | colis, cartons, caisses           |
-| Bobine          | cylindre (mandrin facultatif)            | papier, film, rouleau             |
+| Bobine          | cylindre, plein ou creux (mandrin)       | papier, film, rouleau             |
 | Tube            | cylindre long, plein ou **creux**        | tubes, profilés, bagues, mandrins |
 | Plaque          | parallélépipède mince                    | panneaux, feuilles, plaques       |
 | Sac             | volume rectangulaire                     | sacs industriels                  |
@@ -87,6 +87,8 @@ PalTunes calcule plusieurs configurations possibles, contrôle leur validité pu
 Chaque famille conserve ses propres règles.
 
 Une bobine n'est pas traitée comme un carton auquel on aurait simplement ajouté un diamètre.
+
+Pour un tube ou une bobine, le diamètre pris en compte est le diamètre extérieur, à défaut le diamètre intérieur : un article peut avoir l'un, l'autre ou les deux, sans conversion de ses données. Avec les deux, il est traité comme creux et dessiné comme tel.
 
 Seules les données utiles au calcul sont obligatoires selon le type ; désignation, client, famille, références et notes restent facultatives.
 
@@ -391,6 +393,7 @@ La scène permet de contrôler visuellement :
 * les couches ;
 * les orientations ;
 * les volumes occupés ;
+* les produits creux (tubes, bagues, bobines : paroi intérieure et extrémités en couronne) ;
 * la cohérence globale de la solution.
 
 Pour les très grandes quantités (petits articles par dizaines de milliers), seuls les produits visibles de l'extérieur sont dessinés.
@@ -404,6 +407,8 @@ DESSUS        CÔTÉ        FACE
 ```
 
 Elles permettent de lire précisément le plan sans dépendre de la perspective 3D. Les cotes de palette, de charge et d'encombrement y figurent ; le détail des calculs reste dans la spécification.
+
+Les produits creux y sont lisibles : cercle intérieur lorsqu'ils sont vus en bout, alésage en traits interrompus lorsqu'ils sont vus de côté.
 
 ---
 
@@ -524,13 +529,24 @@ Les champs nécessaires dépendent du type de produit. La colonne `CLIENT` conti
 | Sac    | longueur × largeur × hauteur   |                                   |
 | Bac    | longueur × largeur × hauteur   |                                   |
 | Plaque | longueur × largeur × épaisseur |                                   |
-| Bobine | diamètre × laize               | diamètre du mandrin               |
+| Bobine | diamètre × laize               | diamètre du mandrin (creux)       |
 | Tube   | diamètre × longueur            | diamètre intérieur (tube creux)   |
 | Fût    | diamètre × hauteur             |                                   |
 
 Le code, le type et le poids complètent ces informations minimales.
 
 Pour un tube, la colonne `HAUTEUR` est lue comme l'épaisseur de paroi (diamètre intérieur = diamètre − 2 × épaisseur) lorsque `DIAMETRE_INT` est vide.
+
+### Diamètres des tubes et des bobines
+
+| Colonnes renseignées        | Diamètre pris en compte                  | Schémas      |
+| --------------------------- | ---------------------------------------- | ------------ |
+| `DIAMETRE`                  | diamètre extérieur                       | plein        |
+| `DIAMETRE` + `DIAMETRE_INT` | diamètre extérieur                       | creux        |
+| `DIAMETRE_INT` seul         | diamètre intérieur, avec avertissement   | plein        |
+| aucune                      | ligne refusée                            |              |
+
+Les données sont gardées telles qu'elles sont importées ou saisies : c'est le logiciel qui choisit le diamètre à utiliser.
 
 ---
 
@@ -558,7 +574,7 @@ L'import produit un rapport permettant de distinguer :
 * les créations ;
 * les mises à jour ;
 * les erreurs ;
-* les avertissements (poids suspect, épaisseur de paroi lue) ;
+* les avertissements (poids suspect, épaisseur de paroi lue, diamètre intérieur pris comme diamètre) ;
 * les colonnes inconnues.
 
 ---
