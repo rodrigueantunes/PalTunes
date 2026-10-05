@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.1.2` · Windows · .NET 10 · WPF
+`v0.1.3` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -522,6 +522,7 @@ HAUTEUR
 LONGUEUR_PLIEE
 LARGEUR_PLIEE
 HAUTEUR_PLIEE
+QTE_PAR_CAISSE
 DIAMETRE
 DIAMETRE_INT
 POIDS
@@ -682,7 +683,17 @@ Pour une palettisation mono-article, l'export CSV peut notamment contenir :
 * plan par couche ;
 * couches avec intercalaire.
 
-Une fiche de palettisation, avec son plan de palettisation, peut également être imprimée ou enregistrée au format PDF via le système d'impression Windows.
+Trois fiches peuvent être imprimées ou enregistrées au format PDF via le système d'impression Windows :
+
+```text
+FICHE PALETTE            spécification, plans de couche, plan de palettisation      Ctrl + P
+FICHE DE COLISAGE        produit, caisse, quantité par caisse, poids brut, plans, vue 3D
+FICHE DE CONDITIONNEMENT fiche de colisage puis fiche palette, en un seul document
+```
+
+Les boutons sont grisés quand la fiche n'est pas possible pour l'article affiché. Dans l'espace Colisage, ils portent sur le colisage affiché (la fiche palette montre les caisses sur la palette de destination) ; ailleurs, sur le conditionnement affiché — fiche de colisage pour un article caisse créé au colisage.
+
+Un article caisse peut porter une **quantité par caisse** (facultative) : renseignée automatiquement à la création d'une caisse au colisage, ou importée (`QTE_PAR_CAISSE`). La fiche palette indique alors aussi les produits contenus par palette ; vide, rien ne change.
 
 ---
 
@@ -929,7 +940,7 @@ Description complète du format d'import CSV des articles et des clients.
 ```text
 F5          Calculer
 Ctrl + S    Enregistrer
-Ctrl + P    Imprimer
+Ctrl + P    Imprimer la fiche palette
 Ctrl + E    Exporter
 Ctrl + I    Importer
 F1          Aide import
