@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.1.1` · Windows · .NET 10 · WPF
+`v0.1.2` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -411,6 +411,13 @@ La scène permet de contrôler visuellement :
 * la cohérence globale de la solution.
 
 Pour les très grandes quantités (petits articles par dizaines de milliers), seuls les produits visibles de l'extérieur sont dessinés.
+
+```text
+clic droit    rotation
+molette       zoom vers le point sous la souris
+```
+
+Le zoom avant s'arrête avant d'entrer dans le volume de la palette : la perspective reste fidèle, rien n'est coupé. Une ombre douce au sol aide à lire les volumes.
 
 ### 2D
 
