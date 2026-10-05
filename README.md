@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.0.9` · Windows · .NET 10 · WPF
+`v0.1.0` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -151,6 +151,18 @@ PalTunes prend notamment en compte :
 Un **profil de gerbage** est déduit de chaque article, sans donnée obligatoire supplémentaire : classe (carton, rigide, souple, roulant), zone conseillée (bas, milieu, haut) et poids qu'il peut porter.
 
 Le moteur hétérogène utilise une recherche par points extrêmes pour construire progressivement le chargement.
+
+### Grandes quantités
+
+Une commande peut compter **100 000 produits et plus** (bagues, bouchons…) :
+
+```text
+article qui ne tient pas sur la palette  → exclu, signalé, solution calculée avec les autres
+quantité ≥ une palette pleine            → palettes complètes mono-article
+reste                                    → couches complètes par quantités, reliquat sur le dessus
+```
+
+Exemple mesuré : 100 000 bagues + 2 300 autres produits → 20 palettes en 3 secondes.
 
 ### Exemple fictif
 
