@@ -268,3 +268,42 @@ public class CaseDestinationPalletTests
         Assert.True(onIso.ItemsPerPallet >= onEur.ItemsPerPallet);
     }
 }
+
+public class TubeCornerTests
+{
+    private static BaseInfo EurBase => BaseInfo.From(PalletCatalog.Defaults().Single(p => p.Code == "EUR1"), false, 1, 1);
+    private static Article Tube => new() { Code = "T", Kind = ArticleKind.Tube, Diameter = 110, Length = 1500, Weight = 5, CoilAxis = CoilAxis.Horizontal };
+
+    private static Solution Square(PackagingConstraints c) =>
+        HomogeneousEngine.Solve(Tube, EurBase, c).Solutions.First(s => s.Pattern == StackPattern.Colonne && s.FirstUnit!.Items[0].Shape == ShapeKind.CylinderX);
+
+    [Fact]
+    public void OverhangingTubes_CornersStayAtPallet_AndTubesAreRemoved()
+    {
+        var follow = Square(new PackagingConstraints { OverhangLength = 150, Corners = true, CornerThickness = 5, CornerLeg = 60, CornersFollowTubes = true });
+        var pallet = Square(new PackagingConstraints { OverhangLength = 150, Corners = true, CornerThickness = 5, CornerLeg = 60 });
+        Assert.Equal(0, follow.FirstUnit!.RemovedForCorners);
+        Assert.Null(follow.FirstUnit.CornerFrame);
+        Assert.True(pallet.FirstUnit!.RemovedForCorners > 0);
+        Assert.Equal(follow.ItemsPerUnit - pallet.FirstUnit.RemovedForCorners, pallet.ItemsPerUnit);
+        var f = pallet.FirstUnit.CornerFrame!;
+        Assert.Equal(5, f.X0, 3);
+        Assert.Equal(1195, f.X1, 3);
+        // Aucun tube restant dans les bandes des ailes aux extrémités de la palette.
+        Assert.DoesNotContain(pallet.FirstUnit.Items, p => p.Y < f.Y0 + 60 - 0.5 && p.MaxY > f.Y0 + 0.5);
+        Assert.True(pallet.IsCompliant, string.Join(" | ", pallet.Violations));
+        // Encombrement : les cornières (au niveau de la palette) n'allongent pas la charge au-delà des tubes.
+        Assert.Equal(1500, pallet.FirstUnit.Metrics.EnclosureLength, 3);
+    }
+
+    [Fact]
+    public void TubesWithoutOverhang_Unchanged()
+    {
+        var a = new Article { Code = "T", Kind = ArticleKind.Tube, Diameter = 110, Length = 1200, Weight = 5, CoilAxis = CoilAxis.Horizontal };
+        var r = HomogeneousEngine.Solve(a, EurBase, new PackagingConstraints { Corners = true, CornerThickness = 5 });
+        Assert.All(r.Solutions, s => Assert.Equal(0, s.FirstUnit!.RemovedForCorners));
+    }
+
+    [Fact]
+    public void OptionIsOffByDefault() => Assert.False(new PackagingConstraints().CornersFollowTubes);
+}
