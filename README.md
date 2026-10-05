@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.1.0` · Windows · .NET 10 · WPF
+`v0.1.1` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -163,6 +163,8 @@ reste                                    → couches complètes par quantités, 
 ```
 
 Exemple mesuré : 100 000 bagues + 2 300 autres produits → 20 palettes en 3 secondes.
+
+Jusqu'à 20 000 produits à mélanger, les trois stratégies sont calculées et la meilleure est retenue ; au-delà, seule « Couches homogènes » l'est (un message l'indique).
 
 ### Exemple fictif
 
@@ -711,7 +713,13 @@ Ctrl+3  PALETTES           catalogue, construction, charges, aperçu 3D
 Ctrl+4  CAISSES            catalogue des contenants, aperçu 3D
 Ctrl+5  CONDITIONNEMENTS   homogène / hétérogène, contraintes, accessoires, solutions, vues, spécification
 Ctrl+6  COLISAGE           meilleure caisse, caisse ouverte / fermée, création de l'article caisse
+Ctrl+7  GESTION DES        tous les conditionnements rangés par client, famille, type ;
+        CONDITIONNEMENTS   recherche, fiche résumée, aperçu 3D, ouvrir / dupliquer / supprimer
 ```
+
+L'écran **Conditionnements** ne garde que les **10 derniers** conditionnements modifiés (liste « Récents », repliable) ; une recherche porte sur tous. Les autres se retrouvent dans **Gestion des conditionnements**, rangés comme les articles.
+
+Sur les vues, chaque article reçoit une **couleur bien distincte** des autres ; la case **Couleur d'origine** (décochée par défaut, mémorisée) reprend les couleurs des fiches articles.
 
 ---
 
@@ -924,6 +932,7 @@ Ctrl + 3    Palettes
 Ctrl + 4    Caisses
 Ctrl + 5    Conditionnements
 Ctrl + 6    Colisage
+Ctrl + 7    Gestion des conditionnements
 Échap       Fermer
 ```
 
