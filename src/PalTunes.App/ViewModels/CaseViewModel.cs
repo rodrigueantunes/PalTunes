@@ -96,10 +96,10 @@ public sealed partial class CaseViewModel : ObservableObject
     }
 
     /// <summary>Poids unitaire impossible pour les dimensions (erreur de saisie ou d'unité).</summary>
-    public string? ArticleWarning => Article == null ? null : ArticleSchema.WeightWarning(Article);
+    public string? ArticleWarning => Article == null ? null : ArticleSchema.Warnings(Article);
 
     /// <summary>Bouton « Corriger la fiche article » : poids suspect ou aucune solution.</summary>
-    public bool ShowFixArticle => Article != null && (ArticleWarning != null || (_computed && Solutions.Count == 0));
+    public bool ShowFixArticle => Article != null && (ArticleWarning != null || (_computed && !IsBusy && Solutions.Count == 0));
 
     [RelayCommand]
     private void OpenArticle()
@@ -386,56 +386,86 @@ public sealed partial class CaseViewModel : ObservableObject
     private void ToggleOpen() => IsOpen = !IsOpen;
 
     [RelayCommand]
-    private void Compute()
+    private void Compute() => _ = ComputeAsync();
+
+    private CancellationTokenSource? _cts;
+
+    /// <summary>Calcul en cours (tâche de fond : la fenêtre reste utilisable).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowFixArticle))] private bool _isBusy;
+
+    /// <summary>
+    /// Colisage calculé en tâche de fond (petits produits : des dizaines de milliers par caisse) ; un nouveau calcul
+    /// annule le précédent.
+    /// </summary>
+    private async Task ComputeAsync()
     {
         _computed = true;
+        _cts?.Cancel();
+        var cts = _cts = new CancellationTokenSource();
         Solutions.Clear();
         Message = null;
-        if (Article == null)
+        if (Article is not { } article)
         {
             Message = "Choisissez l'article à mettre en caisse.";
             SelectedSolution = null;
             return;
         }
 
-        EngineResult result;
-        switch (Mode)
+        if (Mode == CaseMode.Catalog && SelectedCase == null)
         {
-            case CaseMode.Best:
-                result = CaseEngine.Propose(Article, _main.Db.Cases, Gap, TargetQuantity, ManualLimit, ActivePallet, PalletConstraints, Axis);
-                break;
-            case CaseMode.Catalog:
-                if (SelectedCase == null)
-                {
-                    Message = ForceCase
-                        ? "Choisissez la caisse à imposer."
-                        : CaseEngine.Diagnose(Article, _main.Db.Cases, Gap, Axis) +
-                          " Vous pouvez aussi cocher « Forcer la caisse », utiliser une caisse spécifique ou ajouter une caisse au catalogue.";
-                    OnPropertyChanged(nameof(ShowFixArticle));
-                    SelectedSolution = null;
-                    return;
-                }
-
-                result = CaseEngine.Solve(Article, SelectedCase.ToSpec(Gap), TargetQuantity, SelectedCase, ActivePallet, PalletConstraints, Axis);
-                if (ForceCase && result.Solutions.Count > 0 && !PossibleCases.Contains(SelectedCase))
-                {
-                    result.Messages.Add($"Caisse {SelectedCase.Code} forcée.");
-                }
-
-                break;
-            default:
-                result = CaseEngine.Solve(Article, WithGap(Spec), TargetQuantity, null, ActivePallet, PalletConstraints, Axis);
-                break;
+            Message = ForceCase
+                ? "Choisissez la caisse à imposer."
+                : CaseEngine.Diagnose(article, _main.Db.Cases, Gap, Axis) +
+                  " Vous pouvez aussi cocher « Forcer la caisse », utiliser une caisse spécifique ou ajouter une caisse au catalogue.";
+            OnPropertyChanged(nameof(ShowFixArticle));
+            SelectedSolution = null;
+            return;
         }
 
-        foreach (var s in result.Solutions)
+        // Données du calcul figées avant la tâche de fond.
+        var (mode, cases, gap, target, manual, pallet, constraints, axis) =
+            (Mode, _main.Db.Cases.ToList(), Gap, TargetQuantity, ManualLimit, ActivePallet, PalletConstraints, Axis);
+        var selected = SelectedCase;
+        var spec = WithGap(Spec);
+        var forced = ForceCase && selected != null && !PossibleCases.Contains(selected);
+        IsBusy = true;
+        try
         {
-            Solutions.Add(new SolutionViewModel(s, Article));
-        }
+            var result = await Task.Run(() => mode switch
+            {
+                CaseMode.Best => CaseEngine.Propose(article, cases, gap, target, manual, pallet, constraints, axis),
+                CaseMode.Catalog => CaseEngine.Solve(article, selected!.ToSpec(gap), target, selected, pallet, constraints, axis),
+                _ => CaseEngine.Solve(article, spec, target, null, pallet, constraints, axis)
+            }, cts.Token);
+            if (cts.IsCancellationRequested)
+            {
+                return;
+            }
 
-        Message = result.Messages.Count > 0 ? string.Join(Environment.NewLine, result.Messages) : null;
-        SelectedSolution = Solutions.FirstOrDefault(s => s.Recommended) ?? Solutions.FirstOrDefault();
-        OnPropertyChanged(nameof(ShowFixArticle));
+            if (forced && result.Solutions.Count > 0)
+            {
+                result.Messages.Add($"Caisse {selected!.Code} forcée.");
+            }
+
+            foreach (var sol in result.Solutions)
+            {
+                Solutions.Add(new SolutionViewModel(sol, article));
+            }
+
+            Message = result.Messages.Count > 0 ? string.Join(Environment.NewLine, result.Messages) : null;
+            SelectedSolution = Solutions.FirstOrDefault(x => x.Recommended) ?? Solutions.FirstOrDefault();
+            OnPropertyChanged(nameof(ShowFixArticle));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_cts, cts))
+            {
+                IsBusy = false;
+            }
+        }
     }
 
     [RelayCommand]
@@ -456,7 +486,7 @@ public sealed partial class CaseViewModel : ObservableObject
             code = $"{baseCode}-{i}";
         }
 
-        var box = CaseEngine.CreateCaseArticle(Article, CurrentSolution, CurrentSpec, code);
+        var box = CaseEngine.CreateCaseArticle(Article, CurrentSolution, CurrentSpec, code, CurrentCase, Axis);
         if (CurrentCase is { } type)
         {
             box.Designation = $"{type.Name} de {CurrentSolution.ItemsPerUnit} × {Article.Code}";
@@ -470,6 +500,77 @@ public sealed partial class CaseViewModel : ObservableObject
         RefreshArticles();
         _main.ShowToast($"Article {box.Code} créé ({box.DimensionsText}, {box.Weight.ToString(Formats.UnitWeight, Fr)} kg) : il peut maintenant être palettisé.", "Ok");
         return box;
+    }
+
+    // ------------------------------------------------------------------ Impression
+
+    /// <summary>Colisage affiché, prêt pour la fiche.</summary>
+    private CaseEngine.CaseSheet? CurrentSheet =>
+        Article != null && CurrentSolution is { FirstUnit: not null } s ? new CaseEngine.CaseSheet(Article, CurrentCase, CurrentSpec, s, Axis) : null;
+
+    public bool CanPrintCaseSheet => !IsBusy && CurrentSheet != null;
+
+    /// <summary>Fiche palette des caisses : palette de destination choisie et caisse palettisable.</summary>
+    public bool CanPrintPalletSheet => !IsBusy && Article != null && CurrentSolution is { CasesPerPallet: > 0 } && ActivePallet != null;
+
+    public bool CanPrintPackagingSheet => CanPrintCaseSheet && CanPrintPalletSheet;
+
+    public void PrintCaseSheet()
+    {
+        if (CurrentSheet is { } sheet)
+        {
+            PrintService.PrintCaseSheet(sheet, null, _main.Db, _main.ColorsFor(sheet.Content));
+        }
+    }
+
+    /// <summary>Caisse du colisage affiché (article non enregistré) palettisée sur la palette de destination.</summary>
+    private (Article Box, Packaging Packaging, Solution Solution)? PalletOfCases()
+    {
+        if (Article == null || CurrentSolution is not { CasesPerPallet: > 0 } s || ActivePallet is not { } pallet)
+        {
+            return null;
+        }
+
+        var box = CaseEngine.CreateCaseArticle(Article, s, CurrentSpec, "CAI-" + Article.Code + (CurrentCase is { } c ? "-" + c.Code : ""), CurrentCase, Axis);
+        if (CurrentCase is { } type)
+        {
+            box.Designation = $"{type.Name} de {s.ItemsPerUnit} × {Article.Code}";
+            box.Color = type.Color;
+        }
+
+        var constraints = PalletConstraints;
+        var best = HomogeneousEngine.Solve(box, BaseInfo.From(pallet, false, 1, 1), constraints).Recommended;
+        if (best?.FirstUnit == null)
+        {
+            _main.ShowToast($"Caisse non palettisable sur {pallet.Code} avec les contraintes saisies.", "Warning");
+            return null;
+        }
+
+        var packaging = new Packaging
+        {
+            Code = box.Code, Name = $"Palette de {box.Designation}", Kind = PackagingKind.Homogene, ArticleId = box.Id, PalletId = pallet.Id,
+            Constraints = constraints, Solution = best
+        };
+        return (box, packaging, best);
+    }
+
+    private IReadOnlyDictionary<Guid, Color> BoxColors(Article box) =>
+        new Dictionary<Guid, Color> { [box.Id] = ArticleColors.Parse(box.Color, Color.FromRgb(0xC9, 0xA2, 0x6B)) };
+
+    public void PrintPalletSheet()
+    {
+        if (PalletOfCases() is var (box, p, s))
+        {
+            PrintService.PrintSheet(p, s, s.FirstUnit!, _main.Db, BoxColors(box), box);
+        }
+    }
+
+    public void PrintPackagingSheet()
+    {
+        if (CurrentSheet is { } sheet && PalletOfCases() is var (box, p, s))
+        {
+            PrintService.PrintPackagingSheet(sheet, box, p, s, s.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content), BoxColors(box));
+        }
     }
 
     /// <summary>Crée l'article caisse puis ouvre un conditionnement homogène pour le palettiser.</summary>

@@ -144,6 +144,7 @@ public static class Scene3DBuilder
             AddCase(scene.Root, solution.Base.Length, solution.Base.Width, c.MaxTotalHeight, render, translucent: ["x0", "y0"]);
         }
 
+        AddShadow(scene.Root);
         scene.SizeX = Math.Max(solution.Base.Length, m.EnclosureLength) * Scale;
         scene.SizeY = Math.Max(solution.Base.Width, m.EnclosureWidth) * Scale;
         scene.SizeZ = Math.Max(m.EnclosureHeight, solution.Base.PalletHeight) * Scale;
@@ -187,16 +188,17 @@ public static class Scene3DBuilder
     private static void AddItem(MeshGeometry3D mesh, Placement p, int segments)
     {
         double x0 = p.X * Scale, y0 = p.Y * Scale, z0 = p.Z * Scale, x1 = p.MaxX * Scale, y1 = p.MaxY * Scale, z1 = p.MaxZ * Scale;
+        var inner = p.InnerDiameter > 0 ? p.InnerDiameter / 2 * Scale : 0; // tube ou bobine creux
         switch (p.Shape)
         {
             case ShapeKind.CylinderZ:
-                AddCylinder(mesh, 2, z0 + Gap, z1 - Gap, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, segments);
+                AddCylinder(mesh, 2, z0 + Gap, z1 - Gap, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, segments, inner);
                 break;
             case ShapeKind.CylinderX:
-                AddCylinder(mesh, 0, x0 + Gap, x1 - Gap, (y0 + y1) / 2, (z0 + z1) / 2, Math.Min(y1 - y0, z1 - z0) / 2 - Gap, segments);
+                AddCylinder(mesh, 0, x0 + Gap, x1 - Gap, (y0 + y1) / 2, (z0 + z1) / 2, Math.Min(y1 - y0, z1 - z0) / 2 - Gap, segments, inner);
                 break;
             case ShapeKind.CylinderY:
-                AddCylinder(mesh, 1, y0 + Gap, y1 - Gap, (z0 + z1) / 2, (x0 + x1) / 2, Math.Min(x1 - x0, z1 - z0) / 2 - Gap, segments);
+                AddCylinder(mesh, 1, y0 + Gap, y1 - Gap, (z0 + z1) / 2, (x0 + x1) / 2, Math.Min(x1 - x0, z1 - z0) / 2 - Gap, segments, inner);
                 break;
             default:
                 AddBox(mesh, x0 + Gap, y0 + Gap, z0 + Gap, x1 - Gap, y1 - Gap, z1 - Gap);
@@ -303,6 +305,7 @@ public static class Scene3DBuilder
         if (type.InnerLength > 0 && type.InnerWidth > 0 && type.InnerHeight > 0)
         {
             AddCase(root, type.InnerLength, type.InnerWidth, type.InnerHeight, new CaseRender(type.WallThickness, type.Color, Open: false), translucent: []);
+            AddShadow(root);
         }
 
         return root;
@@ -403,6 +406,7 @@ public static class Scene3DBuilder
     {
         var scene = new SceneResult { SizeX = p.Length * Scale, SizeY = p.Width * Scale, SizeZ = p.Height * Scale };
         AddPallet(scene.Root, p.Construction, p.Color, 0, 0, p.Length, p.Width, p.Height, false);
+        AddShadow(scene.Root);
         return scene;
     }
 
@@ -535,6 +539,7 @@ public static class Scene3DBuilder
 
     public static SceneResult BuildArticle(Article a, Color color)
     {
+        a = a.WithEffectiveDiameter(); // tube / bobine sans diamètre extérieur : diamètre intérieur
         var scene = new SceneResult();
         var p = a.Kind switch
         {
@@ -548,6 +553,11 @@ public static class Scene3DBuilder
         if (p.DX <= 0 || p.DY <= 0 || p.DZ <= 0)
         {
             return scene;
+        }
+
+        if (a.Kind == ArticleKind.Tube)
+        {
+            p.InnerDiameter = a.HollowDiameter; // tube creux : le creux est visible
         }
 
         var mesh = new MeshGeometry3D();
@@ -570,10 +580,85 @@ public static class Scene3DBuilder
             scene.Root.Children.Add(Model(core, Solid(Color.FromRgb(0x2C, 0x3E, 0x50))));
         }
 
+        AddShadow(scene.Root);
         scene.SizeX = p.DX * Scale;
         scene.SizeY = p.DY * Scale;
         scene.SizeZ = p.DZ * Scale;
         return scene;
+    }
+
+    // ------------------------------------------------------------------ Ombre au sol
+
+    /// <summary>Ombre douce : dégradé radial sombre et translucide, plus foncé au centre, fondu vers les bords.</summary>
+    private static readonly Material ShadowMaterial = Freeze(new DiffuseMaterial(new RadialGradientBrush
+    {
+        GradientStops =
+        [
+            new GradientStop(Color.FromArgb(0x46, 0x10, 0x1A, 0x24), 0),
+            new GradientStop(Color.FromArgb(0x34, 0x10, 0x1A, 0x24), 0.45),
+            new GradientStop(Color.FromArgb(0x12, 0x10, 0x1A, 0x24), 0.75),
+            new GradientStop(Color.FromArgb(0x00, 0x10, 0x1A, 0x24), 1)
+        ]
+    }));
+
+    /// <summary>
+    /// Ombre portée sous la scène (ajoutée en dernier : objet translucide), juste sous son point le plus bas. L'ellipse
+    /// déborde de l'emprise pour en couvrir les coins ; invisible vue de dessous.
+    /// </summary>
+    public static bool IsShadow(Model3D model) => model is GeometryModel3D g && ReferenceEquals(g.Material, ShadowMaterial);
+
+    /// <summary>Emprise de la scène sans l'ombre au sol (cadrage des caméras).</summary>
+    public static Rect3D BoundsOf(Model3D model)
+    {
+        if (model is not Model3DGroup group)
+        {
+            return model.Bounds;
+        }
+
+        var bounds = Rect3D.Empty;
+        foreach (var child in group.Children)
+        {
+            if (!IsShadow(child))
+            {
+                bounds.Union(child.Bounds);
+            }
+        }
+
+        return bounds;
+    }
+
+    private static void AddShadow(Model3DGroup root)
+    {
+        var b = root.Bounds;
+        if (b.IsEmpty || b.SizeX <= 0 || b.SizeY <= 0)
+        {
+            return;
+        }
+
+        double cx = b.X + b.SizeX / 2, cy = b.Y + b.SizeY / 2, z = b.Z - 0.001;
+        var spread = Math.Max(b.SizeX, b.SizeY) * 0.08;
+        double hx = b.SizeX * 0.75 + spread, hy = b.SizeY * 0.75 + spread;
+        var mesh = new MeshGeometry3D();
+        mesh.Positions.Add(new Point3D(cx - hx, cy - hy, z));
+        mesh.Positions.Add(new Point3D(cx + hx, cy - hy, z));
+        mesh.Positions.Add(new Point3D(cx + hx, cy + hy, z));
+        mesh.Positions.Add(new Point3D(cx - hx, cy + hy, z));
+        for (var i = 0; i < 4; i++)
+        {
+            mesh.Normals.Add(new Vector3D(0, 0, 1));
+        }
+
+        mesh.TextureCoordinates.Add(new System.Windows.Point(0, 0));
+        mesh.TextureCoordinates.Add(new System.Windows.Point(1, 0));
+        mesh.TextureCoordinates.Add(new System.Windows.Point(1, 1));
+        mesh.TextureCoordinates.Add(new System.Windows.Point(0, 1));
+        foreach (var i in new[] { 0, 1, 2, 0, 2, 3 })
+        {
+            mesh.TriangleIndices.Add(i);
+        }
+
+        mesh.Freeze();
+        root.Children.Add(new GeometryModel3D(mesh, ShadowMaterial));
     }
 
     // ------------------------------------------------------------------ Géométrie
@@ -621,8 +706,11 @@ public static class Scene3DBuilder
     }
 
     /// <summary>Cylindre d'axe <paramref name="axis"/> (0 = X, 1 = Y, 2 = Z) ; (cu, cv) = centre dans les deux axes suivants.</summary>
-    private static void AddCylinder(MeshGeometry3D mesh, int axis, double a0, double a1, double cu, double cv, double radius, int segments)
+    /// <param name="innerRadius">Tube creux : rayon de l'alésage (paroi intérieure et extrémités en couronne) ; 0 = plein.</param>
+    private static void AddCylinder(MeshGeometry3D mesh, int axis, double a0, double a1, double cu, double cv, double radius, int segments,
+        double innerRadius = 0)
     {
+        var hollow = innerRadius > 0 && innerRadius < radius * 0.98;
         var u = (axis + 1) % 3;
         var v = (axis + 2) % 3;
 
@@ -663,6 +751,45 @@ public static class Scene3DBuilder
             foreach (var idx in new[] { 0, 1, 2, 0, 2, 3 })
             {
                 mesh.TriangleIndices.Add(k + idx);
+            }
+
+            if (hollow)
+            {
+                // Paroi intérieure (normales vers l'axe) et extrémités en couronne.
+                var r = innerRadius;
+                var m = mesh.Positions.Count;
+                mesh.Positions.Add(P(a0, cu + r * c0, cv + r * s0));
+                mesh.Positions.Add(P(a0, cu + r * c1, cv + r * s1));
+                mesh.Positions.Add(P(a1, cu + r * c1, cv + r * s1));
+                mesh.Positions.Add(P(a1, cu + r * c0, cv + r * s0));
+                mesh.Normals.Add(N(-c0, -s0));
+                mesh.Normals.Add(N(-c1, -s1));
+                mesh.Normals.Add(N(-c1, -s1));
+                mesh.Normals.Add(N(-c0, -s0));
+                foreach (var idx in new[] { 0, 2, 1, 0, 3, 2 })
+                {
+                    mesh.TriangleIndices.Add(m + idx);
+                }
+
+                foreach (var (a, normal) in new[] { (a0, -axisVec), (a1, axisVec) })
+                {
+                    var j = mesh.Positions.Count;
+                    mesh.Positions.Add(P(a, cu + radius * c0, cv + radius * s0));
+                    mesh.Positions.Add(P(a, cu + radius * c1, cv + radius * s1));
+                    mesh.Positions.Add(P(a, cu + r * c1, cv + r * s1));
+                    mesh.Positions.Add(P(a, cu + r * c0, cv + r * s0));
+                    for (var n = 0; n < 4; n++)
+                    {
+                        mesh.Normals.Add(normal);
+                    }
+
+                    foreach (var idx in new[] { 0, 1, 2, 0, 2, 3 })
+                    {
+                        mesh.TriangleIndices.Add(j + idx);
+                    }
+                }
+
+                continue;
             }
 
             foreach (var (a, normal) in new[] { (a0, -axisVec), (a1, axisVec) })

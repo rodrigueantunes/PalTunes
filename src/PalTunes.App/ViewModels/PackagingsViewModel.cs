@@ -18,6 +18,9 @@ public sealed partial class LineViewModel : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ProfileText), nameof(SubtotalText), nameof(Subtotal))] private Article? _article;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(SubtotalText), nameof(Subtotal))] private int _quantity = 1;
 
+    /// <summary>Couleur de l'article dans les vues (légende de la ligne).</summary>
+    [ObservableProperty] private Brush? _viewBrush;
+
     public double Subtotal => (Article?.Weight ?? 0) * Math.Max(0, Quantity);
 
     public string SubtotalText => Article == null ? "" : $"{Subtotal.ToString(Formats.TotalWeight, Fr)} kg";
@@ -32,8 +35,12 @@ public sealed partial class LineViewModel : ObservableObject
                 return "";
             }
 
-            var p = StackingProfile.For(Article);
-            return $"{p.ZoneLabel} · porte {p.Capacity.ToString("0.#", Fr)} kg{(p.CapacityEntered ? "" : " (déduit)")}";
+            // Tube ou bobine sans axe imposé : posé debout dans les couches, c'est ce profil qui compte (couché, seuls des
+            // exemplaires identiques peuvent aller dessus).
+            var free = Article.Kind is ArticleKind.Tube or ArticleKind.Bobine && Article.CoilAxis == CoilAxis.Indifferent;
+            var p = free ? StackingProfile.For(Article, CoilAxis.Vertical) : StackingProfile.For(Article);
+            var capacity = p.Capacity < 10 ? p.Capacity.ToString("0.###", Fr) : p.Capacity.ToString("0.#", Fr);
+            return $"{p.ZoneLabel} · porte {capacity} kg{(p.CapacityEntered ? "" : " (déduit)")}{(free ? " debout ; couché : identiques seulement" : "")}";
         }
     }
 }
@@ -57,12 +64,12 @@ public sealed class SolutionViewModel(Solution s, Article? article)
     public string? PalletLine => Solution.DestinationPallet == null
         ? null
         : Solution.CasesPerPallet > 0
-            ? $"{Solution.CasesPerPallet} caisses / {Solution.DestinationPallet} → {Solution.ItemsPerPallet} produits / palette"
+            ? $"{Solution.CasesPerPallet.ToString("#,0", Fr)} caisses / {Solution.DestinationPallet} → {Solution.ItemsPerPallet.ToString("#,0", Fr)} produits / palette"
             : $"Non palettisable sur {Solution.DestinationPallet}";
 
     public string Headline => Solution.Kind == PackagingKind.Homogene
-        ? $"{Solution.ItemsPerUnit} {Noun(article?.Kind, Solution.ItemsPerUnit)}"
-        : $"{Solution.UnitCount} unité(s) · {Solution.TotalItems} produits";
+        ? $"{Solution.ItemsPerUnit.ToString("#,0", Fr)} {Noun(article?.Kind, Solution.ItemsPerUnit)}"
+        : $"{Solution.UnitCount} unité(s) · {Solution.TotalItems.ToString("#,0", Fr)} produits";
 
     public string Details
     {
@@ -114,15 +121,26 @@ public sealed partial class PackagingsViewModel : ObservableObject
         {
             foreach (LineViewModel l in e.NewItems ?? Array.Empty<LineViewModel>())
             {
-                l.PropertyChanged += (_, _) =>
+                l.PropertyChanged += (_, a) =>
                 {
+                    if (a.PropertyName == nameof(LineViewModel.ViewBrush))
+                    {
+                        return;
+                    }
+
                     OnPropertyChanged(nameof(LinesSummary));
                     MarkDirty();
+                    if (a.PropertyName == nameof(LineViewModel.Article))
+                    {
+                        BuildColorMap();
+                    }
                 };
             }
 
             OnPropertyChanged(nameof(LinesSummary));
+            BuildColorMap();
         };
+        _useArticleColors = main.Settings.Current.UseArticleColors;
         RefreshLists();
         Refresh();
     }
@@ -146,7 +164,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
             var count = Lines.Where(l => l.Article != null).Sum(l => Math.Max(0, l.Quantity));
             var capacity = Pallet == null ? 0 : BaseInfo.From(Pallet, PalletRotated, CountAlongLength, CountAlongWidth).DynamicCapacity;
             var max = Draft.Constraints.MaxLoadWeight > 0 ? Draft.Constraints.MaxLoadWeight : capacity;
-            return $"{count} produit(s) · {weight.ToString(Formats.TotalWeight, Fr)} kg" +
+            return $"{count.ToString("#,0", Fr)} produit(s) · {weight.ToString(Formats.TotalWeight, Fr)} kg" +
                    (max > 0 ? $" · charge admissible par unité {max.ToString("#,0", Fr)} kg" + (weight > max ? $" → au moins {Math.Ceiling(weight / max):0} unités" : "") : "");
         }
     }
@@ -165,16 +183,35 @@ public sealed partial class PackagingsViewModel : ObservableObject
 
     partial void OnFilterChanged(string value) => Refresh();
 
+    /// <summary>Conditionnements récents gardés dans l'écran de création (les autres : espace « Gestion des conditionnements »).</summary>
+    public const int RecentCount = 10;
+
+    /// <summary>« Récents » ou, pendant une recherche, le nombre de résultats (recherche sur tous les conditionnements).</summary>
+    [ObservableProperty] private string _listTitle = "Récents";
+
     public void Refresh()
     {
         var selected = SelectedPackaging?.Id;
         Packagings.Clear();
-        foreach (var p in _main.Db.Packagings
-                     .Where(p => Filter.Length == 0 || $"{p.Code} {p.Name} {_main.Db.FindArticle(p.ArticleId)?.Code} {_main.Db.ClientLabel(_main.Db.FindArticle(p.ArticleId)?.Client)}".Contains(Filter, StringComparison.CurrentCultureIgnoreCase))
-                     .OrderBy(p => p.Code, StringComparer.CurrentCultureIgnoreCase))
+        var matches = _main.Db.Packagings
+            .Where(p => Filter.Length == 0 || $"{p.Code} {p.Name} {_main.Db.FindArticle(p.ArticleId)?.Code} {_main.Db.ClientLabel(_main.Db.FindArticle(p.ArticleId)?.Client)}".Contains(Filter, StringComparison.CurrentCultureIgnoreCase))
+            .ToList();
+        var shown = Filter.Length == 0
+            ? matches.OrderByDescending(p => p.ModifiedAt).Take(RecentCount).ToList()
+            : matches.OrderBy(p => p.Code, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+        // Conditionnement ouvert depuis la gestion : toujours visible, même s'il n'est pas récent.
+        if (selected != null && shown.All(p => p.Id != selected) && _main.Db.Packagings.FirstOrDefault(p => p.Id == selected) is { } open)
+        {
+            shown.Insert(0, open);
+        }
+
+        foreach (var p in shown)
         {
             Packagings.Add(p);
         }
+
+        ListTitle = Filter.Length == 0 ? "Récents" : $"Résultats ({matches.Count})";
 
         if (selected != null && Packagings.FirstOrDefault(p => p.Id == selected) is { } again)
         {
@@ -186,6 +223,22 @@ public sealed partial class PackagingsViewModel : ObservableObject
         {
             SelectedPackaging = Packagings[0];
         }
+    }
+
+    /// <summary>Ouvre un conditionnement dans l'écran de création (depuis l'espace « Gestion des conditionnements »).</summary>
+    public void Open(Packaging p)
+    {
+        _main.SelectedSection = "Packagings";
+        Filter = "";
+        _loading = true;
+        SelectedPackaging = null;
+        _loading = false;
+        if (Packagings.All(x => x.Id != p.Id))
+        {
+            Packagings.Insert(0, p);
+        }
+
+        SelectedPackaging = Packagings.First(x => x.Id == p.Id);
     }
 
     public void RefreshLists()
@@ -229,7 +282,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText), nameof(ShowAxis), nameof(ArticleWarning))] private Article? _article;
 
     /// <summary>Poids unitaire impossible pour les dimensions (erreur de saisie ou d'unité).</summary>
-    public string? ArticleWarning => Article == null ? null : ArticleSchema.WeightWarning(Article);
+    public string? ArticleWarning => Article == null ? null : ArticleSchema.Warnings(Article);
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private PalletType? _pallet;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private bool _palletRotated;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private int _countAlongLength = 1;
@@ -259,8 +312,27 @@ public sealed partial class PackagingsViewModel : ObservableObject
         }
     }
 
-    partial void OnKindChanged(PackagingKind value) => MarkDirty();
-    partial void OnArticleChanged(Article? value) => MarkDirty();
+    partial void OnKindChanged(PackagingKind value)
+    {
+        MarkDirty();
+        BuildColorMap();
+    }
+    partial void OnArticleChanged(Article? value)
+    {
+        MarkDirty();
+        BuildColorMap();
+    }
+
+    /// <summary>« Couleur d'origine » : couleurs des fiches articles ; décochée (par défaut), couleurs bien distinctes.</summary>
+    [ObservableProperty] private bool _useArticleColors;
+
+    partial void OnUseArticleColorsChanged(bool value)
+    {
+        _main.Settings.Current.UseArticleColors = value;
+        _main.Settings.Save();
+        BuildColorMap();
+        RebuildScene();
+    }
     partial void OnPalletChanged(PalletType? value) => MarkDirty();
     partial void OnPalletRotatedChanged(bool value) => MarkDirty();
     partial void OnCountAlongLengthChanged(int value) => MarkDirty();
@@ -312,6 +384,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
         Picker.Sync();
         _loading = false;
         IsDirty = isNew;
+        BuildColorMap();
         ClearSolutions();
     }
 
@@ -675,13 +748,37 @@ public sealed partial class PackagingsViewModel : ObservableObject
         }
     }
 
-    public IReadOnlyList<PoseRow> PoseRows =>
-        CurrentUnit?.Items.OrderBy(p => p.Sequence).Select(p =>
+    public IReadOnlyList<PoseRow> PoseRows
+    {
+        get
         {
-            var a = _main.Db.FindArticle(p.ArticleId);
-            return new PoseRow(p.Sequence, a?.Code ?? "", a?.Designation ?? "", p.Layer, Math.Round(p.X), Math.Round(p.Y), Math.Round(p.Z),
-                $"{p.DX:0} × {p.DY:0} × {p.DZ:0}", p.Weight, a == null ? "" : StackingProfile.For(a).ZoneLabel);
-        }).ToList() ?? [];
+            if (CurrentUnit is not { } unit)
+            {
+                return [];
+            }
+
+            // Article et zone conseillée calculés une fois par article (des dizaines de milliers de lignes possibles).
+            var info = new Dictionary<Guid, (string Code, string Designation, string Zone)>();
+            (string Code, string Designation, string Zone) Info(Guid id)
+            {
+                if (!info.TryGetValue(id, out var v))
+                {
+                    var a = _main.Db.FindArticle(id);
+                    v = (a?.Code ?? "", a?.Designation ?? "", a == null ? "" : StackingProfile.For(a).ZoneLabel);
+                    info[id] = v;
+                }
+
+                return v;
+            }
+
+            return unit.Items.OrderBy(p => p.Sequence).Select(p =>
+            {
+                var (code, designation, zone) = Info(p.ArticleId);
+                return new PoseRow(p.Sequence, code, designation, p.Layer, Math.Round(p.X), Math.Round(p.Y), Math.Round(p.Z),
+                    $"{p.DX:0} × {p.DY:0} × {p.DZ:0}", p.Weight, zone);
+            }).ToList();
+        }
+    }
 
     public IReadOnlyList<LayerRow> LayerRows =>
         CurrentUnit?.Layers.Select(l => new LayerRow(l.Index, l.Pattern, l.Count, l.Z, l.Height,
@@ -706,16 +803,44 @@ public sealed partial class PackagingsViewModel : ObservableObject
     [RelayCommand]
     private void LayerDown() => PlanLayer = Math.Max(1, PlanLayer - 1);
 
+    /// <summary>
+    /// Couleurs des articles dans les vues : par défaut bien distinctes, attribuées dans l'ordre des lignes du
+    /// conditionnement affiché ; « Couleur d'origine » : couleurs des fiches articles.
+    /// </summary>
     public void BuildColorMap()
     {
         var map = new Dictionary<Guid, Color>();
-        var i = 0;
-        foreach (var a in _main.Db.Articles)
+        if (UseArticleColors)
         {
-            map[a.Id] = ArticleColors.Parse(a.Color, ArticleColors.ByIndex(i++));
+            var i = 0;
+            foreach (var a in _main.Db.Articles)
+            {
+                map[a.Id] = ArticleColors.Parse(a.Color, ArticleColors.ByIndex(i++));
+            }
+        }
+        else
+        {
+            var k = 0;
+            var order = Kind == PackagingKind.Homogene ? [Article] : Lines.Select(l => l.Article);
+            foreach (var a in order)
+            {
+                if (a != null && !map.ContainsKey(a.Id))
+                {
+                    map[a.Id] = ArticleColors.DistinctByIndex(k++);
+                }
+            }
+
+            foreach (var a in _main.Db.Articles)
+            {
+                map.TryAdd(a.Id, ArticleColors.DistinctByIndex(k++));
+            }
         }
 
         ColorMap = map;
+        foreach (var line in Lines)
+        {
+            line.ViewBrush = line.Article != null && map.TryGetValue(line.Article.Id, out var c) ? new SolidColorBrush(c) : null;
+        }
     }
 
     private void RebuildScene()
@@ -782,6 +907,48 @@ public sealed partial class PackagingsViewModel : ObservableObject
 
         var p = BuildPackaging();
         PrintService.PrintSheet(p, s, CurrentUnit ?? s.FirstUnit!, _main.Db, ColorMap);
+    }
+
+    /// <summary>Fiche palette : une solution est affichée.</summary>
+    public bool CanPrintPalletSheet => CurrentSolution != null;
+
+    /// <summary>Fiche de colisage : conditionnement homogène d'un article caisse créé au colisage (produit connu).</summary>
+    public bool CanPrintCaseSheet => IsHomogeneous && CaseEngine.CanRebuild(Article, id => _main.Db.FindArticle(id));
+
+    /// <summary>Fiche de conditionnement : fiche de colisage et fiche palette possibles.</summary>
+    public bool CanPrintPackagingSheet => CanPrintCaseSheet && CanPrintPalletSheet;
+
+    private CaseEngine.CaseSheet? RebuildCaseSheet()
+    {
+        var sheet = Article is { } box ? CaseEngine.Rebuild(box, id => _main.Db.FindArticle(id), _main.Db.Cases) : null;
+        if (sheet == null)
+        {
+            _main.ShowToast("Colisage impossible à recalculer : le produit ne tient plus dans la caisse (fiche produit ou caisse modifiée ?).", "Warning");
+        }
+
+        return sheet;
+    }
+
+    public void PrintCaseSheet()
+    {
+        if (Article is { } box && RebuildCaseSheet() is { } sheet)
+        {
+            PrintService.PrintCaseSheet(sheet, box.Code, _main.Db, _main.ColorsFor(sheet.Content));
+        }
+    }
+
+    public void PrintPackagingSheet()
+    {
+        if (CurrentSolution is not { } s)
+        {
+            _main.ShowToast("Calculez puis choisissez une solution à imprimer.", "Warning");
+            return;
+        }
+
+        if (Article is { } box && RebuildCaseSheet() is { } sheet)
+        {
+            PrintService.PrintPackagingSheet(sheet, box, BuildPackaging(), s, CurrentUnit ?? s.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content), ColorMap);
+        }
     }
 }
 

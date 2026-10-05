@@ -15,11 +15,18 @@ public sealed partial class TreeNode : ObservableObject
     public string Header { get; init; } = "";
     public string Glyph { get; init; } = "";
     public Article? Article { get; init; }
+
+    /// <summary>Conditionnement (espace « Gestion des conditionnements »).</summary>
+    public Packaging? Packaging { get; init; }
+
+    /// <summary>Texte secondaire d'une feuille (désignation de l'article, nom du conditionnement).</summary>
+    public string? Subtitle { get; init; }
+
     public ObservableCollection<TreeNode> Children { get; } = [];
     public int Count { get; set; }
     public string? Detail { get; init; }
     public string? Color { get; init; }
-    public bool IsGroup => Article == null;
+    public bool IsGroup => Article == null && Packaging == null;
 
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isSelected;
@@ -35,7 +42,7 @@ public sealed partial class ArticlesViewModel : ObservableObject
     {
         _main = main;
         _grouping = Groupings.FirstOrDefault(g => g.Key == main.Settings.Current.TreeGrouping) ?? Groupings[0];
-        Editor = new ArticleEditor();
+        Editor = new ArticleEditor { FindArticle = id => _main.Db.FindArticle(id) };
         Editor.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName is not (nameof(ArticleEditor.Errors) or nameof(ArticleEditor.IsDirty)))
@@ -172,6 +179,7 @@ public sealed partial class ArticlesViewModel : ObservableObject
                     target.Add(new TreeNode
                     {
                         Header = a.Code,
+                        Subtitle = a.Designation,
                         Detail = $"{a.Designation}{(string.IsNullOrWhiteSpace(a.Designation) ? "" : " · ")}{a.DimensionsText}",
                         Glyph = ArticleSchema.KindGlyph(a.Kind),
                         Article = a,
@@ -216,7 +224,7 @@ public sealed partial class ArticlesViewModel : ObservableObject
         Editor.ApplyTo(a);
         var color = ArticleColors.Parse(a.Color, Color.FromRgb(0x5D, 0xAD, 0xE2));
         Preview = Scene3DBuilder.BuildArticle(a, color).Root;
-        WeightWarning = ArticleSchema.WeightWarning(a);
+        WeightWarning = ArticleSchema.Warnings(a);
     }
 
     [RelayCommand]
@@ -390,7 +398,7 @@ public sealed partial class ArticleEditor : ObservableObject
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Fields), nameof(KindDescription), nameof(UsesOrientation), nameof(UsesCoilAxis),
         nameof(ShowLength), nameof(ShowWidth), nameof(ShowHeight), nameof(ShowDiameter), nameof(ShowInnerDiameter), nameof(ShowFoldedLength), nameof(ShowFoldedWidth), nameof(ShowFoldedHeight),
-        nameof(LengthLabel), nameof(WidthLabel), nameof(HeightLabel), nameof(DiameterLabel), nameof(InnerDiameterLabel), nameof(FoldedLengthLabel), nameof(FoldedWidthLabel), nameof(FoldedHeightLabel), nameof(Title))]
+        nameof(LengthLabel), nameof(WidthLabel), nameof(HeightLabel), nameof(DiameterLabel), nameof(InnerDiameterLabel), nameof(FoldedLengthLabel), nameof(FoldedWidthLabel), nameof(FoldedHeightLabel), nameof(Title), nameof(ShowQuantityPerCase))]
     private ArticleKind _kind;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _code = "";
@@ -403,6 +411,10 @@ public sealed partial class ArticleEditor : ObservableObject
     [ObservableProperty] private double _foldedLength;
     [ObservableProperty] private double _foldedWidth;
     [ObservableProperty] private double _foldedHeight;
+
+    /// <summary>Caisse / carton : nombre de produits contenus (facultatif).</summary>
+    [ObservableProperty] private int? _quantityPerCase;
+
     [ObservableProperty] private double _weight;
     [ObservableProperty] private OrientationRule _orientation;
     [ObservableProperty] private CoilAxis _coilAxis;
@@ -418,6 +430,14 @@ public sealed partial class ArticleEditor : ObservableObject
     [ObservableProperty] private string? _notes;
 
     public IReadOnlyList<string> Swatches => ArticleColors.Swatches;
+
+    /// <summary>Recherche d'un article de la base (contenu d'une caisse créée au colisage).</summary>
+    public Func<Guid, Article?>? FindArticle { get; init; }
+
+    /// <summary>Caisse créée au colisage : « Contient 24 × ART-001 – … · caisse CAR-01 » ; vide sinon.</summary>
+    [ObservableProperty] private string? _caseContentText;
+
+    public bool ShowQuantityPerCase => Kind == ArticleKind.Caisse;
     public IReadOnlyList<OrientationRule> Orientations { get; } = Enum.GetValues<OrientationRule>();
     public IReadOnlyList<CoilAxis> Axes { get; } = Enum.GetValues<CoilAxis>();
 
@@ -511,6 +531,11 @@ public sealed partial class ArticleEditor : ObservableObject
         FoldedLength = a.FoldedLength;
         FoldedWidth = a.FoldedWidth;
         FoldedHeight = a.FoldedHeight;
+        QuantityPerCase = a.QuantityPerCase;
+        CaseContentText = a is { Kind: ArticleKind.Caisse, CaseContent: { } link }
+            ? $"Créée au colisage : {(FindArticle?.Invoke(link.ArticleId)?.DisplayName ?? "produit supprimé de la base")}" +
+              $" · caisse {link.CaseTypeCode ?? $"spécifique {link.InnerLength:0} × {link.InnerWidth:0} × {link.InnerHeight:0} mm (intérieur)"}"
+            : null;
         Weight = a.Weight;
         Orientation = a.Orientation;
         CoilAxis = a.CoilAxis;
@@ -562,6 +587,7 @@ public sealed partial class ArticleEditor : ObservableObject
         a.FoldedLength = ShowFoldedLength ? FoldedLength : 0;
         a.FoldedWidth = ShowFoldedWidth ? FoldedWidth : 0;
         a.FoldedHeight = ShowFoldedHeight ? FoldedHeight : 0;
+        a.QuantityPerCase = ShowQuantityPerCase ? QuantityPerCase : null;
         a.Weight = Weight;
         a.Orientation = Orientation;
         a.CoilAxis = CoilAxis;

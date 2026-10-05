@@ -171,7 +171,7 @@
 
         <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="6" Padding="0">
             <Grid>
-                <h:HelixViewport3D x:Name="Preview" Background="#F4F7F9" ShowViewCube="True" IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
+                <h:HelixViewport3D x:Name="Preview" Background="{StaticResource Viewport3DBrush}" ZoomAroundMouseDownPoint="True" ShowViewCube="True" IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
                     <h:HelixViewport3D.Camera>
                         <PerspectiveCamera FieldOfView="30" />
                     </h:HelixViewport3D.Camera>

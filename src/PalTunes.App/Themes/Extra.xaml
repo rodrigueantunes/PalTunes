@@ -31,8 +31,15 @@
                         <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="#B6C3CD" />
+                        </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="#FBFDFF" />
+                        </Trigger>
+                        <Trigger Property="IsReadOnly" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#F6F8FA" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.55" />
@@ -75,16 +82,17 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource PanelDarkBrush}" />
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PanelDarkBrush}" />
-                            <Setter TargetName="Cp" Property="TextElement.Foreground" Value="White" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource PrimarySoftBrush}" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+                            <Setter TargetName="Cp" Property="TextElement.Foreground" Value="{StaticResource PrimaryDarkBrush}" />
+                            <Setter TargetName="Cp" Property="TextElement.FontWeight" Value="SemiBold" />
                         </Trigger>
                         <MultiTrigger>
                             <MultiTrigger.Conditions>
                                 <Condition Property="IsMouseOver" Value="True" />
                                 <Condition Property="IsChecked" Value="False" />
                             </MultiTrigger.Conditions>
-                            <Setter TargetName="Bd" Property="Background" Value="#E8F1F8" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
                         </MultiTrigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.45" />
@@ -103,15 +111,22 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="12,10">
-                        <ContentPresenter VerticalAlignment="Center" />
-                    </Border>
+                    <Grid>
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="8" Padding="12,10">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <Border x:Name="Accent" Width="3.5" CornerRadius="2" HorizontalAlignment="Left" Margin="0,8"
+                                Background="{StaticResource PrimaryBrush}" Visibility="Hidden" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#3D5A73" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource NavHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource PrimaryBrush}" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource NavActiveBrush}" />
+                            <Setter TargetName="Accent" Property="Visibility" Value="Visible" />
+                            <Setter Property="Foreground" Value="White" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -132,22 +147,27 @@
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="Bd" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
-                                        CornerRadius="9" Padding="10,8" Margin="0,0,0,6">
-                                    <ContentPresenter />
-                                </Border>
+                                <Grid Margin="0,0,0,6">
+                                    <Border x:Name="Bd" Background="White" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
+                                            CornerRadius="9" Padding="10,8">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <Border x:Name="Accent" Width="3.5" CornerRadius="2" HorizontalAlignment="Left" Margin="1,8"
+                                            Background="{StaticResource PrimaryBrush}" Visibility="Hidden" />
+                                </Grid>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsSelected" Value="True">
                                         <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
-                                        <Setter TargetName="Bd" Property="BorderThickness" Value="2" />
-                                        <Setter TargetName="Bd" Property="Background" Value="#F2F8FD" />
+                                        <Setter TargetName="Bd" Property="Background" Value="{StaticResource PrimarySoftBrush}" />
+                                        <Setter TargetName="Accent" Property="Visibility" Value="Visible" />
                                     </Trigger>
                                     <MultiTrigger>
                                         <MultiTrigger.Conditions>
                                             <Condition Property="IsMouseOver" Value="True" />
                                             <Condition Property="IsSelected" Value="False" />
                                         </MultiTrigger.Conditions>
-                                        <Setter TargetName="Bd" Property="Background" Value="#F7FAFC" />
+                                        <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
+                                        <Setter TargetName="Bd" Property="BorderBrush" Value="#C9D6E0" />
                                     </MultiTrigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>

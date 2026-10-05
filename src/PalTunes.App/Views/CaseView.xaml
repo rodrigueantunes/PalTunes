@@ -51,6 +51,13 @@
                                     <TextBlock Text="Créer et palettiser la caisse" />
                                 </StackPanel>
                             </Button>
+                            <Button Style="{StaticResource OutlineButton}" Command="{Binding DataContext.PrintCaseSheetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    ToolTip="Fiche de colisage du résultat affiché (produit, caisse, quantité par caisse, plans, vue 3D)">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,8,0" />
+                                    <TextBlock Text="Imprimer la fiche de colisage" />
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
 
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -248,6 +255,8 @@
                     <TextBlock DockPanel.Dock="Top" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8">
                         <Run Text="Solutions" /> <Run Text="{Binding Solutions.Count, Mode=OneWay}" Foreground="{StaticResource MutedBrush}" FontWeight="Normal" />
                     </TextBlock>
+                    <TextBlock DockPanel.Dock="Top" Text="Calcul en cours…" Style="{StaticResource Muted}" Margin="0,0,0,6"
+                               Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
                     <ListBox Style="{StaticResource HCardListBox}" ItemsSource="{Binding Solutions}" SelectedItem="{Binding SelectedSolution}" MinHeight="40">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
@@ -256,7 +265,7 @@
                                             Visibility="{Binding Recommended, Converter={StaticResource BoolToVisibility}}">
                                         <TextBlock Text="★ Recommandée" FontSize="10.5" Foreground="White" FontWeight="SemiBold" />
                                     </Border>
-                                    <TextBlock Text="{Binding Headline}" FontSize="17" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Headline}" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding BaseLabel}" FontSize="11.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding PalletLine}" FontSize="11.5" Foreground="{StaticResource PrimaryBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                                ToolTip="{Binding PalletLine}" Visibility="{Binding PalletLine, Converter={StaticResource NotNullToVisibility}}" />
@@ -287,7 +296,7 @@
                 </Grid.RowDefinitions>
                 <Border Grid.RowSpan="2" Style="{StaticResource CardStyle}" Margin="0,0,6,0" Padding="0">
                     <Grid ClipToBounds="True">
-                        <h:HelixViewport3D x:Name="Viewport" Background="#F7F9F9" ShowViewCube="True" IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
+                        <h:HelixViewport3D x:Name="Viewport" Background="{StaticResource Viewport3DBrush}" ZoomAroundMouseDownPoint="True" ShowViewCube="True" IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
                             <h:HelixViewport3D.Camera>
                                 <PerspectiveCamera FieldOfView="30" />
                             </h:HelixViewport3D.Camera>

@@ -63,6 +63,8 @@ public sealed class PlanView2D : FrameworkElement
     private static readonly Pen CasePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x8D, 0x6E, 0x63)), 2));
     private static readonly Brush ClosedCaseFill = Frozen(new SolidColorBrush(Color.FromRgb(0xD9, 0xB8, 0x84)));
     private static readonly Brush TapeBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xC0, 0xF0, 0xE0, 0xB8)));
+    private static readonly Brush HollowBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xFB, 0xF8, 0xF2)));
+    private static readonly Pen BorePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xB0, 0x34, 0x49, 0x5E)), 0.9) { DashStyle = DashStyles.Dash });
     private static readonly Pen FoldPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x8D, 0x6E, 0x63)), 1) { DashStyle = DashStyles.Dash });
     private static readonly Pen FilmPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x17, 0xA5, 0x89)), 1.6) { DashStyle = DashStyles.Dash });
     private static readonly Brush StrapBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xD0, 0x1F, 0x61, 0x8D)));
@@ -364,9 +366,10 @@ public sealed class PlanView2D : FrameworkElement
         {
             var center = P(p.X + p.DX / 2, p.Y + p.DY / 2);
             dc.DrawEllipse(fill, pen, center, p.DX / 2 * _scale, p.DY / 2 * _scale);
-            if (fill != null && p.DX * _scale > 24)
+            if (fill != null && p.InnerDiameter > 0)
             {
-                dc.DrawEllipse(Brushes.White, pen, center, p.DX * 0.08 * _scale, p.DY * 0.08 * _scale);
+                // Tube ou bobine creux vu en bout : le creux est visible.
+                dc.DrawEllipse(HollowBrush, pen, center, p.InnerDiameter / 2 * _scale, p.InnerDiameter / 2 * _scale);
             }
 
             return;
@@ -381,6 +384,18 @@ public sealed class PlanView2D : FrameworkElement
                 ? (P(p.X, p.Y + p.DY / 2), P(p.MaxX, p.Y + p.DY / 2))
                 : (P(p.X + p.DX / 2, p.Y), P(p.X + p.DX / 2, p.MaxY));
             dc.DrawLine(BelowPen, mid.Item1, mid.Item2);
+            if (p.InnerDiameter > 0)
+            {
+                // Tube creux vu de côté : alésage en traits interrompus.
+                var r = p.InnerDiameter / 2;
+                foreach (var k in new[] { -r, r })
+                {
+                    var bore = p.Shape == ShapeKind.CylinderX
+                        ? (P(p.X, p.Y + p.DY / 2 + k), P(p.MaxX, p.Y + p.DY / 2 + k))
+                        : (P(p.X + p.DX / 2 + k, p.Y), P(p.X + p.DX / 2 + k, p.MaxY));
+                    dc.DrawLine(BorePen, bore.Item1, bore.Item2);
+                }
+            }
         }
     }
 
@@ -461,13 +476,30 @@ public sealed class PlanView2D : FrameworkElement
             var circle = (side && p.Shape == ShapeKind.CylinderY) || (!side && p.Shape == ShapeKind.CylinderX);
             if (circle)
             {
-                dc.DrawEllipse(brush, OutlinePen, P((a0 + a1) / 2, p.Z + p.DZ / 2), (a1 - a0) / 2 * _scale, p.DZ / 2 * _scale);
+                var center = P((a0 + a1) / 2, p.Z + p.DZ / 2);
+                dc.DrawEllipse(brush, OutlinePen, center, (a1 - a0) / 2 * _scale, p.DZ / 2 * _scale);
+                if (p.InnerDiameter > 0)
+                {
+                    dc.DrawEllipse(HollowBrush, OutlinePen, center, p.InnerDiameter / 2 * _scale, p.InnerDiameter / 2 * _scale);
+                }
             }
             else
             {
                 var rect = R(a0, p.Z, a1, p.MaxZ);
                 rect.Inflate(-0.4, -0.4);
                 dc.DrawRectangle(brush, OutlinePen, rect);
+                if (p.InnerDiameter > 0 && p.Shape is ShapeKind.CylinderX or ShapeKind.CylinderY or ShapeKind.CylinderZ)
+                {
+                    // Tube creux vu de côté : alésage en traits interrompus, le long de l'axe.
+                    var r = p.InnerDiameter / 2;
+                    foreach (var k in new[] { -r, r })
+                    {
+                        var bore = p.Shape == ShapeKind.CylinderZ
+                            ? (P((a0 + a1) / 2 + k, p.Z), P((a0 + a1) / 2 + k, p.MaxZ))
+                            : (P(a0, p.Z + p.DZ / 2 + k), P(a1, p.Z + p.DZ / 2 + k));
+                        dc.DrawLine(BorePen, bore.Item1, bore.Item2);
+                    }
+                }
             }
         }
 

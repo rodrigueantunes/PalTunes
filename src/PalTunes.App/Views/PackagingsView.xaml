@@ -71,34 +71,44 @@
                         </Button>
                     </WrapPanel>
                 </StackPanel>
-                <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding Packagings}" SelectedItem="{Binding SelectedPackaging}">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel>
-                                <DockPanel>
-                                    <Border DockPanel.Dock="Right" Margin="6,0,0,0">
-                                        <Border.Style>
-                                            <Style TargetType="Border" BasedOn="{StaticResource Badge}">
-                                                <Setter Property="Background" Value="#EAF2F8" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding Kind}" Value="Heterogene">
-                                                        <Setter Property="Background" Value="#F4ECF7" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <TextBlock Text="{Binding KindLabel}" FontSize="10.5" Foreground="{StaticResource TextBrush}" />
-                                    </Border>
-                                    <TextBlock Text="{Binding Code}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                </DockPanel>
-                                <TextBlock Text="{Binding Name}" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock FontSize="11" Foreground="{StaticResource SuccessBrush}" Visibility="{Binding Solution, Converter={StaticResource NotNullToVisibility}}">
-                                    <Run Text="✓ " /><Run Text="{Binding Solution.Title, Mode=OneWay}" />
-                                </TextBlock>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Expander IsExpanded="True" ToolTip="Les 10 derniers conditionnements modifiés ; tous les autres : espace « Gestion des conditionnements »">
+                    <Expander.Header>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Padding="4,0" Content="Tout voir"
+                                    Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="PackagingLibrary"
+                                    ToolTip="Espace « Gestion des conditionnements » (Ctrl+7)" />
+                            <TextBlock Text="{Binding ListTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </DockPanel>
+                    </Expander.Header>
+                    <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding Packagings}" SelectedItem="{Binding SelectedPackaging}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Right" Margin="6,0,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border" BasedOn="{StaticResource Badge}">
+                                                    <Setter Property="Background" Value="#EAF2F8" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Kind}" Value="Heterogene">
+                                                            <Setter Property="Background" Value="#F4ECF7" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding KindLabel}" FontSize="10.5" Foreground="{StaticResource TextBrush}" />
+                                        </Border>
+                                        <TextBlock Text="{Binding Code}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
+                                    <TextBlock Text="{Binding Name}" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock FontSize="11" Foreground="{StaticResource SuccessBrush}" Visibility="{Binding Solution, Converter={StaticResource NotNullToVisibility}}">
+                                        <Run Text="✓ " /><Run Text="{Binding Solution.Title, Mode=OneWay}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Expander>
             </DockPanel>
         </Border>
 
@@ -142,7 +152,7 @@
                                             <TextBlock Text="⚠" FontSize="10.5" Foreground="#B9770E" />
                                         </Border>
                                     </StackPanel>
-                                    <TextBlock Text="{Binding Headline}" FontSize="17" FontWeight="Bold" />
+                                    <TextBlock Text="{Binding Headline}" FontSize="17" FontWeight="Bold" TextWrapping="Wrap" />
                                     <TextBlock Text="{Binding Details}" FontSize="11.5" TextTrimming="CharacterEllipsis" ToolTip="{Binding Details}" />
                                     <TextBlock Text="{Binding Orientation}" FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Orientation}" />
                                     <TextBlock Text="{Binding BaseLabel}" FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
@@ -184,11 +194,14 @@
                 </StackPanel>
             </Border>
 
+            <CheckBox Grid.Row="2" Style="{StaticResource FormCheck}" Panel.ZIndex="1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,18,0"
+                      Content="Couleur d'origine" IsChecked="{Binding UseArticleColors}"
+                      ToolTip="Coché : couleurs des fiches articles. Décoché (par défaut) : couleurs bien distinctes par article, dans l'ordre des lignes" />
             <TabControl Grid.Row="2" Margin="8,4,8,6">
                 <TabItem Header="Vue 3D">
                     <Border Style="{StaticResource CardStyle}" Margin="0" Padding="0">
                         <Grid ClipToBounds="True">
-                            <h:HelixViewport3D x:Name="Viewport" Background="#F7F9F9" ShowViewCube="True" ShowCoordinateSystem="False"
+                            <h:HelixViewport3D x:Name="Viewport" Background="{StaticResource Viewport3DBrush}" ZoomAroundMouseDownPoint="True" ShowViewCube="True" ShowCoordinateSystem="False"
                                                IsHeadLightEnabled="True" ModelUpDirection="0,0,1"
                                                MouseMove="Viewport_MouseMove" MouseLeave="Viewport_MouseLeave" ShowFrameRate="False">
                                 <h:HelixViewport3D.Camera>
@@ -449,7 +462,10 @@
                                                     Command="{Binding DataContext.RemoveLineCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
                                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" />
                                             </Button>
-                                            <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="60" Margin="5,0,0,0" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, Delay=300}" />
+                                            <Border DockPanel.Dock="Left" Width="6" CornerRadius="3" Margin="0,2,6,14" Background="{Binding ViewBrush}"
+                                                    ToolTip="Couleur de l'article dans les vues" />
+                                            <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="86" Margin="5,0,0,0" Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, Delay=300}"
+                                                     ToolTip="Quantité (jusqu'à plusieurs centaines de milliers)" />
                                             <StackPanel>
                                                 <ComboBox Style="{StaticResource FormCombo}" SelectedItem="{Binding Article}" ItemTemplate="{StaticResource ArticleItem}"
                                                           ItemsSource="{Binding DataContext.Picker.Articles, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource OwnView}}"

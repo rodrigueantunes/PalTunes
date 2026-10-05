@@ -96,7 +96,7 @@
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <TextBlock Text="{Binding Article.Designation}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0"
+                                    <TextBlock Text="{Binding Subtitle}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0"
                                                FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="190" />
                                 </StackPanel>
                             </DockPanel>
@@ -220,7 +220,14 @@
                                     <TextBlock Style="{StaticResource FormLabel}" Text="{Binding FoldedHeightLabel}" />
                                     <TextBox Style="{StaticResource NumBox}" Text="{Binding FoldedHeight}" />
                                 </StackPanel>
+                                <StackPanel Margin="0,0,10,0" Visibility="{Binding ShowQuantityPerCase, Converter={StaticResource BoolToVisibility}}"
+                                            ToolTip="Facultatif : nombre de produits dans la caisse. Renseigné à la création d'une caisse au colisage ; la fiche palette indique alors aussi les produits par palette.">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Quantité par caisse" />
+                                    <TextBox Style="{StaticResource NumBox}" Text="{Binding QuantityPerCase, TargetNullValue=''}" />
+                                </StackPanel>
                             </UniformGrid>
+                            <TextBlock Style="{StaticResource Muted}" Text="{Binding CaseContentText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding CaseContentText, Converter={StaticResource NotNullToVisibility}}" />
                             <TextBlock Text="{Binding DataContext.WeightWarning, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                        Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
                                        Visibility="{Binding DataContext.WeightWarning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource NotNullToVisibility}}" />
@@ -378,7 +385,7 @@
                             </TextBlock>
                         </StackPanel>
                         <Border CornerRadius="10" Background="White" ClipToBounds="True">
-                            <h:HelixViewport3D x:Name="Preview" Background="White" ShowViewCube="False"
+                            <h:HelixViewport3D x:Name="Preview" Background="{StaticResource Viewport3DBrush}" ZoomAroundMouseDownPoint="True" ShowViewCube="False"
                                                IsHeadLightEnabled="True" ModelUpDirection="0,0,1" ShowCoordinateSystem="True" CoordinateSystemLabelForeground="#7F8C8D">
                                 <h:DefaultLights />
                                 <ModelVisual3D Content="{Binding Preview}" />

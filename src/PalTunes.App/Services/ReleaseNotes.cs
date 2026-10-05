@@ -7,6 +7,54 @@ public static class ReleaseNotes
 {
     public static IReadOnlyList<ReleaseNote> All { get; } =
     [
+        new("0.1.3", "Quantité par caisse et trois fiches d'impression",
+        [
+            "Quantité par caisse sur l'article caisse / carton (facultative) : renseignée automatiquement quand une caisse est créée au colisage, modifiable sur la fiche article. Non renseignée, rien ne change.",
+            "Renseignée, la fiche palette d'une caisse indique la quantité par caisse et les produits contenus par palette (caisses × quantité) ; l'export des conditionnements aussi (deux colonnes en fin de ligne).",
+            "Import / export CSV : colonne facultative QTE_PAR_CAISSE (synonymes PCB, QTE_CAISSE…), entier > 0 ; cellule vide = quantité effacée, colonne absente = conservée.",
+            "« Imprimer la fiche » devient « Imprimer la fiche palette » (Ctrl+P), même fonctionnement.",
+            "Nouvelle « Imprimer la fiche de colisage » : produit, caisse (référence, dimensions intérieures et extérieures, paroi, matière), quantité par caisse, couches, poids brut, palettisation des caisses, plans de couche, côté, face et vue 3D de la caisse ouverte. Aussi depuis l'espace Colisage (bouton sous le calcul).",
+            "Nouvelle « Imprimer la fiche de conditionnement » : fiche de colisage puis fiche palette, en un seul document.",
+            "Les boutons d'impression sont grisés et non cliquables quand la fiche n'est pas possible pour l'article (survol : explication). Espace Colisage : le colisage affiché, la fiche palette montrant les caisses sur la palette de destination. Ailleurs : le conditionnement affiché ; la fiche de colisage demande un article caisse créé au colisage.",
+            "Une caisse créée au colisage retient son produit et sa caisse : sa fiche article l'indique (« Créée au colisage : … »)."
+        ]),
+        new("0.1.2", "Vues 3D sans déformation",
+        [
+            "Zoom avant limité : la caméra s'arrête avant d'entrer dans le volume de la palette. Plus de perspective déformée (palette en pointe, produits étirés) ni de produits coupés en zoomant de près ; le zoom arrière est limité aussi pour ne pas perdre la palette.",
+            "Le zoom se fait vers le point sous la souris : on s'approche directement du détail visé.",
+            "Champ de vision fixe (30°) : il ne peut plus être modifié par erreur au clavier et à la souris.",
+            "Plans de découpe recalculés à chaque mouvement : rien n'est coupé, profondeur plus précise (moins de scintillement entre faces voisines).",
+            "Visuel : ombre douce au sol sous la palette, la caisse, l'article ou la palette du catalogue ; fond en dégradé clair commun à toutes les vues 3D, fiche imprimée comprise pour l'ombre."
+        ]),
+        new("0.1.1","Gestion des conditionnements, couleurs distinctes, nouveau thème",
+        [
+            "Nouvel espace « Gestion des conditionnements » (Ctrl+7) : tous les conditionnements rangés comme les articles (client › famille › sous-famille, famille › type, type › client ou liste), recherche, fiche résumée (client, contenu, palette, solution enregistrée, dates) et aperçu 3D ; Ouvrir (ou double-clic), Dupliquer, Supprimer.",
+            "Écran Conditionnements allégé : seuls les 10 derniers conditionnements modifiés sont listés (« Récents », repliable par la flèche, ouvert par défaut) ; une recherche porte sur tous ; « Tout voir » ouvre l'espace de gestion.",
+            "Couleurs : chaque article d'un conditionnement reçoit une couleur bien distincte des autres (vues 3D, 2D, légende, pastille de chaque ligne). La case « Couleur d'origine » (décochée par défaut, mémorisée) reprend les couleurs des fiches articles.",
+            "Hétérogène : des produits posés un à un pouvaient ne pas trouver place sur le dessus de tubes debout (palettes à moitié remplies, sans explication). Les centres des dessus libres sont maintenant proposés : exemple 1 000 + 3 000 bagues et 100 tubes → 2 palettes conformes au lieu de 3 à 49 %.",
+            "Hétérogène : les trois stratégies sont calculées jusqu'à 20 000 produits à mélanger (3 000 auparavant) ; « Piles par article » donne souvent nettement moins de palettes quand les références sont nombreuses.",
+            "Profil de gerbage d'un tube « position indifférente » : le profil debout est affiché, avec la règle couchée (« couché : identiques seulement »).",
+            "Thème visuel retravaillé : bleu plus soutenu et plus lisible, fond plus clair, cartes blanches à liseré et ombre douce, navigation en dégradé avec barre d'accent sur l'espace actif, onglets actifs soulignés, tuiles et cartes sélectionnées en bleu clair (sans décalage), champs avec survol et focus marqués, lignes de grille sélectionnées plus nettes."
+        ]),
+        new("0.1.0","Hétérogène rapide, grandes quantités, articles exclus",
+        [
+            "Palettisation hétérogène fortement accélérée : 600 bagues mélangées passent de 188 s à 0,3 s, 2 500 petits cartons de 2,9 s à 0,5 s. La charge reçue par chaque produit est propagée en une seule passe, par colonnes de produits alignés, au lieu de suivre chaque chemin jusqu'à la palette.",
+            "Grandes quantités (100 000 bagues et plus) : les articles qui remplissent une palette donnent des palettes complètes mono-article, le reste est posé par couches entières puis en reliquat sur le dessus. Exemple : 100 000 bagues + 2 300 autres produits → 20 palettes en 3 secondes.",
+            "Hétérogène : un article qui ne tient pas seul sur la palette (dimensions dans toutes les orientations, hauteur utile, poids) est exclu ; la meilleure solution est calculée avec les autres articles et l'exclusion est signalée (article × quantité : raison).",
+            "Au-delà de 3 000 produits à mélanger, seule la stratégie « Couches homogènes » est calculée (les deux autres posent les produits un à un) ; un message l'indique.",
+            "Tubes debout posés sur des tubes : surface d'appui réelle (intersection des disques) au lieu des carrés englobants ; empilages plus justes, souvent moins de palettes. Même règle pour le contrôle indépendant et l'indicateur de support.",
+            "Couches de tubes et bobines couchés dans la stratégie « Couches homogènes » ; la disposition debout ou couchée la plus dense est retenue.",
+            "Plans de couche de très petits produits (bagues de quelques mm) calculés instantanément (deux blocs au lieu de la recherche exacte, à une rangée près de l'optimum).",
+            "Colisage calculé en tâche de fond (« Calcul en cours… ») : la fenêtre reste utilisable ; les caisses possibles sont déterminées sans calcul complet.",
+            "Base : solutions enregistrées environ 7 fois plus compactes (une ligne par produit, valeurs calculées non écrites) ; les anciennes bases restent lues.",
+            "Fiche imprimée : une couche de plus de 150 produits est décrite par rangées au lieu d'une ligne par produit ; ordre de pose et recherche d'articles accélérés ; grandes quantités affichées avec séparateur de milliers."
+        ]),
+        new("0.0.9", "Diamètre des tubes et tubes creux sur les schémas",
+        [
+            "Tube ou bobine sans diamètre extérieur mais avec un diamètre intérieur : le logiciel prend le diamètre intérieur comme diamètre (article considéré plein), partout — palettisation, colisage, profil de gerbage, aperçu 3D. Les données restent telles que saisies ou importées (aucune conversion) ; un tube peut avoir l'un, l'autre ou les deux.",
+            "Ce cas est signalé en avertissement : sur la fiche article, au colisage, au conditionnement et dans le rapport d'import (par ligne et total). La fiche est enregistrable ; les listes affichent « Ø50 (Ø int.) × 1000 ».",
+            "Tubes et bobines creux (diamètre extérieur et intérieur) : le creux est dessiné sur les schémas — en 3D (paroi intérieure, extrémités en couronne), en 2D (cercle intérieur vu en bout, alésage en traits interrompus vu de côté) et dans l'aperçu 3D de la fiche."
+        ]),
         new("0.0.8", "Cartons pliés et import avec mise à jour",
         [
             "Cartons livrés pliés : longueur, hauteur et largeur pliées sur la fiche article (caisse / carton). Chacune, renseignée (> 0), remplace la dimension montée pour le conditionnement — palettisation homogène et hétérogène, assistant « Proposer », colisage ; les autres restent celles du carton monté.",

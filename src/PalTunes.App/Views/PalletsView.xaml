@@ -217,7 +217,7 @@
 
                 <Border Grid.Column="1" Background="#F4F7F9" CornerRadius="0,10,10,0">
                     <Grid Margin="14">
-                        <h:HelixViewport3D x:Name="Preview" Background="#F4F7F9" ShowViewCube="True"
+                        <h:HelixViewport3D x:Name="Preview" Background="{StaticResource Viewport3DBrush}" ZoomAroundMouseDownPoint="True" ShowViewCube="True"
                                            IsHeadLightEnabled="True" ModelUpDirection="0,0,1">
                             <h:DefaultLights />
                             <ModelVisual3D Content="{Binding Preview}" />

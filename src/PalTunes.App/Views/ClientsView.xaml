@@ -111,7 +111,7 @@
                                     <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Code}" FontWeight="SemiBold" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
-                                    <TextBlock Style="{StaticResource FormLabel}" Text="Nom *" ToolTip="C'est le nom qui relie les articles (champ Client de l'article). Un renommage est répercuté sur les articles." />
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Nom *" ToolTip="Nom affiché (« CODE - Nom » quand seul le client est montré). Les articles citent le code client : changer le nom ne les modifie pas." />
                                     <TextBox Style="{StaticResource FormBox}" Text="{Binding Draft.Name}" />
                                 </StackPanel>
                             </Grid>

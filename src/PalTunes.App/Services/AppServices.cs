@@ -44,7 +44,13 @@ public sealed class AppSettings
     public string? DatabasePath { get; set; }
 
     public string TreeGrouping { get; set; } = "Client";
+
+    /// <summary>Rangement de l'espace « Gestion des conditionnements ».</summary>
+    public string PackagingTreeGrouping { get; set; } = "Client";
     public string Section { get; set; } = "Packagings";
+
+    /// <summary>Vues des conditionnements : couleurs des fiches articles (sinon couleurs bien distinctes, par défaut).</summary>
+    public bool UseArticleColors { get; set; }
 }
 
 /// <summary>Préférences locales (%APPDATA%\PalTunes\settings.json).</summary>
@@ -115,6 +121,15 @@ public static class ArticleColors
     }
 
     public static Color ByIndex(int index) => (Color)ColorConverter.ConvertFromString(Palette[Math.Abs(index) % Palette.Length]);
+
+    /// <summary>Couleurs très contrastées (articles d'un même conditionnement bien dépareillés), dans l'ordre des lignes.</summary>
+    private static readonly string[] Distinct =
+    [
+        "#2E86DE", "#F39C12", "#27AE60", "#E74C3C", "#8E44AD", "#F1C40F", "#16A085", "#D35400",
+        "#C0392B", "#2C3E50", "#E84393", "#7F8C8D", "#00B894", "#6C5CE7", "#A0522D", "#00CEC9"
+    ];
+
+    public static Color DistinctByIndex(int index) => (Color)ColorConverter.ConvertFromString(Distinct[Math.Abs(index) % Distinct.Length]);
 
     public static IReadOnlyList<string> Swatches => Palette;
 }

@@ -46,8 +46,17 @@ public sealed partial class MainViewModel : ObservableObject
         Articles = new ArticlesViewModel(this);
         Pallets = new PalletsViewModel(this);
         Packagings = new PackagingsViewModel(this);
+        PackagingLibrary = new PackagingLibraryViewModel(this);
         Cases = new CaseViewModel(this);
-        _selectedSection = settings.Current.Section is "Clients" or "Articles" or "Pallets" or "CaseTypes" or "Packagings" or "Cases" ? settings.Current.Section : "Packagings";
+        Packagings.PropertyChanged += (_, _) => RefreshPrintCommands();
+        Cases.PropertyChanged += (_, _) => RefreshPrintCommands();
+        _selectedSection = settings.Current.Section is "Clients" or "Articles" or "Pallets" or "CaseTypes" or "Packagings" or "PackagingLibrary" or "Cases"
+            ? settings.Current.Section
+            : "Packagings";
+        if (_selectedSection == "PackagingLibrary")
+        {
+            PackagingLibrary.Rebuild();
+        }
         _isReleaseNotesOpen = settings.Current.LastSeenVersion != VersionNumber;
         if (_selectedSection == "Cases")
         {
@@ -76,6 +85,9 @@ public sealed partial class MainViewModel : ObservableObject
     public ArticlesViewModel Articles { get; }
     public PalletsViewModel Pallets { get; }
     public PackagingsViewModel Packagings { get; }
+
+    /// <summary>Espace « Gestion des conditionnements » : tous les conditionnements rangés par client, famille, type.</summary>
+    public PackagingLibraryViewModel PackagingLibrary { get; }
     public CaseViewModel Cases { get; }
 
     public string DatabasePath => _store.Path;
@@ -98,7 +110,77 @@ public sealed partial class MainViewModel : ObservableObject
         {
             Cases.EnsureComputed();
         }
+
+        if (value == "PackagingLibrary")
+        {
+            PackagingLibrary.Rebuild();
+        }
+
+        RefreshPrintCommands();
     }
+
+    // ------------------------------------------------------------------ Impression
+    // Espace Colisage : colisage affiché (palette = caisses sur la palette de destination) ; ailleurs : conditionnement affiché.
+
+    private bool InCases => SelectedSection == "Cases";
+
+    [RelayCommand(CanExecute = nameof(CanPrintPalletSheet))]
+    private void PrintPalletSheet()
+    {
+        if (InCases)
+        {
+            Cases.PrintPalletSheet();
+        }
+        else
+        {
+            Packagings.PrintCommand.Execute(null);
+        }
+    }
+
+    private bool CanPrintPalletSheet() => InCases ? Cases.CanPrintPalletSheet : Packagings.CanPrintPalletSheet;
+
+    [RelayCommand(CanExecute = nameof(CanPrintCaseSheet))]
+    private void PrintCaseSheet()
+    {
+        if (InCases)
+        {
+            Cases.PrintCaseSheet();
+        }
+        else
+        {
+            Packagings.PrintCaseSheet();
+        }
+    }
+
+    private bool CanPrintCaseSheet() => InCases ? Cases.CanPrintCaseSheet : Packagings.CanPrintCaseSheet;
+
+    [RelayCommand(CanExecute = nameof(CanPrintPackagingSheet))]
+    private void PrintPackagingSheet()
+    {
+        if (InCases)
+        {
+            Cases.PrintPackagingSheet();
+        }
+        else
+        {
+            Packagings.PrintPackagingSheet();
+        }
+    }
+
+    private bool CanPrintPackagingSheet() => InCases ? Cases.CanPrintPackagingSheet : Packagings.CanPrintPackagingSheet;
+
+    private void RefreshPrintCommands()
+    {
+        PrintPalletSheetCommand.NotifyCanExecuteChanged();
+        PrintCaseSheetCommand.NotifyCanExecuteChanged();
+        PrintPackagingSheetCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>Couleur d'un produit seul sur une fiche : distincte par défaut, ou celle de la fiche article (« Couleur d'origine »).</summary>
+    public IReadOnlyDictionary<Guid, System.Windows.Media.Color> ColorsFor(Article a) => new Dictionary<Guid, System.Windows.Media.Color>
+    {
+        [a.Id] = Settings.Current.UseArticleColors ? ArticleColors.Parse(a.Color, ArticleColors.DistinctByIndex(0)) : ArticleColors.DistinctByIndex(0)
+    };
 
     public int ClientCount => Db.Clients.Count;
     public int ArticleCount => Db.Articles.Count;
@@ -125,6 +207,9 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(CaseCount));
         OnPropertyChanged(nameof(PackagingCount));
     }
+
+    /// <summary>Conditionnements créés, modifiés ou supprimés hors de l'écran de création.</summary>
+    public void NotifyPackagingsChanged() => OnPropertyChanged(nameof(PackagingCount));
 
     public void NotifyArticlesChanged()
     {
@@ -447,7 +532,8 @@ public sealed partial class MainViewModel : ObservableObject
     public IReadOnlyList<KindDoc> KindDocs { get; } = ArticleSchema.Kinds.Select(k => new KindDoc(
         ArticleSchema.KindLabel(k), ArticleSchema.KindDescription(k),
         string.Join(", ", ArticleSchema.Fields(k).Where(f => f.Required).Select(f => f.Label)) + ", Poids (kg)",
-        string.Join(", ", ArticleSchema.Fields(k).Where(f => !f.Required).Select(f => f.Label)))).ToList();
+        string.Join(", ", ArticleSchema.Fields(k).Where(f => !f.Required).Select(f => f.Label)
+            .Concat(k == ArticleKind.Caisse ? ["Quantité par caisse"] : [])))).ToList();
 
     [ObservableProperty] private bool _isFormatHelpOpen;
     [ObservableProperty] private bool _isReleaseNotesOpen;

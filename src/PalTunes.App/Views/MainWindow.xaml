@@ -16,7 +16,7 @@
     <Window.InputBindings>
         <KeyBinding Key="F5" Command="{Binding Packagings.ComputeCommand}" />
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCurrentCommand}" />
-        <KeyBinding Key="P" Modifiers="Control" Command="{Binding Packagings.PrintCommand}" />
+        <KeyBinding Key="P" Modifiers="Control" Command="{Binding PrintPalletSheetCommand}" />
         <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportPackagingsCommand}" />
         <KeyBinding Key="I" Modifiers="Control" Command="{Binding ImportArticlesCommand}" />
         <KeyBinding Key="F1" Command="{Binding ShowFormatHelpCommand}" />
@@ -26,6 +26,7 @@
         <KeyBinding Key="D4" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="CaseTypes" />
         <KeyBinding Key="D5" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Packagings" />
         <KeyBinding Key="D6" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Cases" />
+        <KeyBinding Key="D7" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="PackagingLibrary" />
         <KeyBinding Key="Escape" Command="{Binding EscapeCommand}" />
     </Window.InputBindings>
 
@@ -36,7 +37,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- ===================== Navigation ===================== -->
-        <Border Grid.Column="0" Background="{StaticResource PanelDarkBrush}">
+        <Border Grid.Column="0" Background="{StaticResource NavPanelBrush}">
             <DockPanel Margin="10,14,10,10">
                 <DockPanel DockPanel.Dock="Top" Margin="6,0,0,14">
                     <Image DockPanel.Dock="Left" Source="{StaticResource LogoImage}" Width="46" Height="46" Margin="0,0,10,0" />
@@ -52,7 +53,7 @@
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#2E86C1" />
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource PrimaryDarkBrush}" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -64,7 +65,7 @@
                 </DockPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Margin="12,8,0,0">
-                    <TextBlock Foreground="#95A5A6" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding DatabasePath}">
+                    <TextBlock Foreground="{StaticResource NavMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding DatabasePath}">
                         <Run Text="Base : " /><Run Text="{Binding DatabaseName, Mode=OneWay}" />
                     </TextBlock>
                 </StackPanel>
@@ -75,7 +76,7 @@
                         <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+1 · coordonnées et exigences de conditionnement"
                                      AutomationProperties.Name="Espace Clients" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=Clients}">
                             <DockPanel>
-                                <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
+                                <Border DockPanel.Dock="Right" Background="{StaticResource NavBadgeBrush}" CornerRadius="8" Padding="7,1">
                                     <TextBlock Text="{Binding ClientCount}" FontSize="11" Foreground="#ECF0F1" />
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE77B;" Margin="0,2,10,0" />
@@ -85,7 +86,7 @@
                         <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+2"
                                      AutomationProperties.Name="Espace Articles" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=Articles}">
                             <DockPanel>
-                                <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
+                                <Border DockPanel.Dock="Right" Background="{StaticResource NavBadgeBrush}" CornerRadius="8" Padding="7,1">
                                     <TextBlock Text="{Binding ArticleCount}" FontSize="11" Foreground="#ECF0F1" />
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,10,0" />
@@ -95,7 +96,7 @@
                         <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+3"
                                      AutomationProperties.Name="Espace Palettes" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=Pallets}">
                             <DockPanel>
-                                <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
+                                <Border DockPanel.Dock="Right" Background="{StaticResource NavBadgeBrush}" CornerRadius="8" Padding="7,1">
                                     <TextBlock Text="{Binding PalletCount}" FontSize="11" Foreground="#ECF0F1" />
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE80A;" Margin="0,2,10,0" />
@@ -105,7 +106,7 @@
                         <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+4 · catalogue des caisses (cartons, bacs, caisses bois)"
                                      AutomationProperties.Name="Espace Caisses" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=CaseTypes}">
                             <DockPanel>
-                                <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
+                                <Border DockPanel.Dock="Right" Background="{StaticResource NavBadgeBrush}" CornerRadius="8" Padding="7,1">
                                     <TextBlock Text="{Binding CaseCount}" FontSize="11" Foreground="#ECF0F1" />
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,10,0" />
@@ -115,11 +116,18 @@
                         <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+5"
                                      AutomationProperties.Name="Espace Conditionnements" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=Packagings}">
                             <DockPanel>
-                                <Border DockPanel.Dock="Right" Background="#2C3E50" CornerRadius="8" Padding="7,1">
+                                <Border DockPanel.Dock="Right" Background="{StaticResource NavBadgeBrush}" CornerRadius="8" Padding="7,1">
                                     <TextBlock Text="{Binding PackagingCount}" FontSize="11" Foreground="#ECF0F1" />
                                 </Border>
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE81E;" Margin="0,2,10,0" />
                                 <TextBlock Text="Conditionnements" />
+                            </DockPanel>
+                        </RadioButton>
+                        <RadioButton Style="{StaticResource NavRadio}" GroupName="Section" ToolTip="Ctrl+7 · tous les conditionnements, rangés par client, famille, type"
+                                     AutomationProperties.Name="Espace Gestion des conditionnements" IsChecked="{Binding SelectedSection, Converter={StaticResource Equals}, ConverterParameter=PackagingLibrary}">
+                            <DockPanel>
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8F1;" Margin="0,2,10,0" />
+                                <TextBlock Text="Gestion des conditionnements" TextTrimming="CharacterEllipsis" />
                             </DockPanel>
                         </RadioButton>
 
@@ -132,7 +140,7 @@
                         </RadioButton>
 
                         <TextBlock Style="{StaticResource NavHeader}" Text="CLIENTS" />
-                        <Button Style="{StaticResource NavButton}" Command="{Binding ImportClientsCommand}" ToolTip="Mise à jour par code ; les articles suivent les renommages">
+                        <Button Style="{StaticResource NavButton}" Command="{Binding ImportClientsCommand}" ToolTip="Un code client existant est mis à jour ; deux clients peuvent porter le même nom">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" Margin="0,2,10,0" />
                                 <TextBlock Text="Importer les clients (CSV)" />
@@ -140,7 +148,7 @@
                         </Button>
 
                         <TextBlock Style="{StaticResource NavHeader}" Text="ARTICLES" />
-                        <Button Style="{StaticResource NavButton}" Command="{Binding ImportArticlesCommand}" ToolTip="Ctrl+I · mise à jour par code, rapport ligne par ligne">
+                        <Button Style="{StaticResource NavButton}" Command="{Binding ImportArticlesCommand}" ToolTip="Ctrl+I · même code chez le même client : mis à jour ; rapport ligne par ligne">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" Margin="0,2,10,0" />
                                 <TextBlock Text="Importer (CSV)" />
@@ -176,11 +184,25 @@
                                 <TextBlock Text="Exporter (mono-article)" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButton}" Command="{Binding Packagings.PrintCommand}"
-                                ToolTip="Ctrl+P · fiche de palettisation du conditionnement affiché. « Microsoft Print to PDF » pour un PDF.">
+                        <Button Style="{StaticResource NavButton}" Command="{Binding PrintPalletSheetCommand}" ToolTipService.ShowOnDisabled="True"
+                                ToolTip="Ctrl+P · fiche de palettisation du conditionnement affiché (espace Colisage : les caisses sur la palette de destination). Grisé sans solution. « Microsoft Print to PDF » pour un PDF.">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
-                                <TextBlock Text="Imprimer la fiche" />
+                                <TextBlock Text="Imprimer la fiche palette" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource NavButton}" Command="{Binding PrintCaseSheetCommand}" ToolTipService.ShowOnDisabled="True"
+                                ToolTip="Produit dans sa caisse : colisage affiché (espace Colisage), ou article caisse créé au colisage (conditionnement affiché). Grisé sinon.">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
+                                <TextBlock Text="Imprimer la fiche de colisage" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource NavButton}" Command="{Binding PrintPackagingSheetCommand}" ToolTipService.ShowOnDisabled="True"
+                                ToolTip="Fiche de colisage puis fiche palette, en un seul document. Grisé si l'une des deux n'est pas possible pour l'article.">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
+                                <TextBlock Text="Imprimer la fiche de conditionnement" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </Button>
 
@@ -231,6 +253,8 @@
                                  Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=CaseTypes}" />
             <views:CaseView DataContext="{Binding Cases}"
                             Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Cases}" />
+            <views:PackagingLibraryView DataContext="{Binding PackagingLibrary}"
+                                        Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=PackagingLibrary}" />
             <views:PackagingsView DataContext="{Binding Packagings}"
                                   Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Packagings}" />
         </Grid>
@@ -317,7 +341,7 @@
                     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                         <TextBlock FontSize="20" FontWeight="Bold" Text="Import CSV des articles" />
                         <TextBlock Style="{StaticResource Muted}" FontSize="12.5" TextWrapping="Wrap"
-                                   Text="Une ligne d'en-tête puis une ligne par article. Séparateur « ; », « , » ou tabulation détecté ; décimales « , » ou « . » ; accents et casse des en-têtes indifférents ; un code existant est mis à jour (seules les colonnes présentes sont modifiées)." />
+                                   Text="Une ligne d'en-tête puis une ligne par article. Séparateur « ; », « , » ou tabulation détecté ; décimales « , » ou « . » ; accents et casse des en-têtes indifférents. Un article existant (même code pour le même client) est mis à jour, seules les colonnes présentes sont modifiées ; la colonne CLIENT contient le code client. Carton plié : LONGUEUR_PLIEE, LARGEUR_PLIEE, HAUTEUR_PLIEE remplacent chacune la dimension montée pour le conditionnement." />
                     </StackPanel>
                     <Button DockPanel.Dock="Bottom" Style="{StaticResource RoundedButton}" Command="{Binding EscapeCommand}"
                             HorizontalAlignment="Right" Padding="22,8" Margin="0,14,0,0" Content="Fermer" />
