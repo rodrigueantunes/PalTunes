@@ -1,4 +1,4 @@
-# PalTunes – Étude approfondie de la palettisation hétérogène (v0.0.4)
+# PalTunes – Étude approfondie de la palettisation hétérogène (v0.0.4, mise à jour v0.1.0)
 
 > Complément de [ETUDE_PALETTISATION.md](ETUDE_PALETTISATION.md) §7, rédigé **avant** le développement de la 0.0.4.
 > Exigence fixée : **aucune donnée article obligatoire supplémentaire**. Tout ce qui manque est **déduit** des données
@@ -156,7 +156,9 @@ la charge » est active (défaut).
 
 1. Inclusion dans la surface utile (débords, cornières contenues) et la hauteur maxi.
 2. Non-chevauchement (enveloppes ; cylindres de même axe par distance des axes).
-3. **Taux d'appui** selon §3.3 (plaques, sacs, roulants, dessus circulaires).
+3. **Taux d'appui** selon §3.3 (plaques, sacs, roulants, dessus circulaires). Entre deux cylindres debout, la surface d'appui
+   est l'**intersection des deux disques** (v0.1.0) : en quinconce, les carrés englobants se recouvrent sans contact réel.
+   Même règle pour le moteur, le contrôle indépendant et l'indicateur de support.
 4. **Capacité portante propagée** (R3) : le poids de l'article est réparti sur ses appuis au prorata des surfaces de contact,
    puis propagé récursivement jusqu'à la palette ; refus si un article inférieur dépasse sa capacité (saisie ou déduite).
 5. **Roulants** : seul un exemplaire du même article peut être posé dessus (R6).
@@ -176,6 +178,38 @@ la charge » est active (défaut).
 
 Plusieurs unités : **remplissage séquentiel** (unités pleines, puis une unité reliquat). C'est la pratique de préparation
 (moins de manipulations, palettes pleines expédiées directement) ; le rééquilibrage entre unités est une évolution.
+
+### 7.1 Grandes quantités (v0.1.0)
+
+Pensé pour des commandes de 100 000 produits et plus (bagues, bouchons…).
+
+1. **Articles exclus** : un article qui ne tient pas seul sur la base vide (dimensions dans toutes les orientations
+   autorisées, hauteur utile, poids unitaire > charge maxi) est **exclu du calcul** ; la meilleure solution est calculée
+   avec les autres et l'exclusion est signalée (code × quantité : raison) en avertissement, sans rendre la solution
+   non conforme.
+2. **Palettes complètes mono-article** : un article dont la quantité atteint une palette pleine (meilleure solution
+   homogène sur la même base) donne autant de palettes complètes, posées telles quelles en tête de solution et communes
+   aux trois stratégies ; seul le reliquat est mélangé.
+3. **Couches homogènes par quantités** : une couche complète consomme autant de produits que de positions, sans les poser
+   un à un ; tubes et bobines en couches debout (maille circulaire) ou couchées (lits), la disposition la plus dense par mm
+   de hauteur l'emporte. Le reliquat (moins d'une couche par article) est posé en points extrêmes sur le dessus.
+4. **Limite des stratégies B et C** : au-delà de 20 000 produits à mélanger (3 000 en 0.1.0), « Piles par article » et « Densité maximale »
+   (pose un à un) ne sont pas lancées ; un message l'indique.
+
+### 7.2 Complexité (v0.1.0)
+
+| Étape | Avant | v0.1.0 |
+|---|---|---|
+| Charge propagée (§6.3) | parcours chemin par chemin, exponentiel avec la hauteur des piles | une passe du haut vers le bas, **par colonnes** de produits alignés (marge minimale de la colonne) |
+| Contrôle d'une position | charge propagée pour chaque position candidate | géométrie d'abord, charge contrôlée sur la seule position retenue |
+| Voisins d'un produit | grille 2D (toute la hauteur de la colonne) | grille 3D (mailles de 100 mm) |
+| Points extrêmes | retriés à chaque pose, nettoyés contre tous les produits | ensemble trié tenu à jour, nettoyage par la grille |
+| Refus | recalculés à chaque produit | mémorisés : définitifs (place) ou jusqu'à un nouveau dessus à la cote (appui) |
+| Indicateur de regroupement | comparaison de chaque paire | grille spatiale |
+| Plans de couche de très petits produits | programmation dynamique O(n³) | plan à deux blocs au-delà d'un budget de calcul |
+
+Mesures (EUR 1200 × 800, hauteur 1 800 mm) : 600 bagues mélangées 188 s → 0,3 s ; 60 000 → 1,3 s ;
+commande de 100 000 bagues + 2 300 autres produits → 3 s (1,6 s pour 120 000 produits répartis sur 6 articles).
 
 ---
 
@@ -225,10 +259,11 @@ Ils figurent dans le récapitulatif et la fiche imprimée.
 
 ---
 
-## 12. Limites v0.0.4
+## 12. Limites
 
 - Pas de compatibilité de produits (alimentaire / chimique, matières dangereuses) ni d'ordre de livraison multi-arrêts.
 - Pas de rééquilibrage automatique entre plusieurs unités (§7).
+- Au-delà de 20 000 produits à mélanger, seule la stratégie « Couches homogènes » est calculée (§7.1).
 - La capacité déduite est une estimation prudente : pour un article critique, renseigner la charge maxi sur le dessus.
 
 ---

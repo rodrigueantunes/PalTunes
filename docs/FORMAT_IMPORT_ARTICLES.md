@@ -1,6 +1,6 @@
 # PalTunes – Format d'import CSV des articles et des clients
 
-> À jour de PalTunes 0.0.8. Une ligne d'en-tête, puis une ligne par article (ou par client). Le même format est produit
+> À jour de PalTunes 0.1.3. Une ligne d'en-tête, puis une ligne par article (ou par client). Le même format est produit
 > par « Exporter la base » (réimportable) et par « Modèle CSV » (une ligne d'exemple par type d'article). L'aide
 > intégrée (F1) présente les mêmes colonnes et les données minimales par type.
 
@@ -27,8 +27,9 @@
 | `LONGUEUR_PLIEE` | LONGUEUR_PLIE, L_PLIEE, LONGUEUR_A_PLAT, FOLDED_LENGTH | Facultatif | mm – carton livré plié : renseignée (> 0), elle remplace la longueur pour le conditionnement |
 | `LARGEUR_PLIEE` | LARGEUR_PLIE, LARG_PLIEE, LARGEUR_A_PLAT, FOLDED_WIDTH | Facultatif | mm – carton plié : renseignée (> 0), elle remplace la largeur pour le conditionnement |
 | `HAUTEUR_PLIEE` | HAUTEUR_PLIE, H_PLIEE, HAUTEUR_A_PLAT, EPAISSEUR_PLIEE, FOLDED_HEIGHT | Facultatif | mm – carton plié : renseignée (> 0), elle remplace la hauteur pour le conditionnement |
-| `DIAMETRE` | DIAM, D, DIAMETRE_EXT, DIAMETER, OD | Selon type | mm – diamètre extérieur (bobine, tube, fût) |
-| `DIAMETRE_INT` | MANDRIN, DIAM_INT, ID, CORE | Facultatif | mm – mandrin de bobine ; diamètre intérieur d'un tube creux (bague, mandrin) |
+| `QTE_PAR_CAISSE` | QUANTITE_PAR_CAISSE, QTE_CAISSE, QUANTITE_CAISSE, PCB, UNITES_PAR_CAISSE, QTY_PER_CASE | Facultatif | Caisse / carton : nombre entier de produits contenus. Renseignée, la fiche palette indique aussi les produits contenus par palette ; vide, rien ne change. Cellule vide : quantité effacée ; colonne absente : quantité conservée |
+| `DIAMETRE` | DIAM, D, DIAMETRE_EXT, DIAMETER, OD | Selon type | mm – diamètre extérieur (bobine, tube, fût). Absent pour un tube ou une bobine : le logiciel prend `DIAMETRE_INT` comme diamètre (article considéré plein), signalé « Avertissement » ; les données sont gardées telles quelles |
+| `DIAMETRE_INT` | MANDRIN, DIAM_INT, ID, CORE | Facultatif | mm – mandrin de bobine ; diamètre intérieur d'un tube creux (bague, mandrin). Avec `DIAMETRE`, le creux est dessiné sur les schémas ; seul, il sert de diamètre |
 | `POIDS` | POIDS_KG, MASSE, WEIGHT, KG | **Obligatoire** | kg pour **un** article. Un poids impossible pour les dimensions (matière plus dense que 20 kg/dm³) est importé mais signalé « Avertissement » |
 | `ORIENTATION` | HAUT_IMPOSE, ROTATION | Facultatif | HAUT_IMPOSE (défaut) ou LIBRE – caisses et « autre » |
 | `AXE` | AXE_BOBINE, AXE_TUBE, AXIS | Facultatif | VERTICAL, HORIZONTAL, INDIFFERENT – bobines (défaut VERTICAL), tubes (défaut INDIFFERENT : le meilleur est proposé) |
@@ -48,11 +49,11 @@
 
 | Type | Obligatoire (en plus de CODE, TYPE, POIDS) | Facultatif |
 |---|---|---|
-| CAISSE | LONGUEUR, LARGEUR, HAUTEUR | LONGUEUR_PLIEE, LARGEUR_PLIEE, HAUTEUR_PLIEE (carton livré plié) |
+| CAISSE | LONGUEUR, LARGEUR, HAUTEUR | LONGUEUR_PLIEE, LARGEUR_PLIEE, HAUTEUR_PLIEE (carton livré plié), QTE_PAR_CAISSE |
 | SAC, BAC, AUTRE | LONGUEUR, LARGEUR, HAUTEUR | |
 | PLAQUE | LONGUEUR, LARGEUR, HAUTEUR (épaisseur) | |
-| BOBINE | DIAMETRE, LARGEUR (laize) | DIAMETRE_INT (mandrin) |
-| TUBE | DIAMETRE, LONGUEUR | DIAMETRE_INT, ou HAUTEUR = épaisseur de paroi (tube creux) |
+| BOBINE | DIAMETRE (à défaut DIAMETRE_INT, avec avertissement), LARGEUR (laize) | DIAMETRE_INT (mandrin) |
+| TUBE | DIAMETRE (à défaut DIAMETRE_INT, avec avertissement), LONGUEUR | DIAMETRE_INT, ou HAUTEUR = épaisseur de paroi (tube creux) |
 | FUT | DIAMETRE, HAUTEUR | |
 
 Carton plié : chaque dimension pliée renseignée remplace **uniquement** la dimension montée correspondante pour la

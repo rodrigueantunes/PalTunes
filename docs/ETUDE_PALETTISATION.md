@@ -1,6 +1,6 @@
 # PalTunes – Étude métier et scientifique de la palettisation
 
-> Version de l'étude : 1.3 (PalTunes 0.0.4) – document de référence **préalable au développement**.
+> Version de l'étude : 1.4 (PalTunes 0.0.5) – document de référence **préalable au développement**.
 > Toute règle de calcul du logiciel renvoie à un paragraphe de ce document (§).
 
 ---
@@ -364,7 +364,7 @@ Solution retenue : plan calculé, figé à l'enregistrement (exporté tel quel)
 ### 9.4 Client
 
 ```
-Code* · Nom* (relie les articles via leur champ Client ; renommage répercuté) · Adresse · CP · Ville · Pays · Contact · Tél. · E-mail
+Code* (cité par le champ Client des articles ; un changement de code est répercuté) · Nom* (deux clients peuvent porter le même nom) · Adresse · CP · Ville · Pays · Contact · Tél. · E-mail
 Exigences : palette imposée · hauteur totale maxi · niveaux de gerbage (appliquées à la création d'un conditionnement)
 ```
 
@@ -438,6 +438,15 @@ Les schémas 2D portent les cotes d'encombrement en orange, sans formule.
   charge et s'ajoutent à l'encombrement ; option « **contenues dans la palette** » (décochée par défaut) : la surface
   utile est réduite de leur épaisseur de chaque côté, l'encombrement ne dépasse pas la palette (au prix de quelques
   millimètres de charge en moins).
+- **Cornières et tubes couchés en débord** (v0.0.5, uniquement ce cas) : une cornière ne peut pas tenir en porte-à-faux
+  au bout des tubes. Elles **restent au niveau de la palette**, aux 4 coins, à fleur des bords (cadre en longueur
+  `[t ; L_base − t]` dans l'axe des tubes, emprise de la charge en travers). Tout tube qui traverse l'emprise d'une
+  cornière (aile `a` en travers, épaisseur `t` dans l'axe, sur la hauteur de la cornière) est **retiré** ; puis, couche
+  par couche, ceux qui n'ont plus assez d'appuis (1 en maille carrée, 2 en quinconce) le sont aussi. La perte est
+  comptée (avertissement « N tube(s) retiré(s) », récapitulatif, nombre de produits par palette) et les schémas 2D/3D
+  montrent les cornières au niveau de la palette. Exemple : tubes Ø110 × 1500 sur EUR 1200 × 800, débord 150,
+  cornières 5 × 60 : 7 rangées → 5 rangées, 105 → 75 tubes, encombrement 1500 × 800. Case « **les cornières suivent
+  les tubes** » (décochée par défaut) : cochée, elles entourent la charge (105 tubes, encombrement 1510 × 800).
 - **Coiffe** : ajoutée à la hauteur d'encombrement.
 - **Film étirable** : enveloppe la charge et le haut de la palette ; son épaisseur s'ajoute de chaque côté à la longueur
   et à la largeur d'encombrement. Représenté en 3D (translucide) et en 2D (contour pointillé).
@@ -490,7 +499,18 @@ Format CSV (séparateur « ; », UTF-8 avec BOM, décimales « , », une ligne p
 | **Encombrement de palettisation** | Longueur ; largeur ; hauteur (mm) – §10.5 |
 | Complément | Poids charge, poids total, taux de remplissage |
 
-Une fiche de palettisation imprimable (PDF via « Microsoft Print to PDF ») reprend ces données avec les plans de couche A/B.
+Colonnes complémentaires : **plan par couche** (« C1-6 : plan A, 8 produit(s) ; C7 : plan B, 5 produit(s) ») et
+**intercalaires (couches)** (« aucun » ou « sous C1, 4, 7 »).
+
+Une fiche de palettisation imprimable (PDF via « Microsoft Print to PDF ») reprend ces données ; le **plan de
+palettisation** est ajouté en pages finales, avec les informations minimales de mise sur palette :
+
+1. vue 3D de l'unité de charge et tableau des couches (n°, plan, nombre de produits, cote z, hauteur, intercalaire
+   dessous) ;
+2. pour chaque plan de couche distinct (A, B… ; deux couches ont le même plan si tous leurs produits ont la même
+   position, empreinte et orientation) : vue de dessus avec les produits numérotés dans l'ordre de lecture (rangées
+   le long de la largeur, puis le long de la longueur) et tableau des positions (n°, article, X, Y du coin du produit
+   depuis le coin de la palette, empreinte, sens).
 
 ---
 

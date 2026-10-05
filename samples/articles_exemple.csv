@@ -1,12 +1,12 @@
 CODE;TYPE;LONGUEUR;LARGEUR;HAUTEUR;DIAMETRE;DIAMETRE_INT;POIDS;ORIENTATION;AXE;CHARGE_MAX;COUCHES_MAX;FRAGILE;DESIGNATION;CLIENT;FAMILLE;SOUS_FAMILLE;REF_CLIENT;EAN;COULEUR;NOTES
-CAR-0402;CAISSE;400;200;200;;;6,5;HAUT_IMPOSE;;70;;NON;Carton 400 × 200 × 200;Biscuiterie Nord;Emballages;Cartons;BN-1145;3760123450012;#5DADE2;
-CAR-0604;CAISSE;600;400;250;;;11;LIBRE;;95;;NON;Carton 600 × 400 × 250 couchable;Biscuiterie Nord;Emballages;Cartons;BN-1146;;#48C9B0;Peut être posé sur le chant
-VER-6PK;CAISSE;270;180;320;;;8,4;HAUT_IMPOSE;;25;4;OUI;Pack 6 bouteilles verre;Vins de Loire;Boissons;Verre;;;#AF7AC5;Fragile : rien dessus
-SAC-25F;SAC;600;400;120;;;25;;;;;NON;Sac farine 25 kg;Minoterie Sud;Vrac;Farines;MS-25;;#D7BDE2;
-BOB-1270;BOBINE;;1270;;1000;152;520;;VERTICAL;;;NON;Bobine kraft Ø1000 laize 1270;Papeterie Est;Papiers;Kraft;PE-K1270;;#F39C12;Axe vertical (eye to sky)
-BOB-0330;BOBINE;;330;;250;76;9;;INDIFFERENT;;;NON;Bobine étiquettes Ø250 laize 330;Papeterie Est;Papiers;Étiquettes;;;#EB984E;
-TUB-0063;TUBE;3000;;;63;;2,1;;HORIZONTAL;;;NON;Tube PE Ø63 × 3000;BTP Services;Tubes;PE;;;#AEB6BF;Toujours couché
-TUB-0110;TUBE;1200;;;110;;4,5;;INDIFFERENT;;;NON;Tube PVC Ø110 × 1200;BTP Services;Tubes;PVC;;;#85929E;Debout ou couché
-PLQ-2500;PLAQUE;2500;1250;12,5;;;28;;;;;NON;Plaque de plâtre BA13 2500 × 1250;BTP Services;Plaques;Plâtre;;;#FDFEFE;
-FUT-200;FUT;;;880;585;;220;;;;2;NON;Fût acier 200 L;Chimie Ouest;Liquides;Fûts;CO-200;;#2E86C1;
-BAC-6040;BAC;600;400;220;;;5;;;200;;NON;Bac plastique gerbable 600 × 400;Logistique Centre;Contenants;Bacs;;;#52BE80;
+CAR-0402;CAISSE;400;200;200;;;6,5;HAUT_IMPOSE;;70;;NON;Carton 400 × 200 × 200;BISNORD;Emballages;Cartons;BN-1145;3760123450012;#5DADE2;
+CAR-0604;CAISSE;600;400;250;;;11;LIBRE;;95;;NON;Carton 600 × 400 × 250 couchable;BISNORD;Emballages;Cartons;BN-1146;;#48C9B0;Peut être posé sur le chant
+VER-6PK;CAISSE;270;180;320;;;8,4;HAUT_IMPOSE;;25;4;OUI;Pack 6 bouteilles verre;VINLOIRE;Boissons;Verre;;;#AF7AC5;Fragile : rien dessus
+SAC-25F;SAC;600;400;120;;;25;;;;;NON;Sac farine 25 kg;MINOSUD;Vrac;Farines;MS-25;;#D7BDE2;
+BOB-1270;BOBINE;;1270;;1000;152;520;;VERTICAL;;;NON;Bobine kraft Ø1000 laize 1270;PAPEST;Papiers;Kraft;PE-K1270;;#F39C12;Axe vertical (eye to sky)
+BOB-0330;BOBINE;;330;;250;76;9;;INDIFFERENT;;;NON;Bobine étiquettes Ø250 laize 330;PAPEST;Papiers;Étiquettes;;;#EB984E;
+TUB-0063;TUBE;3000;;;63;;2,1;;HORIZONTAL;;;NON;Tube PE Ø63 × 3000;BTPS;Tubes;PE;;;#AEB6BF;Toujours couché
+TUB-0110;TUBE;1200;;;110;;4,5;;INDIFFERENT;;;NON;Tube PVC Ø110 × 1200;BTPS;Tubes;PVC;;;#85929E;Debout ou couché
+PLQ-2500;PLAQUE;2500;1250;12,5;;;28;;;;;NON;Plaque de plâtre BA13 2500 × 1250;BTPS;Plaques;Plâtre;;;#FDFEFE;
+FUT-200;FUT;;;880;585;;220;;;;2;NON;Fût acier 200 L;CHIMOUEST;Liquides;Fûts;CO-200;;#2E86C1;
+BAC-6040;BAC;600;400;220;;;5;;;200;;NON;Bac plastique gerbable 600 × 400;LOGCENTRE;Contenants;Bacs;;;#52BE80;
