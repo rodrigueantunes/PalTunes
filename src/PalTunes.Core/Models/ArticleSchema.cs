@@ -145,6 +145,19 @@ public static class ArticleSchema
                "(acier 7,8 ; plomb 11,3) : vérifiez le poids, en kg pour un article.";
     }
 
+    /// <summary>Tube ou bobine sans diamètre extérieur : le diamètre intérieur est pris comme diamètre (à vérifier).</summary>
+    public static string? DiameterWarning(Article a) => a.UsesInnerAsDiameter
+        ? $"Diamètre extérieur absent : le diamètre intérieur ({a.InnerDiameter.ToString("0.###", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"))} mm) " +
+          "est pris comme diamètre (article considéré plein) ; renseignez le diamètre extérieur."
+        : null;
+
+    /// <summary>Avertissements de la fiche (diamètre de secours, poids suspect), un par ligne ; null s'il n'y en a pas.</summary>
+    public static string? Warnings(Article a)
+    {
+        var list = new[] { DiameterWarning(a), WeightWarning(a) }.Where(w => w != null).ToList();
+        return list.Count == 0 ? null : string.Join(Environment.NewLine, list);
+    }
+
     /// <summary>Contrôle les données minimales ; une liste vide signifie « article calculable ».</summary>
     public static List<string> Validate(Article a)
     {
@@ -157,6 +170,11 @@ public static class ArticleSchema
         foreach (var spec in Fields(a.Kind))
         {
             var v = Get(a, spec.Field);
+            if (spec.Field == ArticleField.Diameter && a.UsesInnerAsDiameter)
+            {
+                continue; // diamètre intérieur pris comme diamètre (avertissement, pas d'erreur)
+            }
+
             if (spec.Required && !(v > 0))
             {
                 errors.Add($"{spec.Label} : valeur > 0 obligatoire.");
@@ -172,12 +190,17 @@ public static class ArticleSchema
             errors.Add("Poids (kg) : valeur > 0 obligatoire.");
         }
 
-        if (a.Kind == ArticleKind.Bobine && a.InnerDiameter > 0 && a.InnerDiameter >= a.Diameter)
+        if (a.Kind == ArticleKind.Caisse && a.QuantityPerCase is <= 0)
+        {
+            errors.Add("Quantité par caisse : nombre entier > 0, ou vide.");
+        }
+
+        if (a.Kind == ArticleKind.Bobine && a.Diameter > 0 && a.InnerDiameter > 0 && a.InnerDiameter >= a.Diameter)
         {
             errors.Add("Le diamètre mandrin doit être inférieur au diamètre extérieur.");
         }
 
-        if (a.Kind == ArticleKind.Tube && a.InnerDiameter > 0 && a.InnerDiameter >= a.Diameter)
+        if (a.Kind == ArticleKind.Tube && a.Diameter > 0 && a.InnerDiameter > 0 && a.InnerDiameter >= a.Diameter)
         {
             errors.Add("Le diamètre intérieur doit être inférieur au diamètre extérieur.");
         }

@@ -47,37 +47,181 @@ public static class HeterogeneousEngine
             return result;
         }
 
-        var items = new List<Item>();
+        // Articles qui ne tiennent pas seuls sur la base (dimensions, hauteur, poids) : exclus, la meilleure solution est
+        // calculée avec les autres et l'exclusion est signalée.
+        var excluded = new List<string>();
+        var feasible = new List<(Article Article, int Quantity)>();
         foreach (var (article, qty) in valid)
         {
-            var orientations = Orientations(article, c);
-            var profile = StackingProfile.For(article, c.ForcedAxis);
-            var upright = StackingProfile.For(article, CoilAxis.Vertical);
-            var lying = StackingProfile.For(article, CoilAxis.Horizontal);
-            for (var i = 0; i < qty; i++)
+            if (Unfit(article, ctx) is { } reason)
             {
-                items.Add(new Item(article, orientations, items.Count, profile, upright, lying));
+                excluded.Add($"{article.Code} × {qty.ToString("#,0", Fr)} : {reason}");
+            }
+            else
+            {
+                feasible.Add((article, qty));
             }
         }
 
-        // Ordre de pose de l'étude hétérogène §4, appliqué aux trois stratégies.
-        var runs = new List<Func<Solution>>
+        if (feasible.Count == 0)
         {
-            () => Layered(items, ctx),
-            () => Packed(SortForPiles(items), ctx, Priority.Walls, MixedStrategy.PilesParArticle),
-            () => BestOf(ctx, Priority.BottomLeft, MixedStrategy.DensiteMaximale,
-                ByStudy(items), SortBy(items, i => -i.Volume), SortBy(items, i => -i.BaseArea), SortBy(items, i => -i.Article.Weight))
-        };
+            result.Messages.Add("Aucun article ne tient sur cette base : " + string.Join(" ; ", excluded) + ".");
+            return result;
+        }
+
+        // Palettes complètes mono-article (quantité au moins égale à une palette pleine) : posées telles quelles et
+        // communes aux trois stratégies ; seul le reliquat de chaque article est mélangé.
+        var full = new List<LoadUnit>();
+        var demand = new List<Demand>();
+        foreach (var (article, qty) in feasible)
+        {
+            var (units, rest) = FullPallets(article, qty, ctx);
+            full.AddRange(units);
+            if (rest > 0)
+            {
+                demand.Add(new Demand(Proto(article, c, 0), rest));
+            }
+        }
+
+        for (var i = 0; i < full.Count; i++)
+        {
+            full[i].Index = i + 1;
+        }
+
+        var mixedCount = demand.Sum(d => d.Count);
+        var runs = new List<Func<Solution>> { () => Layered(demand, ctx) };
+        if (mixedCount <= MaxItemsPlacedOneByOne)
+        {
+            // Ordre de pose de l'étude hétérogène §4, appliqué aux stratégies par points extrêmes.
+            var items = Expand(demand);
+            runs.Add(() => Packed(SortForPiles(items), ctx, Priority.Walls, MixedStrategy.PilesParArticle));
+            runs.Add(() => BestOf(ctx, Priority.BottomLeft, MixedStrategy.DensiteMaximale,
+                ByStudy(items), SortBy(items, i => -i.Volume), SortBy(items, i => -i.BaseArea), SortBy(items, i => -i.Article.Weight)));
+        }
+        else
+        {
+            result.Messages.Add($"{mixedCount.ToString("#,0", Fr)} produits à mélanger : seule la stratégie « Couches homogènes » est calculée " +
+                                $"(les stratégies « Piles par article » et « Densité maximale » posent les produits un à un, jusqu'à {MaxItemsPlacedOneByOne.ToString("#,0", Fr)}).");
+        }
+
         var solutions = new Solution[runs.Count];
         Parallel.For(0, runs.Count, i => solutions[i] = runs[i]());
+        var requested = feasible.Sum(f => f.Quantity);
         foreach (var s in solutions)
         {
-            Finish(s, ctx, items.Count);
+            // Palettes complètes en tête, puis les unités mélangées.
+            foreach (var u in s.Units)
+            {
+                u.Index += full.Count;
+            }
+
+            s.Units.InsertRange(0, full);
+            Finish(s, ctx, requested);
+            if (full.Count > 0)
+            {
+                s.Description = $"{full.Count} palette(s) complète(s) mono-article, puis : " + s.Description;
+            }
+
+            foreach (var e in excluded)
+            {
+                s.Warnings.Add("Article exclu (ne tient pas sur la base) : " + e);
+            }
+
+            s.ExcludedArticles = [.. excluded];
             result.Solutions.Add(s);
         }
 
         Rank(result.Solutions);
+        var hollow = valid.GroupBy(v => v.Item1.Id).ToDictionary(g => g.Key, g => g.First().Item1.HollowDiameter);
+        HomogeneousEngine.MarkHollow(result.Solutions, id => hollow.GetValueOrDefault(id));
         return result;
+    }
+
+    /// <summary>
+    /// Au-delà, les stratégies par points extrêmes (pose un à un) ne sont pas lancées : « Couches homogènes » traite les
+    /// quantités par couches entières (100 000 produits et plus).
+    /// </summary>
+    public const int MaxItemsPlacedOneByOne = 20000;
+
+    /// <summary>Raison pour laquelle un article ne peut pas être posé seul sur la base vide ; null s'il tient.</summary>
+    private static string? Unfit(Article a, Ctx ctx)
+    {
+        if (a.Weight > ctx.MaxWeight + 1e-9)
+        {
+            return $"poids unitaire {a.Weight.ToString("0.#####", Fr)} kg > charge maxi {ctx.MaxWeight.ToString("0.#", Fr)} kg";
+        }
+
+        var x = ctx.MaxX - ctx.MinX;
+        var y = ctx.MaxY - ctx.MinY;
+        if (Orientations(a, ctx.C).Any(o => o.DX <= x + 1e-6 && o.DY <= y + 1e-6 && o.DZ <= ctx.MaxZ + 1e-6))
+        {
+            return null;
+        }
+
+        return $"{a.DimensionsText} mm ne tient pas sur la surface utile {x.ToString("0", Fr)} × {y.ToString("0", Fr)} mm " +
+               $"avec la hauteur utile {ctx.MaxZ.ToString("0", Fr)} mm (dans aucune orientation autorisée)";
+    }
+
+    /// <summary>
+    /// Palettes pleines d'un seul article (meilleure solution homogène sur la même base) tant que la quantité le permet.
+    /// Les unités partagent la même liste de produits (palettes identiques).
+    /// </summary>
+    private static (List<LoadUnit> Units, int Remaining) FullPallets(Article a, int qty, Ctx ctx)
+    {
+        // Filtre peu coûteux : une palette pleine contient au plus la borne ci-dessous.
+        var orients = Orientations(a, ctx.C);
+        var area = (ctx.MaxX - ctx.MinX) * (ctx.MaxY - ctx.MinY);
+        var geometric = orients.Max(o => Math.Floor(area / Math.Max(1, o.DX * o.DY)) * Math.Floor(ctx.MaxZ / Math.Max(1, o.DZ)));
+        var bound = Math.Min(geometric, Math.Floor(ctx.MaxWeight / Math.Max(1e-9, a.Weight)));
+        if (qty < Math.Max(1, bound * 0.5))
+        {
+            return ([], qty);
+        }
+
+        var best = HomogeneousEngine.Solve(a, ctx.Base, ctx.C).Recommended;
+        if (best is not { IsCompliant: true, FirstUnit: { Items.Count: > 0 } template } || qty < template.Items.Count)
+        {
+            return ([], qty);
+        }
+
+        var per = template.Items.Count;
+        var units = new List<LoadUnit>();
+        for (var k = 0; k < qty / per; k++)
+        {
+            units.Add(new LoadUnit
+            {
+                Items = template.Items,
+                Layers = template.Layers,
+                Metrics = template.Metrics,
+                CornerFrame = template.CornerFrame,
+                RemovedForCorners = template.RemovedForCorners,
+                IsFullPallet = true
+            });
+        }
+
+        return (units, qty % per);
+    }
+
+    /// <summary>Quantité restante d'un article et son prototype (produits identiques).</summary>
+    private sealed record Demand(Item Proto, int Count);
+
+    private static Item Proto(Article article, PackagingConstraints c, int index) =>
+        new(article, Orientations(article, c), index, StackingProfile.For(article, c.ForcedAxis),
+            StackingProfile.For(article, CoilAxis.Vertical), StackingProfile.For(article, CoilAxis.Horizontal));
+
+    /// <summary>Produits un à un (stratégies par points extrêmes, reliquats) : copies du prototype.</summary>
+    private static List<Item> Expand(IEnumerable<Demand> demand)
+    {
+        var items = new List<Item>();
+        foreach (var d in demand)
+        {
+            for (var i = 0; i < d.Count; i++)
+            {
+                items.Add(d.Proto.Copy(items.Count));
+            }
+        }
+
+        return items;
     }
 
     // ------------------------------------------------------------------ Données
@@ -99,6 +243,8 @@ public static class HeterogeneousEngine
 
     private sealed class Item(Article article, List<Orient> orientations, int index, StackingProfile profile, StackingProfile upright, StackingProfile lying)
     {
+        public Item Copy(int newIndex) => new(Article, Orientations, newIndex, Profile, upright, lying);
+
         public Article Article { get; } = article;
         public List<Orient> Orientations { get; } = orientations;
         public int Index { get; } = index;
@@ -191,41 +337,43 @@ public static class HeterogeneousEngine
 
     // ------------------------------------------------------------------ Stratégie A : couches homogènes
 
-    private static Solution Layered(List<Item> all, Ctx ctx)
+    private static Solution Layered(List<Demand> demand, Ctx ctx)
     {
+        // Par quantités : une couche complète consomme autant de produits que de positions, sans les poser un à un.
         var solution = NewSolution(ctx, MixedStrategy.CouchesHomogenes);
-        var remaining = all.ToList();
-        while (remaining.Count > 0)
+        var left = demand.ToDictionary(d => d.Proto.Article.Id, d => d.Count);
+        var protos = demand.ToDictionary(d => d.Proto.Article.Id, d => d.Proto);
+        var plans = new Dictionary<Guid, (List<Rect2> rects, double h, List<ShapeKind> shapes)?>();
+        var unplaced = 0;
+        while (left.Values.Any(n => n > 0))
         {
-            var packer = new UnitPacker(ctx);
-            var articles = remaining.GroupBy(i => i.Article.Id)
-                .Select(g => g.First())
+            var packer = new UnitPacker(ctx, Priority.BottomLeft, protos.Values.Where(p => left[p.Article.Id] > 0));
+            var layerRefused = new HashSet<Guid>();
+            var articles = protos.Values.Where(p => left[p.Article.Id] > 0)
                 .OrderBy(i => (int)i.Profile.Zone)
                 .ThenByDescending(i => i.StrengthKey)
                 .ThenByDescending(i => i.Article.Weight / Math.Max(1, FootprintArea(i.Article)))
-                .Select(i => i.Article)
                 .ToList();
             double z0 = 0;
-            foreach (var article in articles)
+            foreach (var proto in articles)
             {
-                var plan = BestLayer(article, ctx);
+                var article = proto.Article;
+                if (!plans.TryGetValue(article.Id, out var plan))
+                {
+                    plans[article.Id] = plan = BestLayer(article, ctx);
+                }
+
                 if (plan == null)
                 {
                     continue;
                 }
 
-                var (rects, h, shape) = plan.Value;
-                while (true)
+                var (rects, h, shapes) = plan.Value;
+                var sx = ctx.C.CenterLoad ? (ctx.MaxX - ctx.MinX - rects.Max(r => r.Right)) / 2 : 0;
+                var sy = ctx.C.CenterLoad ? (ctx.MaxY - ctx.MinY - rects.Max(r => r.Top)) / 2 : 0;
+                while (left[article.Id] >= rects.Count && z0 + h <= ctx.MaxZ + 1e-6)
                 {
-                    var pool = remaining.Where(i => i.Article.Id == article.Id).ToList();
-                    if (pool.Count < rects.Count || z0 + h > ctx.MaxZ + 1e-6)
-                    {
-                        break;
-                    }
-
-                    var sx = ctx.C.CenterLoad ? (ctx.MaxX - ctx.MinX - rects.Max(r => r.Right)) / 2 : 0;
-                    var sy = ctx.C.CenterLoad ? (ctx.MaxY - ctx.MinY - rects.Max(r => r.Top)) / 2 : 0;
-                    var layer = rects.Select((r, k) => (pool[k], new Placement
+                    var layer = rects.Select((r, k) => (proto, new Placement
                     {
                         ArticleId = article.Id,
                         X = ctx.MinX + sx + r.X,
@@ -234,61 +382,93 @@ public static class HeterogeneousEngine
                         DX = r.W,
                         DY = r.H,
                         DZ = h,
-                        Shape = shape,
+                        Shape = shapes[k],
                         Weight = article.Weight
                     })).ToList();
                     if (!packer.PlaceLayer(layer))
                     {
+                        layerRefused.Add(article.Id);
                         break;
                     }
 
-                    foreach (var (item, _) in layer)
-                    {
-                        remaining.Remove(item);
-                    }
-
+                    left[article.Id] -= rects.Count;
                     z0 += h;
                 }
             }
 
-            // Reliquat : couche(s) mixte(s) sur le dessus, en points extrêmes.
-            foreach (var item in ByStudy(remaining))
+            // Reliquat (moins d'une couche complète par article) : couche(s) mixte(s) sur le dessus, en points extrêmes. Les
+            // articles qui ont encore des couches complètes à poser attendent l'unité suivante.
+            // Couche complète refusée (capacité, poids) ou sans plan de couche : pose produit par produit, au plus une couche
+            // (ou le plafond des poses une à une) par unité.
+            var rest = Expand(protos.Values.Where(p => left[p.Article.Id] > 0).Select(p =>
             {
-                if (packer.TryPlace(item, Priority.BottomLeft))
+                var n = left[p.Article.Id];
+                var take = plans[p.Article.Id] is not { } pl ? Math.Min(n, MaxItemsPlacedOneByOne)
+                    : n < pl.rects.Count ? n
+                    : layerRefused.Contains(p.Article.Id) ? Math.Min(n, pl.rects.Count)
+                    : 0;
+                return new Demand(p, take);
+            }).Where(d => d.Count > 0));
+            foreach (var item in ByStudy(rest))
+            {
+                if (packer.TryPlace(item))
                 {
-                    remaining.Remove(item);
+                    left[item.Article.Id]--;
                 }
             }
 
             if (packer.Count == 0)
             {
+                unplaced = left.Values.Sum();
                 break;
             }
 
             solution.Units.Add(packer.ToUnit(solution.Units.Count + 1));
         }
 
-        solution.UnplacedItems = remaining.Count;
+        solution.UnplacedItems = unplaced;
         return solution;
     }
 
     private static double FootprintArea(Article a) => a.IsCylinder ? a.Diameter * a.Diameter : a.Length * a.Width;
 
-    /// <summary>Meilleure couche complète d'un article sur la surface utile (plans du §4), produits debout uniquement.</summary>
-    private static (List<Rect2> rects, double h, ShapeKind shape)? BestLayer(Article a, Ctx ctx)
+    /// <summary>
+    /// Meilleure couche complète d'un article sur la surface utile (plans du §4). Tubes et bobines : debout (maille
+    /// circulaire) ou couchés (lits carrés), selon l'axe autorisé, la disposition qui pose le plus de produits par mm de
+    /// hauteur l'emporte.
+    /// </summary>
+    private static (List<Rect2> rects, double h, List<ShapeKind> shapes)? BestLayer(Article a, Ctx ctx)
     {
         var x = ctx.MaxX - ctx.MinX;
         var y = ctx.MaxY - ctx.MinY;
         if (a.IsCylinder)
         {
-            var axis = ctx.C.ForcedAxis ?? a.CoilAxis;
-            if (a.Kind != ArticleKind.Fut && axis == CoilAxis.Horizontal)
+            var axis = a.Kind == ArticleKind.Fut ? CoilAxis.Vertical : ctx.C.ForcedAxis ?? a.CoilAxis;
+            (List<Rect2>, double, List<ShapeKind>)? best = null;
+            double bestDensity = 0;
+            if (axis != CoilAxis.Horizontal && a.AxisLength <= ctx.MaxZ + 1e-6)
             {
-                return null;
+                var circles = CircleLayerSolver.Solve(x, y, a.Diameter, ctx.C.Gap).Best;
+                if (circles.Count > 0)
+                {
+                    best = (circles.Items, a.AxisLength, Enumerable.Repeat(ShapeKind.CylinderZ, circles.Count).ToList());
+                    bestDensity = circles.Count / a.AxisLength;
+                }
             }
 
-            var circles = CircleLayerSolver.Solve(x, y, a.Diameter, ctx.C.Gap).Best;
-            return circles.Count == 0 ? null : (circles.Items, a.AxisLength, ShapeKind.CylinderZ);
+            if (axis != CoilAxis.Vertical && a.Diameter <= ctx.MaxZ + 1e-6)
+            {
+                var lying = RectLayerSolver.Solve(x, y, a.AxisLength, a.Diameter, ctx.C.Gap).Best;
+                if (lying.Count > 0 && lying.Count / a.Diameter > bestDensity * 1.0001)
+                {
+                    var shapes = lying.Items.Select(r => Math.Abs(r.W - a.AxisLength) < 1e-6 && Math.Abs(r.H - a.AxisLength) > 1e-6
+                        ? ShapeKind.CylinderX
+                        : Math.Abs(r.H - a.AxisLength) < 1e-6 ? ShapeKind.CylinderY : ShapeKind.CylinderX).ToList();
+                    best = (lying.Items, a.Diameter, shapes);
+                }
+            }
+
+            return best;
         }
 
         var options = new List<(double a, double b, double h)> { (a.Length, a.Width, a.Height) };
@@ -298,7 +478,7 @@ public static class HeterogeneousEngine
             options.Add((a.Width, a.Height, a.Length));
         }
 
-        (List<Rect2>, double, ShapeKind)? best = null;
+        (List<Rect2>, double, List<ShapeKind>)? bestBox = null;
         double bestCoverage = 0;
         foreach (var (oa, ob, oh) in options)
         {
@@ -312,11 +492,11 @@ public static class HeterogeneousEngine
             if (layer.Count > 0 && coverage > bestCoverage + 1e-6)
             {
                 bestCoverage = coverage;
-                best = (layer.Items, oh, ShapeKind.Box);
+                bestBox = (layer.Items, oh, Enumerable.Repeat(ShapeKind.Box, layer.Count).ToList());
             }
         }
 
-        return best;
+        return bestBox;
     }
 
     // ------------------------------------------------------------------ Stratégies B / C : points extrêmes
@@ -364,12 +544,13 @@ public static class HeterogeneousEngine
         var remaining = order.ToList();
         while (remaining.Count > 0)
         {
-            var packer = new UnitPacker(ctx);
-            foreach (var item in remaining.ToList())
+            var packer = new UnitPacker(ctx, priority, remaining.DistinctBy(i => i.Article.Id));
+            var next = new List<Item>(remaining.Count);
+            foreach (var item in remaining)
             {
-                if (packer.TryPlace(item, priority))
+                if (!packer.TryPlace(item))
                 {
-                    remaining.Remove(item);
+                    next.Add(item);
                 }
             }
 
@@ -378,6 +559,7 @@ public static class HeterogeneousEngine
                 break;
             }
 
+            remaining = next;
             solution.Units.Add(packer.ToUnit(solution.Units.Count + 1));
         }
 
@@ -399,16 +581,38 @@ public static class HeterogeneousEngine
     {
         private const double Cell = 100;
         private readonly Ctx _ctx;
+        private readonly Priority _priority;
         private readonly List<Box> _boxes = [];
-        private readonly Dictionary<(int, int), List<Box>> _grid = [];
-        private readonly HashSet<(double, double, double)> _eps = [];
+        /// <summary>Grille 3D des produits posés (mailles de 100 mm, hauteur comprise) : chaque contrôle ne voit que ses voisins.</summary>
+        private readonly Dictionary<(int, int, int), List<Box>> _grid = [];
+
+        /// <summary>Points extrêmes tenus triés dans l'ordre de la priorité (pas de tri à chaque pose).</summary>
+        private readonly SortedSet<(double X, double Y, double Z)> _eps;
+
+        /// <summary>Cotes des dessus déjà posés (peu nombreuses) : couche plane (R4).</summary>
+        private readonly HashSet<double> _tops = [];
+
+        /// <summary>Article refusé et nombre de poses à ce moment : un produit identique sera refusé tant que rien ne change.</summary>
+        private readonly Dictionary<Guid, int> _failedAt = [];
+
         private double _weight;
         private double _sumX;
         private double _sumY;
 
-        public UnitPacker(Ctx ctx)
+        /// <summary>Plus petite empreinte et plus petite hauteur des produits à poser : un point extrême plus étroit est inutile.</summary>
+        private readonly double _minFoot;
+        private readonly double _minHeight;
+
+        public UnitPacker(Ctx ctx, Priority priority, IEnumerable<Item>? kinds = null)
         {
             _ctx = ctx;
+            _priority = priority;
+            var orients = kinds?.SelectMany(k => k.Orientations).ToList() ?? [];
+            _minFoot = orients.Count == 0 ? 0 : orients.Min(o => Math.Min(o.DX, o.DY));
+            _minHeight = orients.Count == 0 ? 0 : orients.Min(o => o.DZ);
+            _eps = new SortedSet<(double X, double Y, double Z)>(Comparer<(double X, double Y, double Z)>.Create(priority == Priority.Walls
+                ? (a, b) => (Math.Round(a.X), Math.Round(a.Y), a.Z, a.X, a.Y).CompareTo((Math.Round(b.X), Math.Round(b.Y), b.Z, b.X, b.Y))
+                : (a, b) => (Math.Round(a.Z), Math.Round(a.X), a.Y, a.Z, a.X).CompareTo((Math.Round(b.Z), Math.Round(b.X), b.Y, b.Z, b.X))));
             _eps.Add((ctx.MinX, ctx.MinY, 0));
         }
 
@@ -430,83 +634,241 @@ public static class HeterogeneousEngine
 
             public double CapFor(bool mixed) => mixed || MixedLoaded ? Cap : CapAligned;
 
+            /// <summary>Charge reçue (calculée exactement en fin d'unité, pour les indicateurs).</summary>
             public double Load { get; set; }
+
+            /// <summary>Colonne du produit : pile de produits alignés posés exactement les uns sur les autres.</summary>
+            public Column Col { get; set; } = null!;
+
             public int SameLevel { get; set; } = 1;
             public List<(Box Box, double Fraction)> Supporters { get; } = [];
         }
 
-        public bool TryPlace(Item item, Priority priority)
+        /// <summary>
+        /// Colonne de produits alignés (même empreinte, posés exactement les uns sur les autres). La charge n'y entre que
+        /// par le haut et atteint tous ses produits : la plus petite marge (capacité − charge) suffit pour contrôler la
+        /// colonne entière en une opération, au lieu de la parcourir produit par produit.
+        /// </summary>
+        private sealed class Column(Box bottom)
+        {
+            public Box Bottom { get; } = bottom;
+            public Box Top { get; set; } = bottom;
+
+            /// <summary>Produits déjà chargés « en mélange » : plus petite marge sur la capacité « mélange ».</summary>
+            public double PreMin = double.MaxValue;
+
+            /// <summary>Autres produits : plus petite marge sur la capacité « colonne » et sur la capacité « mélange ».</summary>
+            public double SufMinA = double.MaxValue;
+
+            public double SufMinM = double.MaxValue;
+
+            // Charge attendue pendant un contrôle.
+            public int Stamp;
+            public double PendingLoad;
+            public bool PendingMixed;
+
+            public double MinSlack(bool mixed) => Math.Min(PreMin, mixed ? SufMinM : SufMinA);
+
+            public void Apply(double load, bool mixed)
+            {
+                PreMin -= load;
+                SufMinA -= load;
+                SufMinM -= load;
+                if (mixed)
+                {
+                    PreMin = Math.Min(PreMin, SufMinM);
+                    SufMinA = SufMinM = double.MaxValue;
+                }
+            }
+
+            public void Push(Box box)
+            {
+                Top = box;
+                SufMinA = Math.Min(SufMinA, box.CapAligned);
+                SufMinM = Math.Min(SufMinM, box.Cap);
+            }
+        }
+
+        public bool TryPlace(Item item)
         {
             if (_weight + item.Article.Weight > _ctx.MaxWeight + 1e-9)
             {
                 return false;
             }
 
-            if (priority == Priority.Walls)
+            // Un produit identique vient d'être refusé et rien n'a été posé depuis : refus immédiat.
+            if (_failedAt.TryGetValue(item.Article.Id, out var at) && at == _boxes.Count)
             {
-                foreach (var (x, y, z) in _eps.OrderBy(e => Math.Round(e.Item1)).ThenBy(e => Math.Round(e.Item2)).ThenBy(e => e.Item3).ToList())
-                {
-                    Placement? best = null;
-                    Check? bestCheck = null;
-                    foreach (var o in item.Orientations)
-                    {
-                        var p = NewPlacement(item, o, x, y, z);
-                        var check = Evaluate(p, item);
-                        if (check != null && (best == null || p.MaxZ < best.MaxZ - 1e-6 || (Math.Abs(p.MaxZ - best.MaxZ) < 1e-6 && p.DX * p.DY > best.DX * best.DY)))
-                        {
-                            best = p;
-                            bestCheck = check;
-                        }
-                    }
+                return false;
+            }
 
-                    if (best != null)
+            if (Place(item))
+            {
+                return true;
+            }
+
+            _failedAt[item.Article.Id] = _boxes.Count;
+            return false;
+        }
+
+        /// <summary>
+        /// Choix de la position sur critères géométriques (place, chevauchement, appui), puis contrôle de la charge
+        /// propagée sur les seules positions retenues, dans l'ordre de préférence ; un seul parcours des points extrêmes.
+        /// </summary>
+        private bool Place(Item item) => _priority == Priority.Walls ? PlaceWalls(item) : PlaceBottomLeft(item);
+
+        private bool TryCommit(Item item, Placement p, Geo geo)
+        {
+            if (Loads([(p, geo.Supporters)]) is not { } loads)
+            {
+                return false;
+            }
+
+            ApplyLoads(loads);
+            Commit(p, item, geo);
+            UpdatePoints(p);
+            return true;
+        }
+
+        /// <summary>
+        /// Cylindres debout dont le dessus est libre (un cylindre debout centré dessus est pleinement appuyé), tenus triés :
+        /// cote la plus basse, puis plus près du coin fond-gauche.
+        /// </summary>
+        private readonly SortedSet<Box> _freeTops = new(Comparer<Box>.Create((a, b) =>
+            (Math.Round(a.P.MaxZ), Math.Round(a.P.X + a.P.Y), a.P.X, a.P.Y, a.P.Sequence)
+                .CompareTo((Math.Round(b.P.MaxZ), Math.Round(b.P.X + b.P.Y), b.P.X, b.P.Y, b.P.Sequence))));
+
+        /// <summary>Dessus libres proposés à chaque pose (les plus bas, les plus au fond) : borne le coût des grandes couches.</summary>
+        private const int TopCandidates = 48;
+
+        /// <summary>
+        /// Positions à essayer, dans l'ordre de la priorité : points extrêmes (toutes orientations) et, pour un cylindre
+        /// debout, le centre de chaque dessus libre de cylindre debout (couches en quinconce : les coins des enveloppes ne
+        /// tombent pas sur les produits du dessous).
+        /// </summary>
+        private List<(double X, double Y, double Z, int Orientation)> Points(Item item)
+        {
+            var tops = new List<(double X, double Y, double Z, int Orientation)>();
+            for (var oi = 0; oi < item.Orientations.Count; oi++)
+            {
+                var o = item.Orientations[oi];
+                if (o.Shape != ShapeKind.CylinderZ)
+                {
+                    continue;
+                }
+
+                foreach (var b in _freeTops.Take(TopCandidates))
+                {
+                    tops.Add((Math.Round(b.P.X + b.P.DX / 2 - o.DX / 2, 3), Math.Round(b.P.Y + b.P.DY / 2 - o.DY / 2, 3), Math.Round(b.P.MaxZ, 3), oi));
+                }
+            }
+
+            if (tops.Count == 0)
+            {
+                return _eps.Select(e => (e.X, e.Y, e.Z, -1)).ToList();
+            }
+
+            // Fusion de deux suites triées (points extrêmes, dessus libres) dans l'ordre de la priorité.
+            int Cmp((double X, double Y, double Z, int) a, (double X, double Y, double Z, int) b) => _eps.Comparer.Compare((a.X, a.Y, a.Z), (b.X, b.Y, b.Z));
+            tops.Sort(Cmp);
+            var points = new List<(double X, double Y, double Z, int Orientation)>(_eps.Count + tops.Count);
+            var t = 0;
+            foreach (var e in _eps)
+            {
+                var ep = (e.X, e.Y, e.Z, -1);
+                while (t < tops.Count && Cmp(tops[t], ep) < 0)
+                {
+                    points.Add(tops[t++]);
+                }
+
+                points.Add(ep);
+            }
+
+            while (t < tops.Count)
+            {
+                points.Add(tops[t++]);
+            }
+
+            return points;
+        }
+
+        private IEnumerable<int> OrientationsAt(Item item, int only) =>
+            only >= 0 ? [only] : Enumerable.Range(0, item.Orientations.Count);
+
+        /// <summary>Fond → gauche → bas : point extrême par point extrême, orientations de la plus basse à la plus large.</summary>
+        private bool PlaceWalls(Item item)
+        {
+            foreach (var (x, y, z, only) in Points(item))
+            {
+                var options = new List<(Placement P, Geo Geo)>();
+                foreach (var oi in OrientationsAt(item, only))
+                {
+                    var p = NewPlacement(item, item.Orientations[oi], x, y, z);
+                    if (Candidate(p, item, oi) is { } geo)
                     {
-                        Commit(best, item, bestCheck!);
+                        options.Add((p, geo));
+                    }
+                }
+
+                foreach (var (p, geo) in options.OrderBy(c => Math.Round(c.P.MaxZ, 6)).ThenByDescending(c => c.P.DX * c.P.DY))
+                {
+                    if (TryCommit(item, p, geo))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Score de placement (étude hétérogène §5) : cote la plus basse, surface de niveau, équilibre, fond-gauche. Les
+        /// positions sont évaluées par tranche de hauteur ; dans la tranche la plus basse, la charge est contrôlée dans
+        /// l'ordre du score, puis tranche suivante si aucune ne passe.
+        /// </summary>
+        private bool PlaceBottomLeft(Item item)
+        {
+            var band = double.NaN;
+            var inBand = new List<((double z, int level, double balance, double corner, double top) Key, Placement P, Geo Geo)>();
+
+            bool Flush()
+            {
+                foreach (var c in inBand.OrderBy(c => c.Key))
+                {
+                    if (TryCommit(item, c.P, c.Geo))
+                    {
                         return true;
                     }
                 }
 
+                inBand.Clear();
                 return false;
             }
 
-            // Score de placement (étude hétérogène §5) : cote la plus basse, surface de niveau, équilibre, fond-gauche.
-            Placement? chosen = null;
-            Check? chosenCheck = null;
-            (double z, int level, double balance, double corner, double top) bestKey = default;
-            foreach (var (x, y, z) in _eps.OrderBy(e => Math.Round(e.Item3)).ThenBy(e => Math.Round(e.Item1)).ThenBy(e => e.Item2).ToList())
+            foreach (var (x, y, z, only) in Points(item))
             {
-                var band = Math.Round(z / 10);
-                if (chosen != null && band > bestKey.z)
+                var b = Math.Round(z / 10);
+                if (inBand.Count > 0 && b > band && Flush())
                 {
-                    break;
+                    return true;
                 }
 
-                foreach (var o in item.Orientations)
+                band = b;
+                foreach (var oi in OrientationsAt(item, only))
                 {
-                    var p = NewPlacement(item, o, x, y, z);
-                    var check = Evaluate(p, item);
-                    if (check == null)
+                    var p = NewPlacement(item, item.Orientations[oi], x, y, z);
+                    if (Candidate(p, item, oi) is not { } geo)
                     {
                         continue;
                     }
 
-                    var key = (band, LevelPenalty(p), Math.Round(Balance(p), 2), Math.Round((p.X - _ctx.MinX) + (p.Y - _ctx.MinY)), p.MaxZ);
-                    if (chosen == null || key.CompareTo(bestKey) < 0)
-                    {
-                        chosen = p;
-                        chosenCheck = check;
-                        bestKey = key;
-                    }
+                    var key = (b, LevelPenalty(p), Math.Round(Balance(p), 2), Math.Round((p.X - _ctx.MinX) + (p.Y - _ctx.MinY)), p.MaxZ);
+                    inBand.Add((key, p, geo));
                 }
             }
 
-            if (chosen == null)
-            {
-                return false;
-            }
-
-            Commit(chosen, item, chosenCheck!);
-            return true;
+            return inBand.Count > 0 && Flush();
         }
 
         private static Placement NewPlacement(Item item, Orient o, double x, double y, double z) => new()
@@ -516,7 +878,7 @@ public static class HeterogeneousEngine
 
         /// <summary>0 si le dessus du produit s'aligne sur un dessus existant (couche plane), sinon 1 (R4).</summary>
         private int LevelPenalty(Placement p) =>
-            _boxes.Count == 0 || _boxes.Any(b => Math.Abs(b.P.MaxZ - p.MaxZ) < 1) ? 0 : 1;
+            _boxes.Count == 0 || _tops.Any(t => Math.Abs(t - p.MaxZ) < 1) ? 0 : 1;
 
         /// <summary>Décalage du centre de gravité (relatif à la demi-dimension) si le produit est posé ici (R9).</summary>
         private double Balance(Placement p)
@@ -530,7 +892,10 @@ public static class HeterogeneousEngine
             return Math.Max(Math.Abs(cx - midX) / ((_ctx.MaxX - _ctx.MinX) / 2), Math.Abs(cy - midY) / ((_ctx.MaxY - _ctx.MinY) / 2));
         }
 
-        /// <summary>Pose d'une couche complète : tous les produits passent les contrôles ou aucun n'est posé.</summary>
+        /// <summary>
+        /// Pose d'une couche complète : tous les produits passent les contrôles ou aucun n'est posé. La charge de toute
+        /// la couche est propagée en une seule passe.
+        /// </summary>
         public bool PlaceLayer(List<(Item item, Placement p)> layer)
         {
             if (_weight + layer.Sum(l => l.p.Weight) > _ctx.MaxWeight + 1e-9)
@@ -538,48 +903,96 @@ public static class HeterogeneousEngine
                 return false;
             }
 
-            var checks = new List<Check>();
+            var geos = new List<Geo>(layer.Count);
             foreach (var (item, p) in layer)
             {
-                var check = Evaluate(p, item);
-                if (check == null)
+                if (CheckGeometry(p, item) is not { } geo)
                 {
                     return false;
                 }
 
-                checks.Add(check);
+                geos.Add(geo);
             }
 
-            // Charges cumulées de toute la couche sur les produits inférieurs.
-            var total = new Dictionary<Box, double>();
-            var mixedAll = new HashSet<Box>();
-            foreach (var check in checks)
-            {
-                foreach (var (box, load) in check.Delta)
-                {
-                    total[box] = total.GetValueOrDefault(box) + load;
-                }
-
-                mixedAll.UnionWith(check.Mixed);
-            }
-
-            if (total.Any(kv => kv.Key.Load + kv.Value > kv.Key.CapFor(mixedAll.Contains(kv.Key)) + 1e-9))
+            if (Loads(layer.Select((l, i) => (l.p, geos[i].Supporters))) is not { } loads)
             {
                 return false;
             }
 
+            ApplyLoads(loads);
             for (var i = 0; i < layer.Count; i++)
             {
-                Commit(layer[i].p, layer[i].item, checks[i]);
+                Commit(layer[i].p, layer[i].item, geos[i]);
             }
 
+            // Points extrêmes de la couche entière : son dessus et ses abords, au lieu d'un calcul par produit.
+            var x0 = layer.Min(l => l.p.X);
+            var y0 = layer.Min(l => l.p.Y);
+            var x1 = layer.Max(l => l.p.MaxX);
+            var y1 = layer.Max(l => l.p.MaxY);
+            var z0 = layer.Min(l => l.p.Z);
+            var z1 = layer.Max(l => l.p.MaxZ);
+            _eps.RemoveWhere(e => Inside(e.X, e.Y, e.Z));
+            AddPoint(x0, y0, z1);
+            AddPoint(x1, y0, z0);
+            AddPoint(x0, y1, z0);
             return true;
         }
 
-        private sealed record Check(List<(Box Box, double Fraction)> Supporters, Dictionary<Box, double> Delta, int SameLevel, HashSet<Box> Mixed);
+        /// <summary>Contrôles géométriques d'une position : appuis retenus (fraction de charge) et rang dans la pile.</summary>
+        private sealed record Geo(List<(Box Box, double Fraction)> Supporters, int SameLevel);
 
-        private Check? Evaluate(Placement p, Item item)
+        /// <summary>Colonnes touchées par la charge (charge et « mélange » attendus portés par chaque colonne).</summary>
+        private sealed record LoadDelta(List<Column> Columns);
+
+        /// <summary>Positions refusées faute de place (chevauchement, bords) : définitif, la place ne fait que diminuer.</summary>
+        private readonly HashSet<(double, double, double, Guid, int)> _blocked = [];
+
+        /// <summary>Positions refusées faute d'appui, par cote : oubliées dès qu'un nouveau dessus arrive à cette cote.</summary>
+        private readonly Dictionary<double, HashSet<(double, double, Guid, int)>> _unsupported = [];
+
+        /// <summary>Contrôle géométrique d'une position de point extrême, avec mémoire des refus.</summary>
+        private Geo? Candidate(Placement p, Item item, int orientation)
         {
+            var key = (p.X, p.Y, p.Z, item.Article.Id, orientation);
+            if (_blocked.Contains(key))
+            {
+                return null;
+            }
+
+            var level = Math.Round(p.Z, 3);
+            if (_unsupported.TryGetValue(level, out var set) && set.Contains((p.X, p.Y, item.Article.Id, orientation)))
+            {
+                return null;
+            }
+
+            var geo = CheckGeometry(p, item, out var permanent);
+            if (geo == null)
+            {
+                if (permanent)
+                {
+                    _blocked.Add(key);
+                }
+                else
+                {
+                    if (set == null)
+                    {
+                        _unsupported[level] = set = [];
+                    }
+
+                    set.Add((p.X, p.Y, item.Article.Id, orientation));
+                }
+            }
+
+            return geo;
+        }
+
+        private Geo? CheckGeometry(Placement p, Item item) => CheckGeometry(p, item, out _);
+
+        /// <param name="permanent">Refus définitif (chevauchement, bords, appui interdit) ou seulement faute d'appui pour l'instant.</param>
+        private Geo? CheckGeometry(Placement p, Item item, out bool permanent)
+        {
+            permanent = true;
             const double e = Geometry.Eps;
             if (p.X < _ctx.MinX - e || p.Y < _ctx.MinY - e || p.MaxX > _ctx.MaxX + e || p.MaxY > _ctx.MaxY + e || p.MaxZ > _ctx.MaxZ + e)
             {
@@ -607,7 +1020,9 @@ public static class HeterogeneousEngine
                         continue;
                     }
 
-                    var o = Geometry.FootprintOverlap(p, b.P);
+                    // Deux cylindres debout : surface d'appui réelle (disques), rapportée au disque du produit posé.
+                    var disks = p.Shape == ShapeKind.CylinderZ && b.P.Shape == ShapeKind.CylinderZ;
+                    var o = Geometry.ContactArea(p, b.P);
                     if (o > 1)
                     {
                         // Cylindre couché : seuls ses semblables dessus (R6).
@@ -618,13 +1033,14 @@ public static class HeterogeneousEngine
 
                         contacts.Add((b, o));
                         covered += o;
-                        effective += b.Profile.RoundTop ? o * Math.PI / 4 : o;
+                        effective += disks ? Geometry.SupportShare(p, b.P) : b.Profile.RoundTop ? o * Math.PI / 4 : o;
                         required = Math.Max(required, b.Profile.SupportRequiredOnTop);
                     }
                 }
 
                 if (effective / (p.DX * p.DY) < required - 1e-9)
                 {
+                    permanent = false;
                     return null;
                 }
 
@@ -639,58 +1055,102 @@ public static class HeterogeneousEngine
 
                 if (item.Article.MaxLayers is { } ml && sameLevel > ml)
                 {
+                    permanent = false;
                     return null;
                 }
             }
 
-            // Charge propagée vers le bas (§6.3) : refus si un produit inférieur dépasse sa capacité. La capacité « colonne »
-            // s'applique tant que la charge descend par des empreintes parfaitement alignées, sinon la capacité « mélange ».
-            var delta = new Dictionary<Box, double>();
-            var mixed = new HashSet<Box>();
-            foreach (var (b, f) in supporters)
-            {
-                Propagate(b, p.Weight * f, !Aligned(p, b.P), delta, mixed);
-            }
-
-            if (delta.Any(kv => kv.Key.Load + kv.Value > kv.Key.CapFor(mixed.Contains(kv.Key)) + 1e-9))
-            {
-                return null;
-            }
-
-            return new Check(supporters, delta, sameLevel, mixed);
+            return new Geo(supporters, sameLevel);
         }
 
         private static bool Aligned(Placement a, Placement b) =>
             Math.Abs(a.X - b.X) < 1 && Math.Abs(a.Y - b.Y) < 1 && Math.Abs(a.DX - b.DX) < 1 && Math.Abs(a.DY - b.DY) < 1;
 
-        private static void Propagate(Box box, double load, bool mixedPath, Dictionary<Box, double> delta, HashSet<Box> mixed)
+        /// <summary>
+        /// Charge propagée vers le bas (§6.3) en une passe : les produits sont traités du plus haut au plus bas et chacun
+        /// transmet en une fois tout ce qu'il a reçu (le parcours chemin par chemin était exponentiel avec la hauteur).
+        /// La capacité « colonne » s'applique tant que la charge descend par des empreintes alignées, sinon la capacité
+        /// « mélange ». Null si un produit inférieur dépasserait sa capacité.
+        /// </summary>
+        private int _stamp;
+
+        /// <summary>
+        /// Charge propagée vers le bas (§6.3) en une passe, colonne par colonne, de la plus haute à la plus basse : chaque
+        /// colonne est contrôlée en une opération puis transmet sa charge aux appuis de son produit du bas. La capacité
+        /// « colonne » s'applique tant que la charge descend par des empreintes alignées, sinon la capacité « mélange ».
+        /// Null si un produit inférieur dépasserait sa capacité.
+        /// </summary>
+        private LoadDelta? Loads(IEnumerable<(Placement Top, List<(Box Box, double Fraction)> Supporters)> tops)
         {
-            delta[box] = delta.GetValueOrDefault(box) + load;
-            if (mixedPath)
+            var stamp = ++_stamp;
+            var touched = new List<Column>();
+            var queue = new PriorityQueue<Column, double>();
+
+            void Add(Column c, double load, bool mixedPath)
             {
-                mixed.Add(box);
+                if (c.Stamp != stamp)
+                {
+                    c.Stamp = stamp;
+                    c.PendingLoad = load;
+                    c.PendingMixed = mixedPath;
+                    touched.Add(c);
+                    queue.Enqueue(c, -c.Bottom.P.Z);
+                }
+                else
+                {
+                    c.PendingLoad += load;
+                    c.PendingMixed |= mixedPath;
+                }
             }
 
-            foreach (var (s, f) in box.Supporters)
+            foreach (var (top, supporters) in tops)
             {
-                Propagate(s, load * f, mixedPath || !Aligned(box.P, s.P), delta, mixed);
+                foreach (var (b, f) in supporters)
+                {
+                    Add(b.Col, top.Weight * f, !Aligned(top, b.P));
+                }
+            }
+
+            while (queue.TryDequeue(out var col, out _))
+            {
+                if (col.PendingLoad > col.MinSlack(col.PendingMixed) + 1e-9)
+                {
+                    return null;
+                }
+
+                var bottom = col.Bottom;
+                foreach (var (s, f) in bottom.Supporters)
+                {
+                    Add(s.Col, col.PendingLoad * f, col.PendingMixed || !Aligned(bottom.P, s.P));
+                }
+            }
+
+            return new LoadDelta(touched);
+        }
+
+        /// <summary>À appliquer aussitôt après <see cref="Loads"/>, avant de poser le produit (charges attendues portées par les colonnes).</summary>
+        private static void ApplyLoads(LoadDelta loads)
+        {
+            foreach (var c in loads.Columns)
+            {
+                c.Apply(c.PendingLoad, c.PendingMixed);
             }
         }
 
-        private void Commit(Placement p, Item item, Check check)
+        private void Commit(Placement p, Item item, Geo geo)
         {
-            var box = new Box(p, item) { SameLevel = check.SameLevel };
-            box.Supporters.AddRange(check.Supporters);
-            foreach (var (b, load) in check.Delta)
+            var box = new Box(p, item) { SameLevel = geo.SameLevel };
+            box.Supporters.AddRange(geo.Supporters);
+            if (geo.Supporters is [var (s, f)] && f > 0.999 && Aligned(p, s.P) && ReferenceEquals(s.Col.Top, s))
             {
-                b.Load += load;
+                box.Col = s.Col;
+                s.Col.Push(box);
             }
-
-            foreach (var b in check.Mixed)
+            else
             {
-                b.MixedLoaded = true;
+                box.Col = new Column(box);
+                box.Col.Push(box);
             }
-
             p.Sequence = _boxes.Count + 1;
             _boxes.Add(box);
             _weight += p.Weight;
@@ -706,28 +1166,46 @@ public static class HeterogeneousEngine
                 list.Add(box);
             }
 
-            UpdatePoints(p);
+            _tops.Add(Math.Round(p.MaxZ, 3));
+            _unsupported.Remove(Math.Round(p.MaxZ, 3));
+            foreach (var (below, _) in geo.Supporters)
+            {
+                _freeTops.Remove(below);
+            }
+
+            if (p.Shape == ShapeKind.CylinderZ)
+            {
+                _freeTops.Add(box);
+            }
         }
 
-        private IEnumerable<(int, int)> Cells(Placement p)
+        private IEnumerable<(int, int, int)> Cells(Placement p) => Cells(p, p.Z, p.MaxZ - 1e-6);
+
+        private IEnumerable<(int, int, int)> Cells(Placement p, double z0, double z1)
         {
             var x0 = (int)Math.Floor((p.X - _ctx.MinX) / Cell);
             var x1 = (int)Math.Floor((p.MaxX - _ctx.MinX - 1e-6) / Cell);
             var y0 = (int)Math.Floor((p.Y - _ctx.MinY) / Cell);
             var y1 = (int)Math.Floor((p.MaxY - _ctx.MinY - 1e-6) / Cell);
+            var k0 = (int)Math.Floor(z0 / Cell);
+            var k1 = (int)Math.Floor(z1 / Cell);
             for (var i = x0; i <= x1; i++)
             {
                 for (var j = y0; j <= y1; j++)
                 {
-                    yield return (i, j);
+                    for (var k = k0; k <= k1; k++)
+                    {
+                        yield return (i, j, k);
+                    }
                 }
             }
         }
 
+        /// <summary>Produits voisins : ceux qui recoupent le volume du produit, et ceux dont le dessus est sous sa base (appuis).</summary>
         private HashSet<Box> Nearby(Placement p)
         {
             var set = new HashSet<Box>();
-            foreach (var key in Cells(p))
+            foreach (var key in Cells(p, p.Z - 1, p.MaxZ - 1e-6))
             {
                 if (_grid.TryGetValue(key, out var list))
                 {
@@ -758,27 +1236,58 @@ public static class HeterogeneousEngine
                 }
             }
 
-            foreach (var c in candidates)
+            // Les anciens points recouverts par ce produit disparaissent ; les nouveaux sont gardés s'ils sont libres.
+            _eps.RemoveWhere(e => InBox(e.X, e.Y, e.Z, p));
+            foreach (var (x, y, z) in candidates)
             {
-                if (c.Item1 < _ctx.MaxX - 1 && c.Item2 < _ctx.MaxY - 1 && c.Item3 < _ctx.MaxZ - 1)
-                {
-                    _eps.Add((Math.Round(c.Item1, 3), Math.Round(c.Item2, 3), Math.Round(c.Item3, 3)));
-                }
+                AddPoint(x, y, z);
+            }
+        }
+
+        private void AddPoint(double x, double y, double z)
+        {
+            // Trop près d'un bord pour le plus petit produit : point inutile (marges de centrage des couches, etc.).
+            if (_ctx.MaxX - x < _minFoot - 1e-6 || _ctx.MaxY - y < _minFoot - 1e-6 || _ctx.MaxZ - z < _minHeight - 1e-6)
+            {
+                return;
             }
 
-            _eps.RemoveWhere(e => _boxes.Any(b => e.Item1 >= b.P.X - 1e-6 && e.Item1 < b.P.MaxX - 1e-6 &&
-                                                   e.Item2 >= b.P.Y - 1e-6 && e.Item2 < b.P.MaxY - 1e-6 &&
-                                                   e.Item3 >= b.P.Z - 1e-6 && e.Item3 < b.P.MaxZ - 1e-6));
+            if (x < _ctx.MaxX - 1 && y < _ctx.MaxY - 1 && z < _ctx.MaxZ - 1 && !Inside(x, y, z))
+            {
+                _eps.Add((Math.Round(x, 3), Math.Round(y, 3), Math.Round(z, 3)));
+            }
         }
+
+        private static bool InBox(double x, double y, double z, Placement b) =>
+            x >= b.X - 1e-6 && x < b.MaxX - 1e-6 && y >= b.Y - 1e-6 && y < b.MaxY - 1e-6 && z >= b.Z - 1e-6 && z < b.MaxZ - 1e-6;
+
+        private (int, int, int) CellOf(double x, double y, double z) =>
+            ((int)Math.Floor((x - _ctx.MinX) / Cell), (int)Math.Floor((y - _ctx.MinY) / Cell), (int)Math.Floor(z / Cell));
+
+        private List<Box> At(int i, int j, int k) => _grid.TryGetValue((i, j, k), out var list) ? list : [];
+
+        /// <summary>Point à l'intérieur d'un produit posé (produits de la maille du point seulement).</summary>
+        private bool Inside(double x, double y, double z)
+        {
+            var (i, j, k) = CellOf(x, y, z);
+            return At(i, j, k).Any(b => InBox(x, y, z, b.P));
+        }
+
+        private int Columns => (int)Math.Ceiling((_ctx.MaxX - _ctx.MinX) / Cell) + 1;
+        private int Rows => (int)Math.Ceiling((_ctx.MaxY - _ctx.MinY) / Cell) + 1;
 
         private double ProjectY(double x, double y, double z)
         {
             var best = _ctx.MinY;
-            foreach (var b in _boxes)
+            var (i, _, k) = CellOf(x, y, z);
+            for (var j = -1; j <= Rows; j++)
             {
-                if (x >= b.P.X && x < b.P.MaxX && z >= b.P.Z && z < b.P.MaxZ && b.P.MaxY <= y + 1e-6)
+                foreach (var b in At(i, j, k))
                 {
-                    best = Math.Max(best, b.P.MaxY);
+                    if (x >= b.P.X && x < b.P.MaxX && z >= b.P.Z && z < b.P.MaxZ && b.P.MaxY <= y + 1e-6)
+                    {
+                        best = Math.Max(best, b.P.MaxY);
+                    }
                 }
             }
 
@@ -788,11 +1297,15 @@ public static class HeterogeneousEngine
         private double ProjectX(double x, double y, double z)
         {
             var best = _ctx.MinX;
-            foreach (var b in _boxes)
+            var (_, j, k) = CellOf(x, y, z);
+            for (var i = -1; i <= Columns; i++)
             {
-                if (y >= b.P.Y && y < b.P.MaxY && z >= b.P.Z && z < b.P.MaxZ && b.P.MaxX <= x + 1e-6)
+                foreach (var b in At(i, j, k))
                 {
-                    best = Math.Max(best, b.P.MaxX);
+                    if (y >= b.P.Y && y < b.P.MaxY && z >= b.P.Z && z < b.P.MaxZ && b.P.MaxX <= x + 1e-6)
+                    {
+                        best = Math.Max(best, b.P.MaxX);
+                    }
                 }
             }
 
@@ -802,11 +1315,20 @@ public static class HeterogeneousEngine
         private double ProjectZ(double x, double y, double z)
         {
             double best = 0;
-            foreach (var b in _boxes)
+            var (i, j, top) = CellOf(x, y, z);
+            for (var k = top; k >= 0; k--)
             {
-                if (x >= b.P.X && x < b.P.MaxX && y >= b.P.Y && y < b.P.MaxY && b.P.MaxZ <= z + 1e-6)
+                foreach (var b in At(i, j, k))
                 {
-                    best = Math.Max(best, b.P.MaxZ);
+                    if (x >= b.P.X && x < b.P.MaxX && y >= b.P.Y && y < b.P.MaxY && b.P.MaxZ <= z + 1e-6)
+                    {
+                        best = Math.Max(best, b.P.MaxZ);
+                    }
+                }
+
+                if (best > 0)
+                {
+                    break; // les mailles plus basses ne contiennent que des dessus plus bas
                 }
             }
 
@@ -824,6 +1346,26 @@ public static class HeterogeneousEngine
                 {
                     b.P.X += dx;
                     b.P.Y += dy;
+                }
+            }
+
+            // Charges exactes reçues par chaque produit (une passe, du haut vers le bas) pour les indicateurs.
+            foreach (var b in _boxes)
+            {
+                b.Load = 0;
+                b.MixedLoaded = false;
+            }
+
+            foreach (var b in _boxes.OrderByDescending(b => b.P.Z))
+            {
+                var total = b.Load + b.P.Weight;
+                foreach (var (s, f) in b.Supporters)
+                {
+                    s.Load += total * f;
+                    if (b.MixedLoaded || !Aligned(b.P, s.P))
+                    {
+                        s.MixedLoaded = true;
+                    }
                 }
             }
 
@@ -852,10 +1394,11 @@ public static class HeterogeneousEngine
 
             unit.Metrics.OrderRespect = contacts == 0 ? 100 : good * 100.0 / contacts;
             unit.Metrics.CapacityUseMax = capUse * 100;
-            var levels = _boxes.Select(b => Math.Round(b.P.Z)).Distinct().OrderBy(z => z).ToList();
+            var levels = _boxes.Select(b => Math.Round(b.P.Z)).Distinct().OrderBy(z => z)
+                .Select((z, k) => (z, k)).ToDictionary(t => t.z, t => t.k + 1);
             foreach (var b in _boxes)
             {
-                b.P.Layer = levels.IndexOf(Math.Round(b.P.Z)) + 1;
+                b.P.Layer = levels[Math.Round(b.P.Z)];
                 unit.Items.Add(b.P);
             }
 
@@ -904,7 +1447,7 @@ public static class HeterogeneousEngine
     private static void Finish(Solution s, Ctx ctx, int requested)
     {
         s.RequestedItems = requested;
-        foreach (var unit in s.Units)
+        foreach (var unit in s.Units.Where(u => !u.IsFullPallet))
         {
             var order = unit.Metrics.OrderRespect;
             var capUse = unit.Metrics.CapacityUseMax;
@@ -953,7 +1496,13 @@ public static class HeterogeneousEngine
             }
         }
 
-        s.Violations.AddRange(SolutionValidator.Validate(s, ctx.C, checkSupport: true));
+        // Palettes complètes : solution homogène déjà contrôlée ; seules les unités mélangées sont revérifiées.
+        var mixedUnits = s.Units.Where(u => !u.IsFullPallet).ToList();
+        if (mixedUnits.Count > 0)
+        {
+            var view = new Solution { Kind = s.Kind, Base = s.Base, Units = mixedUnits };
+            s.Violations.AddRange(SolutionValidator.Validate(view, ctx.C, checkSupport: true));
+        }
     }
 
     private static void Rank(List<Solution> list)
@@ -985,7 +1534,7 @@ public static class HeterogeneousEngine
         best.Recommended = true;
         var u = best.Units;
         best.Recommendation =
-            $"Recommandée : {best.TotalItems} produit(s) sur {u.Count} unité(s) de charge ; " +
+            $"Recommandée : {best.TotalItems.ToString("#,0", Fr)} produit(s) sur {u.Count} unité(s) de charge ; " +
             $"remplissage {u.Average(x => x.Metrics.FillRate).ToString("0", Fr)} %, " +
             $"support moyen {u.Average(x => x.Metrics.SupportAvg).ToString("0", Fr)} %, " +
             $"ordre lourd / léger respecté à {u.Average(x => x.Metrics.OrderRespect).ToString("0", Fr)} %, " +

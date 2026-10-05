@@ -94,7 +94,7 @@ public static class SolutionValidator
         }
 
         var area = p.DX * p.DY;
-        var covered = tops.Below(p).Sum(q => Geometry.FootprintOverlap(p, q));
+        var covered = tops.Below(p).Sum(q => Geometry.SupportShare(p, q));
         return Math.Min(1, covered / area);
     }
 
@@ -107,7 +107,7 @@ public static class SolutionValidator
 
         var area = p.DX * p.DY;
         var covered = items.Where(q => !ReferenceEquals(p, q) && Math.Abs(q.MaxZ - p.Z) <= Geometry.Eps)
-            .Sum(q => Geometry.FootprintOverlap(p, q));
+            .Sum(q => Geometry.SupportShare(p, q));
         return Math.Min(1, covered / area);
     }
 }

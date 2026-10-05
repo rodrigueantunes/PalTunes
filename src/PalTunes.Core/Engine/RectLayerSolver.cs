@@ -59,15 +59,28 @@ public static class RectLayerSolver
             return new RectLayerResult { Best = empty, Grid = empty };
         }
 
-        var solver = new Instance(X, Y, ia, ib);
-        solver.Run();
-
         var scale = 1 / Unit;
         LayerPattern ToPattern(string kind, List<(int x, int y, int w, int h)> cells) => new()
         {
             Kind = kind,
             Items = cells.Select(c => new Rect2(c.x * scale, c.y * scale, c.w * scale - gap, c.h * scale - gap)).ToList()
         };
+
+        // Très petits produits : la programmation dynamique (O(n³) sur les points de discrétisation) devient prohibitive
+        // alors que deux blocs d'orientations opposées sont à une rangée près de l'optimum.
+        var nx = RasterCount(X, ia, ib);
+        var ny = RasterCount(Y, ia, ib);
+        if ((double)nx * ny * (nx + ny) > DpBudget)
+        {
+            var cells = TwoBlocks(X, Y, ia, ib);
+            var bound = (int)((long)X * Y / ((long)ia * ib));
+            var plan = ToPattern("Blocs", cells);
+            var simple = ToPattern("Grille", Grid(X, Y, ia, ib));
+            return new RectLayerResult { Best = plan.Count >= simple.Count ? plan : simple, Grid = simple, UpperBound = bound, GuillotineCount = plan.Count };
+        }
+
+        var solver = new Instance(X, Y, ia, ib);
+        solver.Run();
 
         var grid = ToPattern("Grille", solver.BestGrid());
         var guillotine = ToPattern(solver.GuillotineIsGrid ? "Grille" : "Guillotine", solver.BuildGuillotine());
@@ -85,6 +98,109 @@ public static class RectLayerSolver
             GuillotineCount = guillotine.Count,
             PinwheelCount = Math.Max(solver.PinwheelValue, 0)
         };
+    }
+
+    /// <summary>Au-delà (opérations de la programmation dynamique), plan à deux blocs (très petits produits).</summary>
+    private const double DpBudget = 400_000_000;
+
+    /// <summary>Nombre de points de discrétisation i·a + j·b ≤ L.</summary>
+    private static int RasterCount(int length, int a, int b)
+    {
+        var reach = new bool[length + 1];
+        reach[0] = true;
+        var count = 0;
+        for (var v = 0; v <= length; v++)
+        {
+            if (!reach[v])
+            {
+                continue;
+            }
+
+            count++;
+            if (v + a <= length)
+            {
+                reach[v + a] = true;
+            }
+
+            if (v + b <= length)
+            {
+                reach[v + b] = true;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Grille simple, meilleure des deux orientations.</summary>
+    private static List<(int x, int y, int w, int h)> Grid(int X, int Y, int a, int b)
+    {
+        var (w, h) = (X / a) * (Y / b) >= (X / b) * (Y / a) ? (a, b) : (b, a);
+        var cells = new List<(int, int, int, int)>();
+        for (var i = 0; i + w <= X; i += w)
+        {
+            for (var j = 0; j + h <= Y; j += h)
+            {
+                cells.Add((i, j, w, h));
+            }
+        }
+
+        return cells;
+    }
+
+    /// <summary>
+    /// Deux blocs d'orientations opposées, coupés selon X ou selon Y à la meilleure position (plans de type « bloc »
+    /// de Smith &amp; De Cani) : à une rangée près de l'optimum pour de très petits produits.
+    /// </summary>
+    private static List<(int x, int y, int w, int h)> TwoBlocks(int X, int Y, int a, int b)
+    {
+        static int Fit(int w, int h, int p, int q) => (w / p) * (h / q);
+        var best = (count: -1, alongX: true, cut: 0, w1: a, h1: b);
+        foreach (var (p, q) in new[] { (a, b), (b, a) })
+        {
+            for (var cut = 0; cut <= X; cut += p)
+            {
+                var n = Fit(cut, Y, p, q) + Fit(X - cut, Y, q, p);
+                if (n > best.count)
+                {
+                    best = (n, true, cut, p, q);
+                }
+            }
+
+            for (var cut = 0; cut <= Y; cut += q)
+            {
+                var n = Fit(X, cut, p, q) + Fit(X, Y - cut, q, p);
+                if (n > best.count)
+                {
+                    best = (n, false, cut, p, q);
+                }
+            }
+        }
+
+        var cells = new List<(int, int, int, int)>();
+        void Block(int x0, int y0, int w, int h, int p, int q)
+        {
+            for (var i = 0; i + p <= w; i += p)
+            {
+                for (var j = 0; j + q <= h; j += q)
+                {
+                    cells.Add((x0 + i, y0 + j, p, q));
+                }
+            }
+        }
+
+        var (_, alongX, c, w1, h1) = best;
+        if (alongX)
+        {
+            Block(0, 0, c, Y, w1, h1);
+            Block(c, 0, X - c, Y, h1, w1);
+        }
+        else
+        {
+            Block(0, 0, X, c, w1, h1);
+            Block(0, c, X, Y - c, h1, w1);
+        }
+
+        return cells;
     }
 
     private sealed class Instance(int X, int Y, int a, int b)

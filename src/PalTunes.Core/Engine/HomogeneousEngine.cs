@@ -78,7 +78,20 @@ public static class HomogeneousEngine
 
         Deduplicate(result.Solutions);
         Rank(result.Solutions, article);
+        MarkHollow(result.Solutions, _ => article.HollowDiameter);
         return result;
+    }
+
+    /// <summary>Tubes et bobines creux : chaque produit placé garde son diamètre intérieur (creux visible sur les schémas).</summary>
+    public static void MarkHollow(IEnumerable<Solution> solutions, Func<Guid, double> hollowOf)
+    {
+        foreach (var p in solutions.SelectMany(s => s.Units).SelectMany(u => u.Items))
+        {
+            if (p.Shape is ShapeKind.CylinderX or ShapeKind.CylinderY or ShapeKind.CylinderZ)
+            {
+                p.InnerDiameter = hollowOf(p.ArticleId);
+            }
+        }
     }
 
     /// <summary>

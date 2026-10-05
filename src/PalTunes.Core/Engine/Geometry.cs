@@ -12,6 +12,49 @@ internal static class Geometry
     public static double FootprintOverlap(Placement a, Placement b) =>
         OverlapLength(a.X, a.MaxX, b.X, b.MaxX) * OverlapLength(a.Y, a.MaxY, b.Y, b.MaxY);
 
+    /// <summary>
+    /// Surface d'appui réelle : intersection des deux disques pour deux cylindres debout (leurs carrés englobants se
+    /// recouvrent en quinconce sans contact réel), recouvrement des empreintes sinon.
+    /// </summary>
+    public static double ContactArea(Placement top, Placement below)
+    {
+        if (top.Shape != ShapeKind.CylinderZ || below.Shape != ShapeKind.CylinderZ)
+        {
+            return FootprintOverlap(top, below);
+        }
+
+        var r1 = Math.Min(top.DX, top.DY) / 2;
+        var r2 = Math.Min(below.DX, below.DY) / 2;
+        var dx = top.X + top.DX / 2 - (below.X + below.DX / 2);
+        var dy = top.Y + top.DY / 2 - (below.Y + below.DY / 2);
+        var d = Math.Sqrt(dx * dx + dy * dy);
+        if (d >= r1 + r2)
+        {
+            return 0;
+        }
+
+        if (d <= Math.Abs(r1 - r2))
+        {
+            var r = Math.Min(r1, r2);
+            return Math.PI * r * r;
+        }
+
+        var a1 = r1 * r1 * Math.Acos(Math.Clamp((d * d + r1 * r1 - r2 * r2) / (2 * d * r1), -1, 1));
+        var a2 = r2 * r2 * Math.Acos(Math.Clamp((d * d + r2 * r2 - r1 * r1) / (2 * d * r2), -1, 1));
+        var k = 0.5 * Math.Sqrt(Math.Max(0, (-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2)));
+        return a1 + a2 - k;
+    }
+
+    /// <summary>
+    /// Part de l'empreinte du produit du dessus portée par celui du dessous, exprimée en surface d'empreinte
+    /// rectangulaire (rapportée à DX × DY) : disques pour deux cylindres debout, recouvrement des empreintes sinon.
+    /// Même règle pour le moteur, le contrôle indépendant et les indicateurs.
+    /// </summary>
+    public static double SupportShare(Placement top, Placement below) =>
+        top.Shape == ShapeKind.CylinderZ && below.Shape == ShapeKind.CylinderZ
+            ? ContactArea(top, below) * 4 / Math.PI
+            : FootprintOverlap(top, below);
+
     public static double FootprintArea(Placement p) => p.Shape == ShapeKind.CylinderZ
         ? Math.PI * p.DX * p.DY / 4
         : p.DX * p.DY;

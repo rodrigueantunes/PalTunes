@@ -30,7 +30,7 @@ public static class ArticleCsv
 {
     public static IReadOnlyList<ColumnDoc> Columns { get; } =
     [
-        new("CODE", ["CODE_ARTICLE", "ARTICLE", "REF", "REFERENCE", "ITEM"], "Obligatoire", "Code unique de l'article. Un code existant est mis à jour.", "CAR-400"),
+        new("CODE", ["CODE_ARTICLE", "ARTICLE", "REF", "REFERENCE", "ITEM"], "Obligatoire", "Code de l'article, unique pour un même client. Même code chez le même client : l'article est mis à jour.", "CAR-400"),
         new("TYPE", ["TYPE_ARTICLE", "NATURE", "KIND"], "Obligatoire", "CAISSE, BOBINE, TUBE, PLAQUE, SAC, FUT, BAC ou AUTRE (synonymes acceptés : CARTON, ROULEAU, PANNEAU…).", "CAISSE"),
         new("LONGUEUR", ["L", "LONG", "LENGTH"], "Selon type", "mm. Caisse, sac, bac, plaque, autre ; longueur du tube.", "400"),
         new("LARGEUR", ["LARG", "WIDTH", "LAIZE"], "Selon type", "mm. Caisse, sac, bac, plaque, autre ; laize de la bobine.", "300"),
@@ -38,7 +38,8 @@ public static class ArticleCsv
         new("LONGUEUR_PLIEE", ["LONGUEUR_PLIE", "L_PLIEE", "LONGUEUR_A_PLAT", "FOLDED_LENGTH"], "Facultatif", "mm. Carton livré plié : longueur une fois plié ; renseignée, elle remplace la longueur pour le conditionnement.", ""),
         new("LARGEUR_PLIEE", ["LARGEUR_PLIE", "LARG_PLIEE", "LARGEUR_A_PLAT", "FOLDED_WIDTH"], "Facultatif", "mm. Carton plié : largeur une fois plié ; renseignée, elle remplace la largeur pour le conditionnement.", ""),
         new("HAUTEUR_PLIEE", ["HAUTEUR_PLIE", "H_PLIEE", "HAUTEUR_A_PLAT", "EPAISSEUR_PLIEE", "FOLDED_HEIGHT"], "Facultatif", "mm. Carton plié : hauteur (épaisseur) une fois plié ; renseignée, elle remplace la hauteur pour le conditionnement.", ""),
-        new("DIAMETRE", ["DIAM", "D", "DIAMETRE_EXT", "DIAMETER", "OD"], "Selon type", "mm. Diamètre extérieur (bobine, tube, fût).", ""),
+        new("QTE_PAR_CAISSE", ["QUANTITE_PAR_CAISSE", "QTE_CAISSE", "QUANTITE_CAISSE", "PCB", "UNITES_PAR_CAISSE", "QTY_PER_CASE"], "Facultatif", "Caisse / carton : nombre de produits contenus. Renseignée, la palettisation de la caisse indique aussi les produits par palette ; vide, rien ne change.", ""),
+        new("DIAMETRE", ["DIAM", "D", "DIAMETRE_EXT", "DIAMETER", "OD"], "Selon type", "mm. Diamètre extérieur (bobine, tube, fût). Absent pour un tube ou une bobine : DIAMETRE_INT sert de diamètre dans les calculs (avertissement).", ""),
         new("DIAMETRE_INT", ["MANDRIN", "DIAM_INT", "ID", "CORE"], "Facultatif", "mm. Diamètre du mandrin d'une bobine, diamètre intérieur d'un tube creux.", ""),
         new("POIDS", ["POIDS_KG", "MASSE", "WEIGHT", "KG"], "Obligatoire", "kg par article.", "12,5"),
         new("ORIENTATION", ["HAUT_IMPOSE", "ROTATION"], "Facultatif", "HAUT_IMPOSE (défaut) ou LIBRE : caisses et « autre ».", "HAUT_IMPOSE"),
@@ -127,6 +128,7 @@ public static class ArticleCsv
         string Key(string? client) => (clientKey != null ? clientKey(client) : client)?.Trim() ?? "";
         var wallFromHeight = 0;
         var suspect = 0;
+        var innerAsDiameter = 0;
         for (var r = 1; r < rows.Count; r++)
         {
             var row = rows[r];
@@ -211,6 +213,22 @@ public static class ArticleCsv
             Num("LONGUEUR_PLIEE", v => article.FoldedLength = v);
             Num("LARGEUR_PLIEE", v => article.FoldedWidth = v);
             Num("HAUTEUR_PLIEE", v => article.FoldedHeight = v);
+            if (Has("QTE_PAR_CAISSE"))
+            {
+                var q = Get("QTE_PAR_CAISSE");
+                if (string.IsNullOrWhiteSpace(q))
+                {
+                    article.QuantityPerCase = null;
+                }
+                else if (Csv.TryParseNumber(q, out var v) && v >= 1 && Math.Abs(v - Math.Round(v)) < 1e-9)
+                {
+                    article.QuantityPerCase = (int)Math.Round(v);
+                }
+                else
+                {
+                    messages.Add($"QTE_PAR_CAISSE « {q} » : nombre entier > 0 attendu.");
+                }
+            }
             Num("DIAMETRE", v => article.Diameter = v);
             Num("DIAMETRE_INT", v => article.InnerDiameter = v);
             Num("POIDS", v => article.Weight = v);
@@ -297,6 +315,13 @@ public static class ArticleCsv
                 report.Lines.Add(new ImportLine { Row = r + 1, Code = code, Status = "Créé", Message = article.DimensionsText });
             }
 
+            // Tube ou bobine sans DIAMETRE : les données sont gardées telles quelles, le diamètre intérieur sert de diamètre.
+            if (ArticleSchema.DiameterWarning(article) is { } diameterNote)
+            {
+                innerAsDiameter++;
+                report.Lines.Add(new ImportLine { Row = r + 1, Code = code, Status = "Avertissement", Message = diameterNote });
+            }
+
             if (ArticleSchema.WeightWarning(article) is { } warning)
             {
                 suspect++;
@@ -307,6 +332,11 @@ public static class ArticleCsv
         if (wallFromHeight > 0)
         {
             report.Lines.Add(new ImportLine { Status = "Info", Message = $"{wallFromHeight} tube(s) : HAUTEUR lue comme épaisseur de paroi, Ø intérieur = Ø − 2 × épaisseur." });
+        }
+
+        if (innerAsDiameter > 0)
+        {
+            report.Lines.Add(new ImportLine { Status = "Avertissement", Message = $"{innerAsDiameter} article(s) sans DIAMETRE : le diamètre intérieur (DIAMETRE_INT) a été pris comme diamètre ; vérifiez ces articles." });
         }
 
         if (suspect > 0)
@@ -344,6 +374,7 @@ public static class ArticleCsv
         yield return a.Kind == ArticleKind.Caisse ? N(a.FoldedLength) : "";
         yield return a.Kind == ArticleKind.Caisse ? N(a.FoldedWidth) : "";
         yield return a.Kind == ArticleKind.Caisse ? N(a.FoldedHeight) : "";
+        yield return a.CaseQuantity?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
         yield return N(a.Diameter);
         yield return N(a.InnerDiameter);
         yield return W(a.Weight);
@@ -367,7 +398,7 @@ public static class ArticleCsv
     {
         var examples = new[]
         {
-            new Article { Code = "CAR-400", Kind = ArticleKind.Caisse, Length = 400, Width = 300, Height = 250, Weight = 12, MaxLoadOnTop = 90, Designation = "Carton 400 × 300 × 250", Client = "AGRO", Family = "Emballages", SubFamily = "Cartons" },
+            new Article { Code = "CAR-400", Kind = ArticleKind.Caisse, Length = 400, Width = 300, Height = 250, Weight = 12, QuantityPerCase = 24, MaxLoadOnTop = 90, Designation = "Carton 400 × 300 × 250", Client = "AGRO", Family = "Emballages", SubFamily = "Cartons" },
             new Article { Code = "BOB-1000", Kind = ArticleKind.Bobine, Diameter = 1000, Width = 700, InnerDiameter = 76, Weight = 380, CoilAxis = CoilAxis.Vertical, Designation = "Bobine film Ø1000 laize 700", Client = "AGRO", Family = "Films" },
             new Article { Code = "TUB-110", Kind = ArticleKind.Tube, Diameter = 110, Length = 1200, Weight = 4.5, CoilAxis = CoilAxis.Indifferent, Designation = "Tube PVC Ø110 × 1200", Client = "BATI", Family = "Tubes" },
             new Article { Code = "PLQ-1600", Kind = ArticleKind.Plaque, Length = 1600, Width = 1200, Height = 10, Weight = 15, Designation = "Plaque 1600 × 1200 ép. 10", Client = "BATI", Family = "Plaques" },

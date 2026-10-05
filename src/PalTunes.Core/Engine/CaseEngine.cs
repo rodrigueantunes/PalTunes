@@ -108,10 +108,50 @@ public static class CaseEngine
         }
     }
 
+    /// <summary>Colisage d'un article caisse créé au colisage, recalculé pour la fiche (produit, caisse, solution).</summary>
+    public sealed record CaseSheet(Article Content, CaseType? Type, CaseSpec Spec, Solution Solution, CoilAxis? Axis);
+
+    /// <summary>
+    /// Fiche de colisage possible pour cet article : caisse dont le contenu est connu (créée au colisage) et dont le
+    /// produit existe toujours.
+    /// </summary>
+    public static bool CanRebuild(Article? box, Func<Guid, Article?> findArticle) =>
+        box is { Kind: ArticleKind.Caisse, CaseContent: { } link } && findArticle(link.ArticleId) != null;
+
+    /// <summary>
+    /// Recalcule le colisage d'un article caisse : même produit, même caisse, quantité par caisse imposée si renseignée.
+    /// Null si le contenu est inconnu ou ne tient plus dans la caisse.
+    /// </summary>
+    public static CaseSheet? Rebuild(Article box, Func<Guid, Article?> findArticle, IEnumerable<CaseType> cases)
+    {
+        if (box is not { Kind: ArticleKind.Caisse, CaseContent: { } link } || findArticle(link.ArticleId) is not { } content)
+        {
+            return null;
+        }
+
+        var type = link.CaseTypeCode == null
+            ? null
+            : cases.FirstOrDefault(c => string.Equals(c.Code, link.CaseTypeCode, StringComparison.OrdinalIgnoreCase));
+        var spec = type?.ToSpec(link.Gap) ?? new CaseSpec
+        {
+            InnerLength = link.InnerLength,
+            InnerWidth = link.InnerWidth,
+            InnerHeight = link.InnerHeight,
+            WallThickness = link.WallThickness,
+            Tare = link.Tare,
+            Gap = link.Gap
+        };
+        var result = Solve(content, spec, box.CaseQuantity, type, axis: link.Axis);
+        var solution = result.Solutions.FirstOrDefault(s => box.CaseQuantity is { } q && s.ItemsPerUnit == q)
+                       ?? result.Recommended
+                       ?? result.Solutions.FirstOrDefault();
+        return solution == null ? null : new CaseSheet(content, type, spec, solution, link.Axis);
+    }
+
     /// <summary>Caisses du catalogue dans lesquelles l'article tient (au moins un produit, poids compris).</summary>
     public static List<CaseType> PossibleCases(Article article, IEnumerable<CaseType> cases, double gap = 0, CoilAxis? axis = null) =>
         cases.Where(c => c.Validate().Count == 0 && (c.MaxWeight <= 0 || article.Weight <= c.MaxWeight) &&
-                         Solve(article, c.ToSpec(gap), null, c, axis: axis).Solutions.Count > 0).ToList();
+                         Solve(article, c.ToSpec(gap), 1, c, axis: axis).Solutions.Count > 0).ToList();
 
     /// <summary>Produits cylindriques debout (axe vertical) dans la solution.</summary>
     public static bool IsUpright(Solution s) => s.FirstUnit is { Items.Count: > 0 } u && u.Items[0].Shape == ShapeKind.CylinderZ;
@@ -246,14 +286,20 @@ public static class CaseEngine
         return volume / (type.InnerLength * type.InnerWidth * type.InnerHeight) * 100;
     }
 
-    /// <summary>Article « caisse » issu d'une solution : dimensions extérieures, poids = produits + tare.</summary>
-    public static Article CreateCaseArticle(Article content, Solution solution, CaseSpec spec, string code)
+    /// <summary>
+    /// Article « caisse » issu d'une solution : dimensions extérieures, poids = produits + tare, quantité par caisse et
+    /// contenu (produit, caisse) pour la fiche de colisage.
+    /// </summary>
+    public static Article CreateCaseArticle(Article content, Solution solution, CaseSpec spec, string code, CaseType? type = null, CoilAxis? axis = null)
     {
         var weight = solution.FirstUnit!.Items.Sum(p => p.Weight) + spec.Tare;
         return new Article
         {
             Code = code,
             Kind = ArticleKind.Caisse,
+            QuantityPerCase = solution.ItemsPerUnit,
+            CaseContent = new CaseContent(content.Id, type?.Code, spec.InnerLength, spec.InnerWidth, spec.InnerHeight, spec.WallThickness, spec.Tare,
+                spec.Gap, axis),
             Designation = $"Caisse de {solution.ItemsPerUnit} × {content.Code}",
             Length = Math.Max(spec.OuterLength, spec.OuterWidth),
             Width = Math.Min(spec.OuterLength, spec.OuterWidth),

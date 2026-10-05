@@ -87,6 +87,7 @@ public sealed class StackingProfile
     /// </summary>
     public static StackingProfile For(Article a, CoilAxis? axis = null)
     {
+        a = a.ForPalletizing(); // diamètre pris en compte, carton plié
         var effectiveAxis = axis ?? a.CoilAxis;
         var lying = a.Kind is ArticleKind.Tube or ArticleKind.Bobine && effectiveAxis == CoilAxis.Horizontal;
         var cls = a.Kind switch

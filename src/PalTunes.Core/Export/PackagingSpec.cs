@@ -42,6 +42,12 @@ public static class PackagingSpec
         if (s.Kind == PackagingKind.Homogene)
         {
             rows.Add(new(GroupSpec, "Produits par couche", s.ItemsPerLayer.ToString(Fr)));
+            if (article?.CaseQuantity is { } perCase)
+            {
+                rows.Add(new(GroupSpec, "Quantité par caisse", perCase.ToString("#,0", Fr), "produits par caisse"));
+                rows.Add(new(GroupSpec, "Produits contenus par palette produit", ((long)s.ItemsPerUnit * perCase).ToString("#,0", Fr),
+                    $"{s.ItemsPerUnit.ToString("#,0", Fr)} caisses × {perCase.ToString("#,0", Fr)}"));
+            }
             if (article is { IsFolded: true })
             {
                 var (fl, fw, fh) = article.PackedDimensions;
@@ -209,7 +215,8 @@ public static class PackagingSpec
         "Longueur d'encombrement de la charge (mm)", "Largeur d'encombrement de la charge (mm)", "Hauteur d'encombrement de la charge (mm)",
         "Produits par couche", "Nombre de couches", "Schéma", "Orientation", "Intercalaires", "Cornières",
         "Poids de la charge (kg)", "Poids total (kg)", "Taux de remplissage (%)",
-        "Plan par couche", "Intercalaires (couches)"
+        "Plan par couche", "Intercalaires (couches)",
+        "Quantité par caisse", "Produits contenus par palette produit"
     ];
 
     /// <summary>Export CSV (« ; », UTF-8 BOM) des conditionnements mono-article ayant une solution retenue.</summary>
@@ -243,7 +250,8 @@ public static class PackagingSpec
                 s.ItemsPerLayer.ToString(Fr), s.LayerCount.ToString(Fr), s.PatternLabel, s.OrientationText,
                 m.SlipSheetCount.ToString(Fr), p.Constraints.Corners ? "4" : "0",
                 m.LoadWeight.ToString("0.###", Fr), m.TotalWeight.ToString("0.###", Fr), Pct(m.FillRate),
-                PalletizationPlan.Summary(s.FirstUnit!, id => codeOf?.Invoke(id) ?? a?.Code ?? ""), PalletizationPlan.SlipSheetSummary(s.FirstUnit!)
+                PalletizationPlan.Summary(s.FirstUnit!, id => codeOf?.Invoke(id) ?? a?.Code ?? ""), PalletizationPlan.SlipSheetSummary(s.FirstUnit!),
+                a?.CaseQuantity?.ToString(Fr) ?? "", a?.CaseQuantity is { } q ? ((long)s.ItemsPerUnit * q).ToString(Fr) : ""
             ]));
         }
 

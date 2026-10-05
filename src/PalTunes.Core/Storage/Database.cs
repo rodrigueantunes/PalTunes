@@ -33,7 +33,45 @@ public sealed class Database
         return added;
     }
 
-    public Article? FindArticle(Guid? id) => id == null ? null : Articles.FirstOrDefault(a => a.Id == id);
+    // Index des articles (identifiant → position) : publié d'un bloc, lisible depuis un calcul en tâche de fond.
+    private (List<Article> List, int Count, Dictionary<Guid, int> Positions)? _articleIndex;
+
+    public Article? FindArticle(Guid? id)
+    {
+        if (id == null)
+        {
+            return null;
+        }
+
+        var index = _articleIndex;
+        if (index is not { } ix || !ReferenceEquals(ix.List, Articles) || ix.Count != Articles.Count)
+        {
+            index = RebuildArticleIndex();
+        }
+
+        // Position vérifiée (un article remplacé à la même place reste trouvé ; sinon index reconstruit une fois).
+        if (index!.Value.Positions.TryGetValue(id.Value, out var i) && i < Articles.Count && Articles[i].Id == id)
+        {
+            return Articles[i];
+        }
+
+        index = RebuildArticleIndex();
+        return index.Value.Positions.TryGetValue(id.Value, out i) && i < Articles.Count ? Articles[i] : null;
+    }
+
+    private (List<Article>, int, Dictionary<Guid, int>) RebuildArticleIndex()
+    {
+        var list = Articles;
+        var positions = new Dictionary<Guid, int>(list.Count);
+        for (var i = 0; i < list.Count; i++)
+        {
+            positions.TryAdd(list[i].Id, i);
+        }
+
+        var index = (list, list.Count, positions);
+        _articleIndex = index;
+        return index;
+    }
     public PalletType? FindPallet(Guid? id) => id == null ? null : Pallets.FirstOrDefault(p => p.Id == id);
 
     // Index des clients (code, nom) : les bases importées comptent des milliers de clients et d'articles.
@@ -245,6 +283,9 @@ public sealed class DatabaseStore
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+
+        // Valeurs calculées (FirstUnit, TotalItems, MaxX…) : recalculées à la lecture, jamais écrites.
+        IgnoreReadOnlyProperties = true,
         Converters = { new JsonStringEnumConverter() }
     };
 

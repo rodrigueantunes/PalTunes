@@ -68,7 +68,7 @@ public static class MetricsCalculator
                 var supporters = 0;
                 foreach (var q in tops.Below(p))
                 {
-                    var o = Geometry.FootprintOverlap(p, q);
+                    var o = Geometry.SupportShare(p, q);
                     if (o > 0)
                     {
                         covered += o;
@@ -128,9 +128,12 @@ public static class MetricsCalculator
                 continue;
             }
 
+            // Voisins par la grille spatiale (produit élargi du jeu de contact) : linéaire même avec des milliers de produits.
+            var grid = new PlacementGrid(list, useZ: true);
             foreach (var p in list)
             {
-                if (list.Any(q => !ReferenceEquals(p, q) && Touch(p, q)))
+                var probe = new Placement { X = p.X - 2, Y = p.Y - 2, Z = p.Z - 2, DX = p.DX + 4, DY = p.DY + 4, DZ = p.DZ + 4 };
+                if (grid.Near(probe).Any(i => !ReferenceEquals(p, grid[i]) && Touch(p, grid[i])))
                 {
                     ok++;
                 }

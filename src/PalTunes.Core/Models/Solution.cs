@@ -15,6 +15,9 @@ public sealed class Placement
     public double DZ { get; set; }
     public ShapeKind Shape { get; set; }
 
+    /// <summary>Tube ou bobine creux : diamètre intérieur (mm), dessiné en creux sur les schémas. 0 = plein.</summary>
+    public double InnerDiameter { get; set; }
+
     /// <summary>Numéro de couche (1 = bas).</summary>
     public int Layer { get; set; }
 
@@ -175,9 +178,13 @@ public sealed class LoadUnit
     /// <summary>Tubes retirés pour laisser la place aux cornières restées au niveau de la palette.</summary>
     public int RemovedForCorners { get; set; }
 
+    /// <summary>Hétérogène : palette complète d'un seul article (solution homogène), posée telle quelle.</summary>
+    public bool IsFullPallet { get; set; }
+
     /// <summary>Cadre effectif des cornières.</summary>
     public (double X0, double Y0, double X1, double Y1) CornerBounds(UnitMetrics m) =>
         CornerFrame is { } f ? (f.X0, f.Y0, f.X1, f.Y1) : (m.MinX, m.MinY, m.MaxX, m.MaxY);
+    [System.Text.Json.Serialization.JsonConverter(typeof(Storage.PlacementListConverter))]
     public List<Placement> Items { get; set; } = [];
     public List<LayerInfo> Layers { get; set; } = [];
     public UnitMetrics Metrics { get; set; } = new();
@@ -230,6 +237,9 @@ public sealed class Solution
     // Hétérogène
     public int RequestedItems { get; set; }
     public int UnplacedItems { get; set; }
+
+    /// <summary>Articles exclus du calcul car ils ne tiennent pas seuls sur la base (code × quantité : raison).</summary>
+    public List<string> ExcludedArticles { get; set; } = [];
 
     public double Score { get; set; }
     public double StabilityScore { get; set; }

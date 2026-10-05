@@ -9,8 +9,8 @@ public static class ClientCsv
 {
     public static IReadOnlyList<ColumnDoc> Columns { get; } =
     [
-        new("CODE", ["CODE_CLIENT", "CLIENT_CODE", "REF"], "Obligatoire", "Code unique du client. Un code existant est mis à jour.", "AGRO"),
-        new("NOM", ["CLIENT", "RAISON_SOCIALE", "NAME", "LIBELLE"], "Obligatoire", "Nom affiché ; c'est lui qui relie les articles (colonne CLIENT des articles).", "Démo Agro"),
+        new("CODE", ["CODE_CLIENT", "CLIENT_CODE", "REF"], "Obligatoire", "Code unique du client (les articles le citent dans leur colonne CLIENT). Un code existant est mis à jour.", "AGRO"),
+        new("NOM", ["CLIENT", "RAISON_SOCIALE", "NAME", "LIBELLE"], "Obligatoire", "Nom affiché ; deux clients peuvent porter le même nom.", "Démo Agro"),
         new("ADRESSE", ["ADDRESS", "RUE"], "Facultatif", "Adresse.", ""),
         new("CODE_POSTAL", ["CP", "ZIP"], "Facultatif", "", "59000"),
         new("VILLE", ["CITY"], "Facultatif", "", "Lille"),
