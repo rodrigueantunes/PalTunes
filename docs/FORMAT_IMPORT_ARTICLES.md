@@ -1,6 +1,6 @@
 # PalTunes – Format d'import CSV des articles et des clients
 
-> À jour de PalTunes 0.1.3. Une ligne d'en-tête, puis une ligne par article (ou par client). Le même format est produit
+> À jour de PalTunes 0.1.5. Une ligne d'en-tête, puis une ligne par article (ou par client). Le même format est produit
 > par « Exporter la base » (réimportable) et par « Modèle CSV » (une ligne d'exemple par type d'article). L'aide
 > intégrée (F1) présente les mêmes colonnes et les données minimales par type.
 
@@ -20,7 +20,7 @@
 | Colonne | Synonymes | Exigence | Contenu |
 |---|---|---|---|
 | `CODE` | CODE_ARTICLE, ARTICLE, REF, REFERENCE, ITEM | **Obligatoire** | Code de l'article, unique pour un même client (le même code peut exister chez deux clients) |
-| `TYPE` | TYPE_ARTICLE, NATURE, KIND | **Obligatoire** (création) | CAISSE, BOBINE, TUBE, PLAQUE, SAC, FUT, BAC, AUTRE (synonymes : CARTON, COLIS, ROULEAU, PROFILE, BARRE, PANNEAU, PLANCHE, SACHET, BIDON, CAISSE_PLASTIQUE…) |
+| `TYPE` | TYPE_ARTICLE, NATURE, KIND | **Obligatoire** (création) | CAISSE, BOBINE, TUBE, PLAQUE, SAC, FUT, BAC, AUTRE, et les autres types BIDON, SEAU, BOUTEILLE, CUVE (synonymes : CARTON, COLIS, ROULEAU, PROFILE, BARRE, PANNEAU, PLANCHE, SACHET, CAISSE_PLASTIQUE, TONNEAU, BARIL, JERRICAN, POT, FLACON, IBC, GRV…). Depuis 0.1.5, `BIDON` désigne un bidon / jerrican (il désignait un fût) |
 | `LONGUEUR` | L, LONG, LENGTH | Selon type | mm – caisse, sac, bac, plaque, autre ; longueur du tube |
 | `LARGEUR` | LARG, WIDTH, LAIZE | Selon type | mm – caisse, sac, bac, plaque, autre ; **laize** de la bobine |
 | `HAUTEUR` | H, HAUT, HEIGHT, EPAISSEUR, EP | Selon type | mm – hauteur (caisse, sac, bac, fût, autre), **épaisseur** (plaque) ; tube : **épaisseur de paroi** (Ø intérieur = Ø − 2 × épaisseur, si `DIAMETRE_INT` est vide) |
@@ -55,6 +55,8 @@
 | BOBINE | DIAMETRE (à défaut DIAMETRE_INT, avec avertissement), LARGEUR (laize) | DIAMETRE_INT (mandrin) |
 | TUBE | DIAMETRE (à défaut DIAMETRE_INT, avec avertissement), LONGUEUR | DIAMETRE_INT, ou HAUTEUR = épaisseur de paroi (tube creux) |
 | FUT | DIAMETRE, HAUTEUR | |
+| BIDON (jerrican), CUVE (IBC / GRV) | LONGUEUR, LARGEUR, HAUTEUR (hors tout : poignée, bouchon, palette intégrée) | |
+| SEAU, BOUTEILLE | DIAMETRE (le plus grand), HAUTEUR | |
 
 Carton plié : chaque dimension pliée renseignée remplace **uniquement** la dimension montée correspondante pour la
 palettisation et le colisage ; une dimension pliée vide (ou 0) garde la dimension montée.

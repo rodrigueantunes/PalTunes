@@ -4,6 +4,7 @@
     <Project Path="src/PalTunes.Core/PalTunes.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PalTunes.Reference/PalTunes.Reference.csproj" />
     <Project Path="tests/PalTunes.Tests/PalTunes.Tests.csproj" />
   </Folder>
 </Solution>
