@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.1.7` · Windows · .NET 10 · WPF
+`v0.1.8` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -718,12 +718,18 @@ FICHE DE CONDITIONNEMENT fiche palette, puis fiche de colisage sur une nouvelle 
 Les fiches portent sur **l'article affiché**, quel que soit le menu : article sélectionné, article du conditionnement, produit du colisage (dans les autres espaces, le dernier article affiché, rappelé au-dessus des boutons). Chaque bouton est actif si la fiche est possible pour cet article, grisé sinon — le survol en donne la raison :
 
 ```text
-fiche palette        article palettisable (solution affichée ou enregistrée, sinon calculée)
-fiche de colisage    caisse créée au colisage, ou produit qui tient dans une caisse du catalogue
-fiche de conditionnement   colisage possible et caisse palettisable
+fiche palette              un conditionnement existe (affiché, sélectionné ou enregistré pour l'article)
+fiche de colisage          un colisage existe (affiché, caisse créée au colisage, ou au moins une quantité par caisse)
+fiche de conditionnement   les deux : le conditionnement de la caisse et son colisage
 ```
 
-Ce qui manque est calculé en tâche de fond dès que l'article change, puis réutilisé à l'impression.
+Rien n'est calculé à la place de l'utilisateur. Une caisse dont seule la quantité par caisse est connue donne une fiche de colisage résumée (quantité, caisse, palettisation enregistrée, sans plans).
+
+Mise en page : première page avec un cartouche (informations, image de la palette choisie et de la caisse du catalogue) et la spécification ; schémas (couches, côté, face, vue 3D) sur une page à part ; plan de palettisation ensuite ; pied de page numéroté sur chaque page.
+
+### Détails du calcul
+
+Les écrans Conditionnements et Colisage ont un onglet **Détails du calcul** : chaque étape avec ses chiffres et son explication — base et limites (surface et hauteur utiles, charge), produit retenu, plan de couche et sa borne théorique, nombre de couches par la hauteur, le poids, la résistance et le facteur limitant, poids et encombrement, gerbage ; en hétérogène, bornes de volume et de poids, règles de pose, stratégie retenue et détail par unité ; au colisage, caisse et limites de poids (charge maxi, manutention à la main), poids brut et palettisation des caisses.
 
 Un article caisse peut porter une **quantité par caisse** (facultative) : renseignée automatiquement à la création d'une caisse au colisage, ou importée (`QTE_PAR_CAISSE`). La fiche palette indique alors aussi les produits contenus par palette ; vide, rien ne change.
 
