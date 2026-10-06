@@ -17,10 +17,9 @@ namespace PalTunes.App.ViewModels;
 /// <remarks>
 /// Article des fiches : article sélectionné (Articles), article du conditionnement (Conditionnements, Gestion des
 /// conditionnements), produit à mettre en caisse (Colisage) ; dans les autres espaces, le dernier article affiché.
-/// Fiche palette : solution affichée ou enregistrée, sinon calculée sur la palette du dernier conditionnement de
-/// l'article (à défaut la palette de destination du colisage). Fiche de colisage : caisse créée au colisage (contenu
-/// connu), ou produit qui tient dans au moins une caisse du catalogue (la meilleure). Fiche de conditionnement : colisage
-/// puis palette de la caisse.
+/// Fiche palette : un conditionnement existe (affiché, sélectionné ou enregistré). Fiche de colisage : un colisage existe
+/// (affiché, caisse créée au colisage, ou au moins une quantité par caisse : fiche résumée). Fiche de conditionnement :
+/// les deux (palette de la caisse, puis colisage).
 /// </remarks>
 public sealed partial class PrintCenter : ObservableObject
 {
@@ -47,16 +46,21 @@ public sealed partial class PrintCenter : ObservableObject
     /// <summary>Ce qui est imprimable pour un article : palette, colisage, conditionnement, avec la raison sinon.</summary>
     private sealed class Plan
     {
-        public (Packaging Packaging, Solution Solution)? Pallet;
+        /// <summary>Conditionnement enregistré de l'article, avec sa solution.</summary>
+        public Packaging? Pallet;
+
         public string PalletWhy = "";
+
+        /// <summary>Colisage recalculé (caisse créée au colisage : produit et caisse connus).</summary>
         public CaseEngine.CaseSheet? Case;
+
+        /// <summary>Colisage minimal : caisse dont seule la quantité par caisse est connue.</summary>
+        public Article? CaseSummary;
+
         public string CaseWhy = "";
-
-        /// <summary>Caisse du colisage palettisée (produit) ; null pour un article caisse (sa palette est <see cref="Pallet"/>).</summary>
-        public (Article Box, Packaging Packaging, Solution Solution)? CasePallet;
-
         public string PackagingWhy = "";
-        public bool PackagingOk;
+
+        public bool HasCase => Case != null || CaseSummary != null;
     }
 
     private Plan _plan = new();
@@ -69,122 +73,55 @@ public sealed partial class PrintCenter : ObservableObject
         "Articles" => (true, _main.Articles.SelectedArticle),
         "Packagings" => (true, _main.Packagings.IsHomogeneous ? _main.Packagings.Article : null),
         "PackagingLibrary" => (true, _main.PackagingLibrary.Selected is { Kind: PackagingKind.Homogene } p ? _main.Db.FindArticle(p.ArticleId) : null),
-        "Cases" => (true, _main.Cases.Article),
+        "Cases" => (true, _main.Cases.IsMixed ? null : _main.Cases.Article),
         _ => (false, null)
     };
 
-    /// <summary>Palette du dernier conditionnement homogène de l'article (enregistré), sinon palette de destination du colisage.</summary>
-    private Packaging Template(Article a)
-    {
-        var last = _main.Db.Packagings.Where(p => p.Kind == PackagingKind.Homogene && p.ArticleId == a.Id).MaxBy(p => p.ModifiedAt);
-        if (last != null)
-        {
-            return last;
-        }
-
-        var pallet = DestinationPallet();
-        return new Packaging
-        {
-            Code = a.Code, Name = a.Designation, Kind = PackagingKind.Homogene, ArticleId = a.Id, PalletId = pallet?.Id,
-            Constraints = _main.Cases.DestinationConstraints
-        };
-    }
-
-    private PalletType? DestinationPallet() =>
-        _main.Cases.DestinationPallet ?? _main.Db.Pallets.FirstOrDefault(p => p.Code == "EUR1") ?? _main.Db.Pallets.FirstOrDefault();
+    /// <summary>Dernier conditionnement homogène enregistré de l'article, avec sa solution ; null s'il n'y en a pas.</summary>
+    private Packaging? SavedPackaging(Article a) =>
+        _main.Db.Packagings.Where(p => p.Kind == PackagingKind.Homogene && p.ArticleId == a.Id && p.Solution is { FirstUnit: not null }).MaxBy(p => p.ModifiedAt);
 
     private string Key(Article a)
     {
         var db = _main.Db;
         var packagings = db.Packagings.Where(p => p.ArticleId == a.Id).Select(p => p.ModifiedAt.Ticks).DefaultIfEmpty().Max();
         var content = a.CaseContent is { } link ? db.FindArticle(link.ArticleId)?.ModifiedAt.Ticks ?? -1 : 0;
-        return $"{a.Id}|{a.ModifiedAt.Ticks}|{packagings}|{content}|{db.Cases.Count}|{db.Pallets.Count}|{DestinationPallet()?.Id}|" +
-               $"{_main.Cases.DestinationConstraints.MaxTotalHeight}|{_main.Cases.DestinationConstraints.OverhangLength}|{_main.Cases.DestinationConstraints.OverhangWidth}";
+        return $"{a.Id}|{a.ModifiedAt.Ticks}|{packagings}|{db.Packagings.Count}|{content}|{db.Cases.Count}";
     }
 
-    /// <summary>Calcul du plan (tâche de fond) : mêmes moteurs que les écrans, aucune modification de la base.</summary>
-    private Plan Build(Article a, Packaging template, PalletType? destination, PackagingConstraints destinationConstraints, List<CaseType> cases)
+    /// <summary>
+    /// Plan d'impression (tâche de fond pour le recalcul du colisage) : la fiche palette demande un conditionnement
+    /// enregistré, la fiche de colisage un colisage (caisse créée au colisage, ou au moins une quantité par caisse), la
+    /// fiche de conditionnement les deux. Rien n'est calculé à la place de l'utilisateur.
+    /// </summary>
+    private Plan Build(Article a, Packaging? saved, List<CaseType> cases)
     {
         var db = _main.Db;
-        var plan = new Plan();
+        var plan = new Plan { Pallet = saved };
+        plan.PalletWhy = "Aucun conditionnement enregistré pour cet article : créez-le dans l'espace Conditionnements.";
 
-        // Palette de l'article.
-        if (ArticleSchema.Validate(a) is [var error, ..])
-        {
-            plan.PalletWhy = $"Fiche article incomplète : {error}";
-        }
-        else if (template.Solution is { FirstUnit: not null } saved && db.Packagings.Contains(template))
-        {
-            plan.Pallet = (template, saved);
-        }
-        else
-        {
-            var r = PackagingCalculator.Compute(template, db);
-            if (r.Recommended is { FirstUnit: not null } s)
-            {
-                plan.Pallet = (template, s);
-            }
-            else
-            {
-                plan.PalletWhy = r.Messages.LastOrDefault() ?? "Aucune palettisation possible.";
-            }
-        }
-
-        // Colisage.
         if (a.Kind == ArticleKind.Caisse && a.CaseContent != null)
         {
             plan.Case = CaseEngine.Rebuild(a, id => db.FindArticle(id), cases);
-            plan.CaseWhy = CaseEngine.CanRebuild(a, id => db.FindArticle(id))
-                ? "Le produit ne tient plus dans la caisse (fiche produit ou caisse modifiée)."
-                : "Le produit contenu n'existe plus dans la base.";
+            if (plan.Case == null)
+            {
+                // Le produit contenu n'existe plus ou ne tient plus : la quantité par caisse reste imprimable.
+                plan.CaseSummary = a.CaseQuantity != null ? a : null;
+                plan.CaseWhy = "Colisage impossible à recalculer (produit contenu supprimé ou modifié).";
+            }
         }
         else if (a.Kind == ArticleKind.Caisse && a.CaseQuantity != null)
         {
-            plan.CaseWhy = "Caisse importée ou créée avant la 0.1.3 : son produit contenu n'est pas connu.";
-        }
-        else if (ArticleSchema.Validate(a).Count == 0)
-        {
-            var r = CaseEngine.Propose(a, cases, 0, null, _main.Cases.ManualLimit, destination, destinationConstraints);
-            if (r.Recommended is { FirstUnit: not null } s)
-            {
-                var type = cases.FirstOrDefault(c => c.Id == s.Base.PalletId);
-                plan.Case = new CaseEngine.CaseSheet(a, type, type?.ToSpec() ?? new CaseSpec(), s, null);
-                if (destination != null && s.CasesPerPallet > 0)
-                {
-                    var (box, palletSolution) = CaseEngine.PalletOfCases(a, s, plan.Case.Spec, type, null, destination, destinationConstraints,
-                        "CAI-" + a.Code + (type != null ? "-" + type.Code : ""));
-                    if (palletSolution != null)
-                    {
-                        plan.CasePallet = (box, CasePackaging(box, destination, destinationConstraints, palletSolution), palletSolution);
-                    }
-                }
-            }
-            else
-            {
-                plan.CaseWhy = "L'article ne tient dans aucune caisse du catalogue.";
-            }
+            plan.CaseSummary = a;
         }
         else
         {
-            plan.CaseWhy = "Fiche article incomplète.";
+            plan.CaseWhy = a.Kind == ArticleKind.Caisse
+                ? "Pas de colisage : renseignez la quantité par caisse ou créez la caisse dans l'espace Colisage."
+                : "Pas de colisage pour cet article : calculez-le et créez sa caisse dans l'espace Colisage.";
         }
 
-        // Conditionnement = colisage + palette de la caisse.
-        if (plan.Case == null)
-        {
-            plan.PackagingWhy = plan.CaseWhy;
-        }
-        else if (a.CaseContent != null)
-        {
-            plan.PackagingOk = plan.Pallet != null;
-            plan.PackagingWhy = plan.PalletWhy;
-        }
-        else
-        {
-            plan.PackagingOk = plan.CasePallet != null;
-            plan.PackagingWhy = $"Caisse non palettisable sur {destination?.Code ?? "la palette de destination"}.";
-        }
-
+        plan.PackagingWhy = !plan.HasCase ? plan.CaseWhy : plan.PalletWhy;
         return plan;
     }
 
@@ -213,15 +150,13 @@ public sealed partial class PrintCenter : ObservableObject
             if (Article is { } target)
             {
                 IsChecking = true;
-                var template = Template(target);
-                var destination = DestinationPallet();
-                var constraints = _main.Cases.DestinationConstraints;
+                var saved = SavedPackaging(target);
                 var cases = _main.Db.Cases.ToList();
                 Task.Run(() =>
                 {
                     try
                     {
-                        return Build(target, template, destination, constraints, cases);
+                        return Build(target, saved, cases);
                     }
                     catch (Exception ex)
                     {
@@ -254,12 +189,15 @@ public sealed partial class PrintCenter : ObservableObject
         CaseSheetCommand.NotifyCanExecuteChanged();
         PackagingSheetCommand.NotifyCanExecuteChanged();
         const string checking = "Vérification en cours…";
-        var none = Article == null ? "Aucun article affiché." : null;
-        PalletTip = "Ctrl+P · " + (CanPalletSheet() ? "Fiche palette de l'article (spécification, plans, plan de palettisation)."
+        var none = Article == null && !ShownPackaging && LibraryPackaging == null ? "Aucun article affiché." : null;
+        PalletTip = "Ctrl+P · " + (CanPalletSheet() ? "Fiche palette du conditionnement (spécification, schémas, plan de palettisation)."
             : none ?? (IsChecking ? checking : _plan.PalletWhy));
-        CaseTip = CanCaseSheet() ? "Fiche de colisage : le produit dans sa caisse (quantité par caisse, poids brut, plans, vue 3D)."
+        CaseTip = CanCaseSheet()
+            ? _plan.Case == null && _plan.CaseSummary != null && !ShownColisage
+                ? "Fiche de colisage résumée : seule la quantité par caisse est connue (pas de plans)."
+                : "Fiche de colisage : le produit dans sa caisse (quantité par caisse, poids brut, schémas, vue 3D)."
             : none ?? (IsChecking ? checking : _plan.CaseWhy);
-        PackagingTip = CanPackagingSheet() ? "Fiche de colisage puis fiche palette de la caisse, en un seul document."
+        PackagingTip = CanPackagingSheet() ? "Fiche palette puis fiche de colisage, en un seul document."
             : none ?? (IsChecking ? checking : _plan.PackagingWhy);
     }
 
@@ -277,11 +215,16 @@ public sealed partial class PrintCenter : ObservableObject
 
     // ------------------------------------------------------------------ Commandes
 
+    /// <summary>Fiche palette : un conditionnement existe (affiché, sélectionné ou enregistré pour l'article).</summary>
     private bool CanPalletSheet() => ShownPackaging || LibraryPackaging != null || (!IsChecking && _plan.Pallet != null);
 
-    private bool CanCaseSheet() => ShownColisage || (!IsChecking && _plan.Case != null);
+    /// <summary>Fiche de colisage : un colisage existe (affiché, caisse créée au colisage, ou quantité par caisse).</summary>
+    private bool CanCaseSheet() => ShownColisage || (!IsChecking && _plan.HasCase);
 
-    private bool CanPackagingSheet() => ShownColisage ? _main.Cases.CanPrintPackagingSheet || (!IsChecking && _plan.PackagingOk) : !IsChecking && _plan.PackagingOk;
+    /// <summary>Fiche de conditionnement : fiche de colisage possible et conditionnement de la caisse (ou caisses palettisées du colisage affiché).</summary>
+    private bool CanPackagingSheet() => ShownColisage
+        ? _main.Cases.CanPrintPackagingSheet
+        : !IsChecking && _plan.HasCase && (_plan.Pallet != null || ShownPackaging || LibraryPackaging != null);
 
     [RelayCommand(CanExecute = nameof(CanPalletSheet))]
     private void PalletSheet()
@@ -294,7 +237,7 @@ public sealed partial class PrintCenter : ObservableObject
         {
             PrintService.PrintSheet(p, p.Solution!, p.Solution!.FirstUnit!, _main.Db, _main.PackagingLibrary.ColorsOf(p));
         }
-        else if (_plan.Pallet is var (packaging, s) && Article is { } a)
+        else if (_plan.Pallet is { Solution: { } s } packaging && Article is { } a)
         {
             PrintService.PrintSheet(packaging, s, s.FirstUnit!, _main.Db, _main.ColorsFor(a), a);
         }
@@ -309,32 +252,49 @@ public sealed partial class PrintCenter : ObservableObject
         }
         else if (_plan.Case is { } sheet)
         {
-            PrintService.PrintCaseSheet(sheet, Article?.CaseContent != null ? Article.Code : null, _main.Db, _main.ColorsFor(sheet.Content));
+            PrintService.PrintCaseSheet(sheet, Article?.Code, _main.Db, _main.ColorsFor(sheet.Content));
+        }
+        else if (_plan.CaseSummary is { } box)
+        {
+            PrintService.PrintCaseSummarySheet(box, _plan.Pallet, _main.Db);
         }
     }
 
     [RelayCommand(CanExecute = nameof(CanPackagingSheet))]
     private void PackagingSheet()
     {
-        if (ShownColisage && _main.Cases.CanPrintPackagingSheet)
+        if (ShownColisage)
         {
             _main.Cases.PrintPackagingSheet();
             return;
         }
 
-        if (_plan.Case is not { } sheet || Article is not { } a)
+        if (Article is not { } a)
         {
             return;
         }
 
-        if (a.CaseContent != null && _plan.Pallet is var (packaging, s))
+        // Conditionnement de la caisse : celui affiché ou sélectionné s'il porte sur cet article, sinon le dernier enregistré.
+        var packaging = LibraryPackaging is { ArticleId: var id } lib && id == a.Id ? lib : _plan.Pallet;
+        if (ShownPackaging && _main.Packagings.CurrentSolution is { } shown)
+        {
+            var current = _main.Packagings.CurrentPackaging();
+            current.Solution = shown;
+            packaging = current;
+        }
+
+        if (packaging?.Solution is not { } s)
+        {
+            return;
+        }
+
+        if (_plan.Case is { } sheet)
         {
             PrintService.PrintPackagingSheet(sheet, a, packaging, s, s.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content), _main.ColorsFor(a));
         }
-        else if (_plan.CasePallet is var (box, casePackaging, caseSolution))
+        else if (_plan.CaseSummary is { } box)
         {
-            PrintService.PrintPackagingSheet(sheet, box, casePackaging, caseSolution, caseSolution.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content),
-                new Dictionary<Guid, Color> { [box.Id] = ArticleColors.Parse(box.Color, Color.FromRgb(0xC9, 0xA2, 0x6B)) });
+            PrintService.PrintPackagingSummarySheet(box, packaging, s, s.FirstUnit!, _main.Db, _main.ColorsFor(a));
         }
     }
 

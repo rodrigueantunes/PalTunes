@@ -71,16 +71,57 @@
                         </Button>
                     </WrapPanel>
                 </StackPanel>
-                <Expander IsExpanded="True" ToolTip="Les 10 derniers conditionnements modifiés ; tous les autres : espace « Gestion des conditionnements »">
-                    <Expander.Header>
-                        <DockPanel>
-                            <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Padding="4,0" Content="Tout voir"
-                                    Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="PackagingLibrary"
-                                    ToolTip="Espace « Gestion des conditionnements » (Ctrl+7)" />
-                            <TextBlock Text="{Binding ListTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        </DockPanel>
-                    </Expander.Header>
-                    <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding Packagings}" SelectedItem="{Binding SelectedPackaging}">
+                <!-- En cours (non enregistrés), puis Récents : sections repliables empilées en haut, hauteur selon leur contenu. -->
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Visibility="{Binding HasInProgress, Converter={StaticResource BoolToVisibility}}" Margin="0,0,0,8">
+                        <ToggleButton Style="{StaticResource SectionToggle}" IsChecked="{Binding IsInProgressOpen}"
+                                      ToolTip="Conditionnements créés ou modifiés, pas encore enregistrés : gardés pendant la session">
+                            <TextBlock Text="{Binding InProgressTitle}" />
+                        </ToggleButton>
+                        <ListBox Style="{StaticResource CardListBox}" ItemsSource="{Binding InProgress}" SelectedItem="{Binding SelectedWork}" MaxHeight="260"
+                                 Visibility="{Binding IsInProgressOpen, Converter={StaticResource BoolToVisibility}}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel>
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Padding="4,0" Margin="4,0,0,0" VerticalAlignment="Top"
+                                                Command="{Binding DataContext.DiscardCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" CommandParameter="{Binding}"
+                                                ToolTip="Abandonner cette saisie (non enregistrée)">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" />
+                                        </Button>
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="#FDEBD0" Margin="6,0,0,0">
+                                                    <TextBlock Text="{Binding State}" FontSize="10.5" Foreground="#B9770E" />
+                                                </Border>
+                                                <TextBlock Text="{Binding Code}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding Subtitle}" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+
+                    <DockPanel Grid.Row="1">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Padding="4,0" Content="Tout voir"
+                                Command="{Binding DataContext.NavigateCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="PackagingLibrary"
+                                ToolTip="Espace « Gestion des conditionnements » (Ctrl+7)" />
+                        <ToggleButton Style="{StaticResource SectionToggle}" IsChecked="{Binding IsRecentOpen}"
+                                      ToolTip="Les 10 derniers conditionnements modifiés ; tous les autres : espace « Gestion des conditionnements »">
+                            <TextBlock Text="{Binding ListTitle}" />
+                        </ToggleButton>
+                    </DockPanel>
+
+                    <ListBox Grid.Row="3" Style="{StaticResource CardListBox}" ItemsSource="{Binding Packagings}" SelectedItem="{Binding SelectedPackaging}"
+                             VerticalAlignment="Top" Visibility="{Binding IsRecentOpen, Converter={StaticResource BoolToVisibility}}">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel>
@@ -108,7 +149,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                </Expander>
+                </Grid>
             </DockPanel>
         </Border>
 
@@ -367,6 +408,15 @@
                                 </DataGrid>
                             </DockPanel>
                         </Border>
+                    </Grid>
+                </TabItem>
+                <TabItem Header="Détails du calcul">
+                    <Grid>
+                        <TextBlock Style="{StaticResource Muted}" Text="Calculez puis choisissez une solution : le détail du calcul s'affiche ici."
+                                   Margin="6" Visibility="{Binding CurrentSolution, Converter={StaticResource NullToVisibility}}" />
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding CalculationSections}" Margin="2,2,8,2" />
+                        </ScrollViewer>
                     </Grid>
                 </TabItem>
             </TabControl>

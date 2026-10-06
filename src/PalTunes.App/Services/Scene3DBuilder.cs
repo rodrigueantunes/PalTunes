@@ -76,6 +76,9 @@ public static class Scene3DBuilder
     /// <summary>Rendu d'une caisse de colisage : paroi, couleur, ouverte (contenu visible) ou fermée (vue extérieure).</summary>
     public sealed record CaseRender(double Wall, string Color, bool Open);
 
+    /// <summary>Type de l'article d'un produit placé (forme dessinée : bidon, bouteille, seau, cuve) ; renseigné par la fenêtre principale.</summary>
+    public static Func<Guid, ArticleKind?> KindOf { get; set; } = _ => null;
+
     public static SceneResult Build(Solution solution, LoadUnit unit, PackagingConstraints c, Func<Guid, Color> colorOf, int visibleLayers,
         CaseRender? caseRender = null)
     {
@@ -108,9 +111,10 @@ public static class Scene3DBuilder
             foreach (var group in visible.GroupBy(p => (p.Layer, p.ArticleId)))
             {
                 var mesh = new MeshGeometry3D();
+                var kind = KindOf(group.Key.ArticleId) ?? ArticleKind.Caisse;
                 foreach (var p in group)
                 {
-                    AddItem(mesh, p, segments);
+                    AddItem(mesh, p, segments, kind);
                 }
 
                 var color = colorOf(group.Key.ArticleId);
@@ -124,7 +128,7 @@ public static class Scene3DBuilder
             foreach (var p in visible)
             {
                 var mesh = new MeshGeometry3D();
-                AddItem(mesh, p, segments);
+                AddItem(mesh, p, segments, KindOf(p.ArticleId) ?? ArticleKind.Caisse);
                 var model = Model(mesh, Solid(ItemColor(p, colorOf(p.ArticleId))));
                 scene.Root.Children.Add(model);
                 scene.ByModel[model] = p;
@@ -185,10 +189,28 @@ public static class Scene3DBuilder
         return Math.Abs(ix + iy + p.Layer) % 2 == 0 ? Shade(color, 0.86) : color;
     }
 
-    private static void AddItem(MeshGeometry3D mesh, Placement p, int segments)
+    private static void AddItem(MeshGeometry3D mesh, Placement p, int segments, ArticleKind kind = ArticleKind.Caisse)
     {
         double x0 = p.X * Scale, y0 = p.Y * Scale, z0 = p.Z * Scale, x1 = p.MaxX * Scale, y1 = p.MaxY * Scale, z1 = p.MaxZ * Scale;
         var inner = p.InnerDiameter > 0 ? p.InnerDiameter / 2 * Scale : 0; // tube ou bobine creux
+
+        // Autres types : forme reconnaissable dans l'enveloppe du produit (le calcul reste sur l'enveloppe).
+        switch (kind)
+        {
+            case ArticleKind.Bidon when p.Shape == ShapeKind.Box:
+                AddJerrican(mesh, x0 + Gap, y0 + Gap, z0 + Gap, x1 - Gap, y1 - Gap, z1 - Gap, segments);
+                return;
+            case ArticleKind.Cuve when p.Shape == ShapeKind.Box:
+                AddIbc(mesh, x0 + Gap, y0 + Gap, z0 + Gap, x1 - Gap, y1 - Gap, z1 - Gap, segments);
+                return;
+            case ArticleKind.Bouteille when p.Shape == ShapeKind.CylinderZ:
+                AddBottle(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments);
+                return;
+            case ArticleKind.Seau when p.Shape == ShapeKind.CylinderZ:
+                AddPail(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments);
+                return;
+        }
+
         switch (p.Shape)
         {
             case ShapeKind.CylinderZ:
@@ -547,7 +569,7 @@ public static class Scene3DBuilder
             ArticleKind.Tube => new Placement { DX = a.Length, DY = a.Diameter, DZ = a.Diameter, Shape = ShapeKind.CylinderX },
             ArticleKind.Bobine when a.CoilAxis == CoilAxis.Horizontal => new Placement { DX = a.Width, DY = a.Diameter, DZ = a.Diameter, Shape = ShapeKind.CylinderX },
             ArticleKind.Bobine => new Placement { DX = a.Diameter, DY = a.Diameter, DZ = a.Width, Shape = ShapeKind.CylinderZ },
-            ArticleKind.Fut => new Placement { DX = a.Diameter, DY = a.Diameter, DZ = a.Height, Shape = ShapeKind.CylinderZ },
+            ArticleKind.Fut or ArticleKind.Seau or ArticleKind.Bouteille => new Placement { DX = a.Diameter, DY = a.Diameter, DZ = a.Height, Shape = ShapeKind.CylinderZ },
             _ => new Placement { DX = a.Length, DY = a.Width, DZ = a.Height }
         };
         if (p.DX <= 0 || p.DY <= 0 || p.DZ <= 0)
@@ -561,7 +583,7 @@ public static class Scene3DBuilder
         }
 
         var mesh = new MeshGeometry3D();
-        AddItem(mesh, p, 32);
+        AddItem(mesh, p, 32, a.Kind);
         scene.Root.Children.Add(Model(mesh, Solid(color)));
         if (a.Kind == ArticleKind.Bobine && a.InnerDiameter > 0 && a.InnerDiameter < a.Diameter)
         {
@@ -585,6 +607,90 @@ public static class Scene3DBuilder
         scene.SizeY = p.DY * Scale;
         scene.SizeZ = p.DZ * Scale;
         return scene;
+    }
+
+    // ------------------------------------------------------------------ Autres types (formes reconnaissables)
+
+    /// <summary>
+    /// Bidon / jerrican : corps, poignée en arceau et bouchon sur le dessus, alignés sur le grand côté. Les proportions
+    /// suivent l'enveloppe saisie (hauteur hors tout).
+    /// </summary>
+    private static void AddJerrican(MeshGeometry3D mesh, double x0, double y0, double z0, double x1, double y1, double z1, int segments)
+    {
+        var alongX = x1 - x0 >= y1 - y0;
+        var lu = alongX ? x1 - x0 : y1 - y0;
+        var lv = alongX ? y1 - y0 : x1 - x0;
+        var h = z1 - z0;
+        var body = z0 + 0.80 * h;
+
+        // Repère local : u le long du grand côté, v le long du petit.
+        void Box(double u0, double u1, double v0, double v1, double za, double zb)
+        {
+            if (alongX)
+            {
+                AddBox(mesh, x0 + u0 * lu, y0 + v0 * lv, za, x0 + u1 * lu, y0 + v1 * lv, zb);
+            }
+            else
+            {
+                AddBox(mesh, x0 + v0 * lv, y0 + u0 * lu, za, x0 + v1 * lv, y0 + u1 * lu, zb);
+            }
+        }
+
+        Box(0, 1, 0, 1, z0, body);
+        Box(0.04, 0.70, 0.08, 0.92, body, body + 0.04 * h); // épaulement
+        Box(0.12, 0.20, 0.42, 0.58, body, z1 - 0.05 * h); // montants de la poignée
+        Box(0.50, 0.58, 0.42, 0.58, body, z1 - 0.05 * h);
+        Box(0.12, 0.58, 0.42, 0.58, z1 - 0.08 * h, z1); // poignée
+        var (cu, cv) = (0.82 * lu, 0.5 * lv); // bouchon
+        var r = Math.Min(0.16 * lv, 0.09 * lu);
+        AddCylinder(mesh, 2, body, z1 - 0.03 * h, alongX ? x0 + cu : x0 + cv, alongX ? y0 + cv : y0 + cu, r, Math.Max(8, segments / 2));
+    }
+
+    /// <summary>Bouteille / flacon : corps, épaule, col et bouchon.</summary>
+    private static void AddBottle(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments)
+    {
+        var h = z1 - z0;
+        AddCylinder(mesh, 2, z0, z0 + 0.62 * h, cx, cy, r, segments);
+        AddCylinder(mesh, 2, z0 + 0.62 * h, z0 + 0.68 * h, cx, cy, r * 0.82, segments);
+        AddCylinder(mesh, 2, z0 + 0.68 * h, z0 + 0.74 * h, cx, cy, r * 0.58, segments);
+        AddCylinder(mesh, 2, z0 + 0.74 * h, z0 + 0.93 * h, cx, cy, r * 0.32, segments);
+        AddCylinder(mesh, 2, z0 + 0.92 * h, z1, cx, cy, r * 0.38, segments);
+    }
+
+    /// <summary>Seau / pot : corps légèrement évasé, rebord et couvercle.</summary>
+    private static void AddPail(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments)
+    {
+        var h = z1 - z0;
+        AddCylinder(mesh, 2, z0, z0 + 0.45 * h, cx, cy, r * 0.86, segments);
+        AddCylinder(mesh, 2, z0 + 0.45 * h, z0 + 0.90 * h, cx, cy, r * 0.93, segments);
+        AddCylinder(mesh, 2, z0 + 0.90 * h, z1, cx, cy, r, segments);
+    }
+
+    /// <summary>Cuve IBC / GRV : palette intégrée, cuve en retrait, cage (montants et ceintures) et bouchon.</summary>
+    private static void AddIbc(MeshGeometry3D mesh, double x0, double y0, double z0, double x1, double y1, double z1, int segments)
+    {
+        var h = z1 - z0;
+        var t = Math.Min(x1 - x0, y1 - y0) * 0.025; // section des tubes de la cage
+        var baseTop = z0 + 0.12 * h;
+        var cageTop = z0 + 0.95 * h;
+        var ix = (x1 - x0) * 0.04;
+        var iy = (y1 - y0) * 0.04;
+        AddBox(mesh, x0, y0, z0, x1, y1, baseTop); // palette intégrée
+        AddBox(mesh, x0 + ix, y0 + iy, baseTop, x1 - ix, y1 - iy, cageTop - t); // cuve
+        foreach (var (cx, cy) in new[] { (x0, y0), (x1 - t, y0), (x0, y1 - t), (x1 - t, y1 - t) })
+        {
+            AddBox(mesh, cx, cy, baseTop, cx + t, cy + t, cageTop); // montants d'angle
+        }
+
+        foreach (var z in new[] { baseTop + (cageTop - baseTop) * 0.5, cageTop - t })
+        {
+            AddBox(mesh, x0, y0, z, x1, y0 + t, z + t); // ceintures de la cage
+            AddBox(mesh, x0, y1 - t, z, x1, y1, z + t);
+            AddBox(mesh, x0, y0, z, x0 + t, y1, z + t);
+            AddBox(mesh, x1 - t, y0, z, x1, y1, z + t);
+        }
+
+        AddCylinder(mesh, 2, cageTop - t, z1, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) * 0.12, Math.Max(8, segments / 2)); // bouchon
     }
 
     // ------------------------------------------------------------------ Ombre au sol

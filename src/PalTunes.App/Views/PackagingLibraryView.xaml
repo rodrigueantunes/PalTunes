@@ -36,7 +36,7 @@
                     </WrapPanel>
                 </StackPanel>
 
-                <TreeView ItemsSource="{Binding Roots}" BorderThickness="0" Background="Transparent"
+                <TreeView ItemsSource="{Binding Roots}" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           SelectedItemChanged="Tree_SelectedItemChanged" MouseDoubleClick="Tree_MouseDoubleClick" VirtualizingPanel.IsVirtualizing="True">
                     <TreeView.Resources>
                         <HierarchicalDataTemplate DataType="{x:Type vm:TreeNode}" ItemsSource="{Binding Children}">

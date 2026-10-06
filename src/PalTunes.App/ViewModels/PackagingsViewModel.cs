@@ -63,13 +63,17 @@ public sealed class SolutionViewModel(Solution s, Article? article)
     /// <summary>Colisage : résultat sur la palette de destination.</summary>
     public string? PalletLine => Solution.DestinationPallet == null
         ? null
-        : Solution.CasesPerPallet > 0
-            ? $"{Solution.CasesPerPallet.ToString("#,0", Fr)} caisses / {Solution.DestinationPallet} → {Solution.ItemsPerPallet.ToString("#,0", Fr)} produits / palette"
-            : $"Non palettisable sur {Solution.DestinationPallet}";
+        : Solution.CasesPerPallet <= 0
+            ? $"Non palettisable sur {Solution.DestinationPallet}"
+            : Solution.Kind == PackagingKind.Heterogene
+                ? $"{Solution.CasesPerPallet.ToString("#,0", Fr)} caisses / {Solution.DestinationPallet} → {Solution.PalletCount} palette(s)"
+                : $"{Solution.CasesPerPallet.ToString("#,0", Fr)} caisses / {Solution.DestinationPallet} → {Solution.ItemsPerPallet.ToString("#,0", Fr)} produits / palette";
 
     public string Headline => Solution.Kind == PackagingKind.Homogene
         ? $"{Solution.ItemsPerUnit.ToString("#,0", Fr)} {Noun(article?.Kind, Solution.ItemsPerUnit)}"
-        : $"{Solution.UnitCount} unité(s) · {Solution.TotalItems.ToString("#,0", Fr)} produits";
+        : Solution.Base.IsCase
+            ? $"{Solution.UnitCount} caisse(s) · {Solution.TotalItems.ToString("#,0", Fr)} produits"
+            : $"{Solution.UnitCount} unité(s) · {Solution.TotalItems.ToString("#,0", Fr)} produits";
 
     public string Details
     {
@@ -101,6 +105,36 @@ public sealed class SolutionViewModel(Solution s, Article? article)
             _ => "produit"
         };
         return count > 1 ? word + "s" : word;
+    }
+}
+
+/// <summary>
+/// Conditionnement en cours de création ou de modification, non enregistré : gardé en mémoire pendant la session
+/// (liste « En cours ») pour passer d'un conditionnement à l'autre sans perdre la saisie.
+/// </summary>
+public sealed partial class WorkItem(Guid id) : ObservableObject
+{
+    public Guid Id { get; } = id;
+
+    /// <summary>État de l'éditeur au dernier changement (solution retenue comprise).</summary>
+    public Packaging Snapshot { get; private set; } = new();
+
+    public bool IsNew { get; private set; }
+
+    [ObservableProperty] private string _code = "";
+    [ObservableProperty] private string _subtitle = "";
+    [ObservableProperty] private string _state = "";
+
+    /// <summary>Conditionnement affiché dans l'éditeur.</summary>
+    [ObservableProperty] private bool _isCurrent;
+
+    public void Update(Packaging snapshot, bool isNew, string subtitle)
+    {
+        Snapshot = snapshot;
+        IsNew = isNew;
+        Code = string.IsNullOrWhiteSpace(snapshot.Code) ? "(sans code)" : snapshot.Code;
+        Subtitle = subtitle;
+        State = isNew ? "Nouveau" : "Modifié";
     }
 }
 
@@ -189,6 +223,131 @@ public sealed partial class PackagingsViewModel : ObservableObject
     /// <summary>« Récents » ou, pendant une recherche, le nombre de résultats (recherche sur tous les conditionnements).</summary>
     [ObservableProperty] private string _listTitle = "Récents";
 
+    /// <summary>Section « Récents » dépliée (par défaut).</summary>
+    [ObservableProperty] private bool _isRecentOpen = true;
+
+    // ------------------------------------------------------------------ En cours (non enregistrés)
+
+    /// <summary>Conditionnements créés ou modifiés, non enregistrés (le plus récent en tête).</summary>
+    public ObservableCollection<WorkItem> InProgress { get; } = [];
+
+    [ObservableProperty] private WorkItem? _selectedWork;
+
+    /// <summary>Section « En cours » dépliée (par défaut).</summary>
+    [ObservableProperty] private bool _isInProgressOpen = true;
+
+    public string InProgressTitle => $"En cours ({InProgress.Count})";
+    public bool HasInProgress => InProgress.Count > 0;
+
+    private void NotifyInProgress()
+    {
+        OnPropertyChanged(nameof(InProgressTitle));
+        OnPropertyChanged(nameof(HasInProgress));
+    }
+
+    /// <summary>Recopie l'éditeur dans « En cours » tant qu'il n'est pas enregistré.</summary>
+    private void TrackCurrent()
+    {
+        if (_loading || !IsDirty)
+        {
+            return;
+        }
+
+        var p = BuildPackaging();
+        p.Solution = SelectedSolution?.Solution ?? Draft.Solution;
+        var item = InProgress.FirstOrDefault(w => w.Id == p.Id);
+        if (item == null)
+        {
+            item = new WorkItem(p.Id);
+            InProgress.Insert(0, item);
+            NotifyInProgress();
+        }
+
+        var what = p.Kind == PackagingKind.Homogene
+            ? Article?.DisplayName ?? "Article à choisir"
+            : $"Hétérogène · {p.Lines.Count} ligne(s)";
+        item.Update(p, IsEditingNew, what);
+        foreach (var w in InProgress)
+        {
+            w.IsCurrent = w.Id == p.Id;
+        }
+
+        _loading = true;
+        SelectedWork = item;
+        _loading = false;
+    }
+
+    /// <summary>Avant d'afficher un autre conditionnement : la saisie non enregistrée reste dans « En cours ».</summary>
+    private void StashCurrent()
+    {
+        TrackCurrent();
+        foreach (var w in InProgress)
+        {
+            w.IsCurrent = false;
+        }
+
+        _loading = true;
+        SelectedWork = null;
+        _loading = false;
+    }
+
+    partial void OnIsDirtyChanged(bool value) => TrackCurrent();
+
+    partial void OnSelectedWorkChanged(WorkItem? value)
+    {
+        if (_loading || value == null)
+        {
+            return;
+        }
+
+        StashCurrent();
+        _loading = true;
+        SelectedPackaging = Packagings.FirstOrDefault(x => x.Id == value.Id);
+        _loading = false;
+        LoadDraft(value.Snapshot, isNew: value.IsNew);
+        IsDirty = true;
+        _ = ComputeAsync(preferStored: true);
+    }
+
+    /// <summary>Abandonne une saisie non enregistrée (le conditionnement enregistré, s'il existe, est réaffiché).</summary>
+    [RelayCommand]
+    private void Discard(WorkItem? item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        var current = item.IsCurrent || item.Id == Draft.Id;
+        InProgress.Remove(item);
+        NotifyInProgress();
+        if (!current)
+        {
+            return;
+        }
+
+        IsDirty = false;
+        _loading = true;
+        SelectedWork = null;
+        _loading = false;
+        if (_main.Db.Packagings.FirstOrDefault(x => x.Id == item.Id) is { } saved)
+        {
+            LoadDraft(saved, isNew: false);
+            _ = ComputeAsync(preferStored: true);
+        }
+        else if (InProgress.FirstOrDefault() is { } next)
+        {
+            SelectedWork = next;
+        }
+        else if (Packagings.FirstOrDefault() is { } recent)
+        {
+            _loading = true;
+            SelectedPackaging = null;
+            _loading = false;
+            SelectedPackaging = recent;
+        }
+    }
+
     public void Refresh()
     {
         var selected = SelectedPackaging?.Id;
@@ -229,6 +388,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
     public void Open(Packaging p)
     {
         _main.SelectedSection = "Packagings";
+        StashCurrent();
         Filter = "";
         _loading = true;
         SelectedPackaging = null;
@@ -345,6 +505,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
         if (!_loading)
         {
             IsDirty = true;
+            TrackCurrent();
         }
     }
 
@@ -352,6 +513,13 @@ public sealed partial class PackagingsViewModel : ObservableObject
     {
         if (_loading || value == null)
         {
+            return;
+        }
+
+        StashCurrent();
+        if (InProgress.FirstOrDefault(w => w.Id == value.Id) is { } pending)
+        {
+            SelectedWork = pending; // modifications non enregistrées de ce conditionnement
             return;
         }
 
@@ -388,6 +556,9 @@ public sealed partial class PackagingsViewModel : ObservableObject
         ClearSolutions();
     }
 
+    /// <summary>Conditionnement tel qu'affiché dans l'éditeur (copie, pour l'impression).</summary>
+    public Packaging CurrentPackaging() => BuildPackaging();
+
     /// <summary>Recopie l'éditeur dans un conditionnement (le brouillon, ou une copie pour le calcul).</summary>
     private Packaging BuildPackaging()
     {
@@ -409,6 +580,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
     [RelayCommand]
     private void New(PackagingKind kind)
     {
+        StashCurrent();
         _loading = true;
         SelectedPackaging = null;
         _loading = false;
@@ -429,6 +601,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
     public void CreateFor(Article a, PalletType? pallet = null, double? maxTotalHeight = null, double overhangLength = 0, double overhangWidth = 0)
     {
         _main.SelectedSection = "Packagings";
+        StashCurrent();
         _loading = true;
         SelectedPackaging = null;
         _loading = false;
@@ -502,6 +675,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
         copy.Id = Guid.NewGuid();
         copy.Code = UniqueCode(copy.Code + "-COPIE");
         copy.Solution = SelectedSolution?.Solution;
+        StashCurrent();
         _loading = true;
         SelectedPackaging = null;
         _loading = false;
@@ -520,6 +694,12 @@ public sealed partial class PackagingsViewModel : ObservableObject
 
         _main.Db.Packagings.Remove(p);
         _main.SaveDatabase();
+        if (InProgress.FirstOrDefault(w => w.Id == p.Id) is { } gone)
+        {
+            InProgress.Remove(gone);
+            NotifyInProgress();
+        }
+
         SelectedPackaging = null;
         ClearSolutions();
         Refresh();
@@ -575,6 +755,12 @@ public sealed partial class PackagingsViewModel : ObservableObject
         }
 
         _main.SaveDatabase();
+        if (InProgress.FirstOrDefault(w => w.Id == p.Id) is { } done)
+        {
+            InProgress.Remove(done);
+            NotifyInProgress();
+        }
+
         IsEditingNew = false;
         _loading = true;
         Draft = p.Clone();
@@ -713,12 +899,18 @@ public sealed partial class PackagingsViewModel : ObservableObject
         OnPropertyChanged(nameof(LayerRows));
         OnPropertyChanged(nameof(PoseRows));
         OnPropertyChanged(nameof(Constraints));
+        OnPropertyChanged(nameof(CalculationSections));
         RebuildScene();
     }
 
     public Solution? CurrentSolution => SelectedSolution?.Solution;
     public LoadUnit? CurrentUnit => SelectedUnit?.Unit;
     public PackagingConstraints Constraints => BuildPackaging().Constraints;
+
+    /// <summary>Onglet « Détails du calcul » : étapes et chiffres de la solution et de l'unité affichées.</summary>
+    public IReadOnlyList<DetailSection> CalculationSections => CurrentSolution is { } s && CurrentUnit is { } u
+        ? CalculationDetails.Pallet(s, u, Constraints, IsHomogeneous ? Article : null, id => _main.Db.FindArticle(id))
+        : [];
     public bool HasMultipleUnits => Units.Count > 1;
     public string? Recommendation => SelectedSolution?.Solution.Recommendation ?? (SelectedSolution != null ? "Alternative : " + SelectedSolution.Solution.Description : null);
     public IReadOnlyList<string> Warnings => SelectedSolution?.Solution.Warnings ?? [];
@@ -911,45 +1103,6 @@ public sealed partial class PackagingsViewModel : ObservableObject
 
     /// <summary>Fiche palette : une solution est affichée.</summary>
     public bool CanPrintPalletSheet => CurrentSolution != null;
-
-    /// <summary>Fiche de colisage : conditionnement homogène d'un article caisse créé au colisage (produit connu).</summary>
-    public bool CanPrintCaseSheet => IsHomogeneous && CaseEngine.CanRebuild(Article, id => _main.Db.FindArticle(id));
-
-    /// <summary>Fiche de conditionnement : fiche de colisage et fiche palette possibles.</summary>
-    public bool CanPrintPackagingSheet => CanPrintCaseSheet && CanPrintPalletSheet;
-
-    private CaseEngine.CaseSheet? RebuildCaseSheet()
-    {
-        var sheet = Article is { } box ? CaseEngine.Rebuild(box, id => _main.Db.FindArticle(id), _main.Db.Cases) : null;
-        if (sheet == null)
-        {
-            _main.ShowToast("Colisage impossible à recalculer : le produit ne tient plus dans la caisse (fiche produit ou caisse modifiée ?).", "Warning");
-        }
-
-        return sheet;
-    }
-
-    public void PrintCaseSheet()
-    {
-        if (Article is { } box && RebuildCaseSheet() is { } sheet)
-        {
-            PrintService.PrintCaseSheet(sheet, box.Code, _main.Db, _main.ColorsFor(sheet.Content));
-        }
-    }
-
-    public void PrintPackagingSheet()
-    {
-        if (CurrentSolution is not { } s)
-        {
-            _main.ShowToast("Calculez puis choisissez une solution à imprimer.", "Warning");
-            return;
-        }
-
-        if (Article is { } box && RebuildCaseSheet() is { } sheet)
-        {
-            PrintService.PrintPackagingSheet(sheet, box, BuildPackaging(), s, CurrentUnit ?? s.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content), ColorMap);
-        }
-    }
 }
 
 public sealed record LayerRow(int Index, string Pattern, int Count, double Z, double Height, string Article, bool SlipSheet);

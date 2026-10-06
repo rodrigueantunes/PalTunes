@@ -19,8 +19,9 @@ public enum CaseMode
 }
 
 /// <summary>
-/// Colisage : produits identiques dans une caisse. Catalogue de caisses (à l'image des palettes), seules les caisses
-/// possibles pour l'article sont proposées, meilleure composition recommandée, caisse ouvrable en 3D.
+/// Colisage : produits identiques dans une caisse (un article) ou composition de plusieurs articles (colisage
+/// hétérogène, autant de caisses que nécessaire). Catalogue de caisses (à l'image des palettes), seules les caisses
+/// possibles sont proposées, meilleure caisse recommandée en fonction de la palette de destination, caisse ouvrable en 3D.
 /// </summary>
 public sealed partial class CaseViewModel : ObservableObject
 {
@@ -31,7 +32,22 @@ public sealed partial class CaseViewModel : ObservableObject
     public CaseViewModel(MainViewModel main)
     {
         _main = main;
-        Picker = new ArticlePicker(() => _main.Db, () => [Article]);
+        Picker = new ArticlePicker(() => _main.Db, () => [Article, .. Lines.Select(l => l.Article)]);
+        Lines.CollectionChanged += (_, e) =>
+        {
+            foreach (LineViewModel l in e.NewItems ?? Array.Empty<LineViewModel>())
+            {
+                l.PropertyChanged += (_, a) =>
+                {
+                    if (a.PropertyName is nameof(LineViewModel.Article) or nameof(LineViewModel.Quantity))
+                    {
+                        LinesChanged();
+                    }
+                };
+            }
+
+            LinesChanged();
+        };
         _axisChoice = AxisChoices[0];
         RefreshPallets();
         RefreshCatalog();
@@ -53,6 +69,131 @@ public sealed partial class CaseViewModel : ObservableObject
             RefreshPossibleCases();
             Compute();
         }
+    }
+
+    // ------------------------------------------------------------------ Plusieurs articles (colisage hétérogène)
+
+    /// <summary>Colisage hétérogène : plusieurs articles × quantités, autant de caisses que nécessaire.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsSingle), nameof(ShowAxis), nameof(ShowFixArticle))] private bool _isMixed;
+
+    public bool IsSingle => !IsMixed;
+
+    public ObservableCollection<LineViewModel> Lines { get; } = [];
+
+    /// <summary>« 3 articles · 36 produits · 26,4 kg » (lignes complètes seulement).</summary>
+    public string LinesSummary
+    {
+        get
+        {
+            var lines = MixedLines();
+            return lines.Count == 0
+                ? "Ajoutez des articles et leurs quantités."
+                : $"{lines.Count} article(s) · {lines.Sum(l => l.Quantity).ToString("#,0", Fr)} produits · {lines.Sum(l => l.Article.Weight * l.Quantity).ToString(Formats.TotalWeight, Fr)} kg";
+        }
+    }
+
+    private List<(Article Article, int Quantity)> MixedLines() =>
+        Lines.Where(l => l.Article != null && l.Quantity > 0)
+            .GroupBy(l => l.Article!.Id)
+            .Select(g => (g.First().Article!, g.Sum(l => l.Quantity)))
+            .ToList();
+
+    partial void OnIsMixedChanged(bool value)
+    {
+        if (value && Lines.Count == 0)
+        {
+            _loading = true;
+            Lines.Add(new LineViewModel { Article = Article, Quantity = 1 });
+            _loading = false;
+        }
+
+        BuildColorMap();
+        if (!_loading)
+        {
+            RefreshPossibleCases();
+            Compute();
+        }
+    }
+
+    [RelayCommand]
+    private void SetMixed(string value) => IsMixed = value == "True";
+
+    [RelayCommand]
+    private void AddLine() => Lines.Add(new LineViewModel { Article = Picker.Articles.FirstOrDefault(), Quantity = 1 });
+
+    [RelayCommand]
+    private void RemoveLine(LineViewModel? line)
+    {
+        if (line != null)
+        {
+            Lines.Remove(line);
+        }
+    }
+
+    private CancellationTokenSource? _linesDelay;
+
+    /// <summary>Lignes modifiées : couleurs, caisses possibles et calcul (après une courte pause de saisie).</summary>
+    private void LinesChanged()
+    {
+        OnPropertyChanged(nameof(LinesSummary));
+        OnPropertyChanged(nameof(ShowAxis));
+        BuildColorMap();
+        if (_loading || !IsMixed)
+        {
+            return;
+        }
+
+        _linesDelay?.Cancel();
+        var delay = _linesDelay = new CancellationTokenSource();
+        Task.Delay(400, delay.Token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled && ReferenceEquals(delay, _linesDelay))
+            {
+                Picker.Refresh();
+                RefreshPossibleCases();
+                Compute();
+            }
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    // ------------------------------------------------------------------ Caisse affichée (plusieurs caisses en hétérogène)
+
+    public ObservableCollection<UnitChoice> Units { get; } = [];
+    [ObservableProperty] private UnitChoice? _selectedUnit;
+    public bool HasMultipleUnits => Units.Count > 1;
+
+    partial void OnSelectedUnitChanged(UnitChoice? value)
+    {
+        OnPropertyChanged(nameof(CurrentUnit));
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(CalculationSections));
+        RebuildScene();
+    }
+
+    // ------------------------------------------------------------------ Couleurs des articles
+
+    private Dictionary<Guid, Color> _colors = [];
+
+    /// <summary>Couleurs bien distinctes par article (ou celles des fiches, « Couleur d'origine » des conditionnements).</summary>
+    private void BuildColorMap()
+    {
+        var articles = IsMixed ? Lines.Select(l => l.Article).ToList() : [Article];
+        var map = new Dictionary<Guid, Color>();
+        var k = 0;
+        foreach (var a in articles.Where(a => a != null).DistinctBy(a => a!.Id))
+        {
+            map[a!.Id] = _main.Settings.Current.UseArticleColors ? ArticleColors.Parse(a.Color, ArticleColors.DistinctByIndex(k)) : ArticleColors.DistinctByIndex(k);
+            k++;
+        }
+
+        foreach (var l in Lines)
+        {
+            l.ViewBrush = l.Article != null && map.TryGetValue(l.Article.Id, out var c) ? new SolidColorBrush(c) : null;
+        }
+
+        _colors = map;
+        OnPropertyChanged(nameof(ColorMap));
+        RebuildScene();
     }
 
     // ------------------------------------------------------------------ Mise en caisse
@@ -84,7 +225,9 @@ public sealed partial class CaseViewModel : ObservableObject
 
     private CoilAxis? Axis => ShowAxis ? AxisChoice?.Value ?? CoilAxis.Indifferent : null;
 
-    public bool ShowAxis => Article is { Kind: ArticleKind.Tube or ArticleKind.Bobine };
+    public bool ShowAxis => IsMixed
+        ? Lines.Any(l => l.Article is { Kind: ArticleKind.Tube or ArticleKind.Bobine })
+        : Article is { Kind: ArticleKind.Tube or ArticleKind.Bobine };
 
     partial void OnAxisChoiceChanged(AxisChoice? value)
     {
@@ -99,7 +242,7 @@ public sealed partial class CaseViewModel : ObservableObject
     public string? ArticleWarning => Article == null ? null : ArticleSchema.Warnings(Article);
 
     /// <summary>Bouton « Corriger la fiche article » : poids suspect ou aucune solution.</summary>
-    public bool ShowFixArticle => Article != null && (ArticleWarning != null || (_computed && !IsBusy && Solutions.Count == 0));
+    public bool ShowFixArticle => !IsMixed && Article != null && (ArticleWarning != null || (_computed && !IsBusy && Solutions.Count == 0));
 
     [RelayCommand]
     private void OpenArticle()
@@ -158,10 +301,15 @@ public sealed partial class CaseViewModel : ObservableObject
     public CaseSpec CurrentSpec => CurrentCase?.ToSpec(Gap) ?? WithGap(Spec);
 
     public Solution? CurrentSolution => SelectedSolution?.Solution;
-    public LoadUnit? CurrentUnit => CurrentSolution?.FirstUnit;
+    public LoadUnit? CurrentUnit => SelectedUnit?.Unit ?? CurrentSolution?.FirstUnit;
     public PackagingConstraints Constraints => CaseEngine.CaseConstraints(CurrentSpec);
     public string CurrentCaseColor => CurrentCase?.Color ?? "#C9A26B";
-    public IReadOnlyDictionary<Guid, Color> ColorMap => _main.Packagings.ColorMap;
+    public IReadOnlyDictionary<Guid, Color> ColorMap => _colors;
+
+    /// <summary>Onglet « Détails du calcul » : étapes et chiffres du colisage et de la caisse affichés.</summary>
+    public IReadOnlyList<PalTunes.Core.Export.DetailSection> CalculationSections => CurrentSolution is { } s && CurrentUnit is { } u
+        ? PalTunes.Core.Export.CalculationDetails.Case(s, u, CurrentSpec, CurrentCase, IsMixed ? null : Article, ManualLimit, id => _main.Db.FindArticle(id))
+        : [];
 
     private CaseSpec WithGap(CaseSpec s)
     {
@@ -188,6 +336,20 @@ public sealed partial class CaseViewModel : ObservableObject
             if (CurrentSolution is not { } s || CurrentUnit is not { } u)
             {
                 return "";
+            }
+
+            if (s.Kind == PackagingKind.Heterogene)
+            {
+                var mspec = CurrentSpec;
+                var caseName = CurrentCase is { } mc ? $"{mc.Code} – {mc.Name}" : "Caisse spécifique";
+                var content = string.Join(" + ", u.Items.GroupBy(p => p.ArticleId).OrderByDescending(g => g.Count())
+                    .Select(g => $"{g.Count()} × {_main.Db.FindArticle(g.Key)?.Code}"));
+                var palletText = s.DestinationPallet == null
+                    ? ""
+                    : s.CasesPerPallet > 0 ? $" · palette {s.DestinationPallet} : {s.CasesPerPallet} caisses par palette → {s.PalletCount} palette(s)" : $" · non palettisable sur {s.DestinationPallet}";
+                return $"{caseName} : {s.Units.Count} caisse(s) pour {s.TotalItems.ToString("#,0", Fr)} produits · caisse {u.Index} : {content}, " +
+                       $"{(u.Items.Sum(p => p.Weight) + mspec.Tare).ToString(Formats.TotalWeight, Fr)} kg brut, volume intérieur rempli à {u.Metrics.FillRate.ToString("0", Fr)} % · " +
+                       $"extérieur {mspec.OuterLength:0} × {mspec.OuterWidth:0} × {mspec.OuterHeight:0} mm{palletText}";
             }
 
             var spec = CurrentSpec;
@@ -223,6 +385,7 @@ public sealed partial class CaseViewModel : ObservableObject
 
     partial void OnArticleChanged(Article? value)
     {
+        BuildColorMap();
         if (_loading)
         {
             return;
@@ -292,6 +455,9 @@ public sealed partial class CaseViewModel : ObservableObject
         _loading = false;
     }
 
+    /// <summary>Contraintes de palettisation des caisses (palette de destination) ; aussi celles des fiches imprimées par défaut.</summary>
+    public PackagingConstraints DestinationConstraints => PalletConstraints;
+
     private PackagingConstraints PalletConstraints => new()
     {
         MaxTotalHeight = PalletMaxHeight > 0 ? PalletMaxHeight : 1800,
@@ -337,9 +503,16 @@ public sealed partial class CaseViewModel : ObservableObject
         var current = SelectedCase?.Id;
         _loading = true;
         PossibleCases.Clear();
-        if (Article != null)
+        var articles = IsMixed ? MixedLines().Select(l => l.Article).ToList() : Article == null ? [] : [Article];
+        if (articles.Count > 0)
         {
-            foreach (var c in CaseEngine.PossibleCases(Article, _main.Db.Cases, Gap, Axis).OrderBy(c => c.InnerLength * c.InnerWidth * c.InnerHeight))
+            IEnumerable<CaseType> possible = _main.Db.Cases;
+            foreach (var a in articles)
+            {
+                possible = CaseEngine.PossibleCases(a, possible, Gap, Axis);
+            }
+
+            foreach (var c in possible.OrderBy(c => c.InnerLength * c.InnerWidth * c.InnerHeight))
             {
                 PossibleCases.Add(c);
             }
@@ -347,14 +520,24 @@ public sealed partial class CaseViewModel : ObservableObject
 
         SelectedCase = PossibleCases.FirstOrDefault(c => c.Id == current) ?? PossibleCases.FirstOrDefault();
         _loading = false;
-        PossibleText = Article == null
+        PossibleText = articles.Count == 0
             ? ""
-            : $"{PossibleCases.Count} caisse(s) possible(s) sur {_main.Db.Cases.Count} pour {Article.Code}";
+            : $"{PossibleCases.Count} caisse(s) possible(s) sur {_main.Db.Cases.Count} pour {(IsMixed ? $"les {articles.Count} articles" : articles[0].Code)}";
         RefreshCaseChoices();
     }
 
     partial void OnSelectedSolutionChanged(SolutionViewModel? value)
     {
+        _loading = true;
+        Units.Clear();
+        foreach (var u in value?.Solution.Units ?? [])
+        {
+            Units.Add(new UnitChoice(u, $"Caisse {u.Index} / {value!.Solution.Units.Count} · {u.Items.Count} produits"));
+        }
+
+        SelectedUnit = Units.FirstOrDefault();
+        _loading = false;
+        OnPropertyChanged(nameof(HasMultipleUnits));
         OnPropertyChanged(nameof(CurrentSolution));
         OnPropertyChanged(nameof(CurrentUnit));
         OnPropertyChanged(nameof(CurrentCase));
@@ -364,6 +547,7 @@ public sealed partial class CaseViewModel : ObservableObject
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(CaseInfo));
         OnPropertyChanged(nameof(ColorMap));
+        OnPropertyChanged(nameof(CalculationSections));
         RebuildScene();
     }
 
@@ -404,6 +588,12 @@ public sealed partial class CaseViewModel : ObservableObject
         var cts = _cts = new CancellationTokenSource();
         Solutions.Clear();
         Message = null;
+        if (IsMixed)
+        {
+            await ComputeMixedAsync(cts);
+            return;
+        }
+
         if (Article is not { } article)
         {
             Message = "Choisissez l'article à mettre en caisse.";
@@ -468,11 +658,86 @@ public sealed partial class CaseViewModel : ObservableObject
         }
     }
 
+    /// <summary>Colisage hétérogène : mêmes modes (meilleure caisse, caisse du catalogue, caisse spécifique).</summary>
+    private async Task ComputeMixedAsync(CancellationTokenSource cts)
+    {
+        var lines = MixedLines();
+        if (lines.Count == 0)
+        {
+            Message = "Ajoutez les articles à mettre en caisse et leurs quantités.";
+            SelectedSolution = null;
+            return;
+        }
+
+        if (Mode == CaseMode.Catalog && SelectedCase == null)
+        {
+            Message = "Aucune caisse du catalogue ne contient tous les articles : cochez « Forcer la caisse », choisissez une caisse spécifique ou ajoutez une caisse au catalogue.";
+            SelectedSolution = null;
+            return;
+        }
+
+        var (mode, cases, gap, manual, pallet, constraints, axis, selected) =
+            (Mode, _main.Db.Cases.ToList(), Gap, ManualLimit, ActivePallet, PalletConstraints, Axis, SelectedCase);
+        var spec = WithGap(Spec);
+        IsBusy = true;
+        try
+        {
+            var result = await Task.Run(() => mode switch
+            {
+                CaseMode.Best => CaseEngine.ProposeMixed(lines, cases, gap, manual, pallet, constraints, axis),
+                CaseMode.Catalog => CaseEngine.SolveMixed(lines, selected!.ToSpec(gap), selected, pallet, constraints, axis, manual),
+                _ => CaseEngine.SolveMixed(lines, spec, null, pallet, constraints, axis, manual)
+            }, cts.Token);
+            if (cts.IsCancellationRequested)
+            {
+                return;
+            }
+
+            foreach (var sol in result.Solutions.Where(s => s.Units.Count > 0))
+            {
+                Solutions.Add(new SolutionViewModel(sol, null));
+            }
+
+            Message = result.Messages.Count > 0 ? string.Join(Environment.NewLine, result.Messages) : null;
+            SelectedSolution = Solutions.FirstOrDefault(x => x.Recommended) ?? Solutions.FirstOrDefault();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_cts, cts))
+            {
+                IsBusy = false;
+            }
+        }
+    }
+
     [RelayCommand]
     private void CreateCaseArticle() => CreateCase();
 
     private Article? CreateCase()
     {
+        if (IsMixed && CurrentSolution is { Kind: PackagingKind.Heterogene } && CurrentUnit is { } unit)
+        {
+            var mixedBase = "CAI-MIX" + (CurrentCase is { } mc ? "-" + mc.Code : "");
+            var mixedCode = mixedBase;
+            for (var i = 2; _main.Db.Articles.Any(a => string.Equals(a.Code, mixedCode, StringComparison.OrdinalIgnoreCase)); i++)
+            {
+                mixedCode = $"{mixedBase}-{i}";
+            }
+
+            var mixed = CaseEngine.CreateMixedCaseArticle(unit, CurrentSpec, CurrentCase, mixedCode, id => _main.Db.FindArticle(id)?.Code ?? "?");
+            mixed.Client = MixedLines().Select(l => l.Article.Client).Distinct().Count() == 1 ? MixedLines()[0].Article.Client : null;
+            _main.Db.Articles.Add(mixed);
+            _main.SaveDatabase();
+            _main.Articles.RebuildTree();
+            _main.NotifyArticlesChanged();
+            RefreshArticles();
+            _main.ShowToast($"Article {mixed.Code} créé (caisse {unit.Index} : {mixed.QuantityPerCase} produits, {mixed.Weight.ToString(Formats.UnitWeight, Fr)} kg) : il peut maintenant être palettisé.", "Ok");
+            return mixed;
+        }
+
         if (Article == null || CurrentSolution == null)
         {
             _main.ShowToast("Calculez d'abord le colisage.", "Warning");
@@ -510,10 +775,8 @@ public sealed partial class CaseViewModel : ObservableObject
 
     public bool CanPrintCaseSheet => !IsBusy && CurrentSheet != null;
 
-    /// <summary>Fiche palette des caisses : palette de destination choisie et caisse palettisable.</summary>
-    public bool CanPrintPalletSheet => !IsBusy && Article != null && CurrentSolution is { CasesPerPallet: > 0 } && ActivePallet != null;
-
-    public bool CanPrintPackagingSheet => CanPrintCaseSheet && CanPrintPalletSheet;
+    /// <summary>Fiche de conditionnement du colisage affiché : palette de destination choisie et caisse palettisable.</summary>
+    public bool CanPrintPackagingSheet => CanPrintCaseSheet && CurrentSolution is { CasesPerPallet: > 0 } && ActivePallet != null;
 
     public void PrintCaseSheet()
     {
@@ -531,39 +794,20 @@ public sealed partial class CaseViewModel : ObservableObject
             return null;
         }
 
-        var box = CaseEngine.CreateCaseArticle(Article, s, CurrentSpec, "CAI-" + Article.Code + (CurrentCase is { } c ? "-" + c.Code : ""), CurrentCase, Axis);
-        if (CurrentCase is { } type)
-        {
-            box.Designation = $"{type.Name} de {s.ItemsPerUnit} × {Article.Code}";
-            box.Color = type.Color;
-        }
-
         var constraints = PalletConstraints;
-        var best = HomogeneousEngine.Solve(box, BaseInfo.From(pallet, false, 1, 1), constraints).Recommended;
-        if (best?.FirstUnit == null)
+        var (box, best) = CaseEngine.PalletOfCases(Article, s, CurrentSpec, CurrentCase, Axis, pallet, constraints,
+            "CAI-" + Article.Code + (CurrentCase is { } c ? "-" + c.Code : ""));
+        if (best == null)
         {
             _main.ShowToast($"Caisse non palettisable sur {pallet.Code} avec les contraintes saisies.", "Warning");
             return null;
         }
 
-        var packaging = new Packaging
-        {
-            Code = box.Code, Name = $"Palette de {box.Designation}", Kind = PackagingKind.Homogene, ArticleId = box.Id, PalletId = pallet.Id,
-            Constraints = constraints, Solution = best
-        };
-        return (box, packaging, best);
+        return (box, PrintCenter.CasePackaging(box, pallet, constraints, best), best);
     }
 
     private IReadOnlyDictionary<Guid, Color> BoxColors(Article box) =>
         new Dictionary<Guid, Color> { [box.Id] = ArticleColors.Parse(box.Color, Color.FromRgb(0xC9, 0xA2, 0x6B)) };
-
-    public void PrintPalletSheet()
-    {
-        if (PalletOfCases() is var (box, p, s))
-        {
-            PrintService.PrintSheet(p, s, s.FirstUnit!, _main.Db, BoxColors(box), box);
-        }
-    }
 
     public void PrintPackagingSheet()
     {
@@ -571,6 +815,58 @@ public sealed partial class CaseViewModel : ObservableObject
         {
             PrintService.PrintPackagingSheet(sheet, box, p, s, s.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content), BoxColors(box));
         }
+    }
+
+    /// <summary>
+    /// Ouvre l'espace Colisage réglé sur le colisage d'un article caisse (depuis la gestion des conditionnements) :
+    /// produit contenu, caisse du catalogue (imposée si besoin) ou caisse spécifique, quantité par caisse, axe, puis calcul.
+    /// </summary>
+    public void OpenColisage(Article box)
+    {
+        if (box.CaseContent is not { } link || _main.Db.FindArticle(link.ArticleId) is not { } content)
+        {
+            return;
+        }
+
+        _main.SelectedSection = "Cases";
+        var type = link.CaseTypeCode is { } code ? _main.Db.Cases.FirstOrDefault(c => string.Equals(c.Code, code, StringComparison.OrdinalIgnoreCase)) : null;
+        _loading = true;
+        IsMixed = false;
+        RefreshArticles();
+        _loading = true;
+        Picker.Sync(content);
+        Article = Articles.FirstOrDefault(a => a.Id == content.Id) ?? content;
+        Gap = link.Gap;
+        TargetQuantity = box.CaseQuantity;
+        AxisChoice = AxisChoices.FirstOrDefault(a => a.Value == (link.Axis ?? CoilAxis.Indifferent)) ?? AxisChoices[0];
+        if (type != null)
+        {
+            Mode = CaseMode.Catalog;
+        }
+        else
+        {
+            Mode = CaseMode.Custom;
+            Spec = new CaseSpec
+            {
+                InnerLength = link.InnerLength, InnerWidth = link.InnerWidth, InnerHeight = link.InnerHeight, WallThickness = link.WallThickness, Tare = link.Tare
+            };
+        }
+
+        _loading = false;
+        BuildColorMap();
+        RefreshPossibleCases();
+        if (type != null)
+        {
+            _loading = true;
+            ForceCase = !PossibleCases.Any(c => c.Id == type.Id);
+            _loading = false;
+            RefreshCaseChoices();
+            _loading = true;
+            SelectedCase = CaseChoices.FirstOrDefault(c => c.Id == type.Id);
+            _loading = false;
+        }
+
+        Compute();
     }
 
     /// <summary>Crée l'article caisse puis ouvre un conditionnement homogène pour le palettiser.</summary>

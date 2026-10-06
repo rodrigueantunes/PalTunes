@@ -16,7 +16,7 @@
     <Window.InputBindings>
         <KeyBinding Key="F5" Command="{Binding Packagings.ComputeCommand}" />
         <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCurrentCommand}" />
-        <KeyBinding Key="P" Modifiers="Control" Command="{Binding PrintPalletSheetCommand}" />
+        <KeyBinding Key="P" Modifiers="Control" Command="{Binding Print.PalletSheetCommand}" />
         <KeyBinding Key="E" Modifiers="Control" Command="{Binding ExportPackagingsCommand}" />
         <KeyBinding Key="I" Modifiers="Control" Command="{Binding ImportArticlesCommand}" />
         <KeyBinding Key="F1" Command="{Binding ShowFormatHelpCommand}" />
@@ -184,22 +184,24 @@
                                 <TextBlock Text="Exporter (mono-article)" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButton}" Command="{Binding PrintPalletSheetCommand}" ToolTipService.ShowOnDisabled="True"
-                                ToolTip="Ctrl+P · fiche de palettisation du conditionnement affiché (espace Colisage : les caisses sur la palette de destination). Grisé sans solution. « Microsoft Print to PDF » pour un PDF.">
+                        <TextBlock Text="{Binding Print.ArticleText}" Foreground="{StaticResource NavMutedBrush}" FontSize="11" Margin="12,0,8,4"
+                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Print.ArticleText}" />
+                        <Button Style="{StaticResource NavButton}" Command="{Binding Print.PalletSheetCommand}" ToolTipService.ShowOnDisabled="True"
+                                ToolTip="{Binding Print.PalletTip}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
                                 <TextBlock Text="Imprimer la fiche palette" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButton}" Command="{Binding PrintCaseSheetCommand}" ToolTipService.ShowOnDisabled="True"
-                                ToolTip="Produit dans sa caisse : colisage affiché (espace Colisage), ou article caisse créé au colisage (conditionnement affiché). Grisé sinon.">
+                        <Button Style="{StaticResource NavButton}" Command="{Binding Print.CaseSheetCommand}" ToolTipService.ShowOnDisabled="True"
+                                ToolTip="{Binding Print.CaseTip}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
                                 <TextBlock Text="Imprimer la fiche de colisage" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource NavButton}" Command="{Binding PrintPackagingSheetCommand}" ToolTipService.ShowOnDisabled="True"
-                                ToolTip="Fiche de colisage puis fiche palette, en un seul document. Grisé si l'une des deux n'est pas possible pour l'article.">
+                        <Button Style="{StaticResource NavButton}" Command="{Binding Print.PackagingSheetCommand}" ToolTipService.ShowOnDisabled="True"
+                                ToolTip="{Binding Print.PackagingTip}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
                                 <TextBlock Text="Imprimer la fiche de conditionnement" TextTrimming="CharacterEllipsis" />

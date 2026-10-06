@@ -48,8 +48,9 @@ public sealed partial class MainViewModel : ObservableObject
         Packagings = new PackagingsViewModel(this);
         PackagingLibrary = new PackagingLibraryViewModel(this);
         Cases = new CaseViewModel(this);
-        Packagings.PropertyChanged += (_, _) => RefreshPrintCommands();
-        Cases.PropertyChanged += (_, _) => RefreshPrintCommands();
+        Scene3DBuilder.KindOf = id => Db.FindArticle(id)?.Kind;
+        Print = new PrintCenter(this);
+        Print.Attach(Articles, Packagings, PackagingLibrary, Cases);
         _selectedSection = settings.Current.Section is "Clients" or "Articles" or "Pallets" or "CaseTypes" or "Packagings" or "PackagingLibrary" or "Cases"
             ? settings.Current.Section
             : "Packagings";
@@ -58,6 +59,8 @@ public sealed partial class MainViewModel : ObservableObject
             PackagingLibrary.Rebuild();
         }
         _isReleaseNotesOpen = settings.Current.LastSeenVersion != VersionNumber;
+        // Fiches imprimables de l'article affiché : vérifiées après l'affichage de la fenêtre.
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(Print.Refresh, System.Windows.Threading.DispatcherPriority.Background);
         if (_selectedSection == "Cases")
         {
             // Rouvert sur le colisage : calcul après l'affichage de la fenêtre.
@@ -116,65 +119,13 @@ public sealed partial class MainViewModel : ObservableObject
             PackagingLibrary.Rebuild();
         }
 
-        RefreshPrintCommands();
+        Print.Refresh();
     }
 
     // ------------------------------------------------------------------ Impression
-    // Espace Colisage : colisage affiché (palette = caisses sur la palette de destination) ; ailleurs : conditionnement affiché.
 
-    private bool InCases => SelectedSection == "Cases";
-
-    [RelayCommand(CanExecute = nameof(CanPrintPalletSheet))]
-    private void PrintPalletSheet()
-    {
-        if (InCases)
-        {
-            Cases.PrintPalletSheet();
-        }
-        else
-        {
-            Packagings.PrintCommand.Execute(null);
-        }
-    }
-
-    private bool CanPrintPalletSheet() => InCases ? Cases.CanPrintPalletSheet : Packagings.CanPrintPalletSheet;
-
-    [RelayCommand(CanExecute = nameof(CanPrintCaseSheet))]
-    private void PrintCaseSheet()
-    {
-        if (InCases)
-        {
-            Cases.PrintCaseSheet();
-        }
-        else
-        {
-            Packagings.PrintCaseSheet();
-        }
-    }
-
-    private bool CanPrintCaseSheet() => InCases ? Cases.CanPrintCaseSheet : Packagings.CanPrintCaseSheet;
-
-    [RelayCommand(CanExecute = nameof(CanPrintPackagingSheet))]
-    private void PrintPackagingSheet()
-    {
-        if (InCases)
-        {
-            Cases.PrintPackagingSheet();
-        }
-        else
-        {
-            Packagings.PrintPackagingSheet();
-        }
-    }
-
-    private bool CanPrintPackagingSheet() => InCases ? Cases.CanPrintPackagingSheet : Packagings.CanPrintPackagingSheet;
-
-    private void RefreshPrintCommands()
-    {
-        PrintPalletSheetCommand.NotifyCanExecuteChanged();
-        PrintCaseSheetCommand.NotifyCanExecuteChanged();
-        PrintPackagingSheetCommand.NotifyCanExecuteChanged();
-    }
+    /// <summary>Fiches imprimées de l'article affiché (palette, colisage, conditionnement), quel que soit l'espace.</summary>
+    public PrintCenter Print { get; }
 
     /// <summary>Couleur d'un produit seul sur une fiche : distincte par défaut, ou celle de la fiche article (« Couleur d'origine »).</summary>
     public IReadOnlyDictionary<Guid, System.Windows.Media.Color> ColorsFor(Article a) => new Dictionary<Guid, System.Windows.Media.Color>

@@ -7,6 +7,49 @@ public static class ReleaseNotes
 {
     public static IReadOnlyList<ReleaseNote> All { get; } =
     [
+        new("0.1.8", "Fiches mises en page et détails du calcul",
+        [
+            "Fiches imprimées : première page avec un cartouche (informations clés, image de la palette choisie et de la caisse si elle vient du catalogue) et la spécification ; schémas (couches, côté, face) et vue 3D sur une page à part ; plan de palettisation ensuite ; en-tête souligné et pied de page numéroté « page x / n » sur chaque page.",
+            "Nouvel onglet « Détails du calcul » dans les Conditionnements : base et limites (surface et hauteur utiles, charge), produit retenu, plan de couche et borne théorique, couches par la hauteur, le poids et la résistance avec le facteur limitant, poids et encombrement, gerbage ; en hétérogène, bornes de volume et de poids, règles de pose, stratégie retenue et détail par palette.",
+            "Nouvel onglet « Détails du calcul » au Colisage : caisse et limites (charge maxi, manutention à la main), plan et couches, poids brut, palettisation des caisses (caisses et produits par palette) ; en colisage de plusieurs articles, bornes, règles et détail par caisse.",
+            "Impression selon ce qui existe : fiche palette si un conditionnement existe (affiché, sélectionné ou enregistré), fiche de colisage si un colisage existe (affiché, caisse créée au colisage ou au moins une quantité par caisse), fiche de conditionnement si les deux existent. Rien n'est plus calculé à la place de l'utilisateur ; le survol d'un bouton grisé en donne la raison.",
+            "Caisse dont seule la quantité par caisse est connue (importée) : fiche de colisage résumée (quantité, caisse, palettisation enregistrée).",
+            "Caisses créées au colisage avant la 0.1.3 : à l'ouverture de la base, quantité par caisse, produit contenu, caisse du catalogue, dimensions intérieures et position sont repris de leur fiche (désignation, code, notes) — leur fiche de colisage et leur fiche de conditionnement deviennent imprimables. Copie de sauvegarde de la base avant cette conversion.",
+            "Arborescences (articles, gestion des conditionnements) : plus de défilement horizontal qui coupait le début des libellés."
+        ]),
+        new("0.1.7", "Moteurs plus performants : plus de produits, moins d'unités",
+        [
+            "Produits ronds (fûts, bobines et tubes debout, seaux, bouteilles) : nouvelles mailles mixtes — quelques rangées alignées glissées dans une quinconce gagnent une rangée. Jusqu'à 2 produits de plus par couche, par exemple Ø107 sur EUR : 84 → 86 ; Ø250 : 13 → 14 ; Ø170 sur 1200 × 1000 : 39 → 41.",
+            "Palettes et caisses hétérogènes : un article qui remplit à lui seul une palette (ou une caisse) ne la monopolise plus quand il y reste de la place pour les autres. Exemple : 12 colis 294 × 238 + 10 colis 171 × 132 en carton 600 × 400 : 7 → 6 caisses.",
+            "Palettes et caisses hétérogènes, commandes courantes (jusqu'à 400 produits) : recherche élargie des ordres de pose, souvent une palette ou une caisse de moins. Exemple : 6 + 6 colis de deux formats en carton 600 × 400 : 5 → 3 caisses. Résultat identique à chaque calcul de la même commande.",
+            "Les plans de couche des cartons, des produits ronds et des compositions hétérogènes ont été revérifiés sur plusieurs milliers de cas : chaque plan reste dans la palette, sans chevauchement, appuis et charges contrôlés."
+        ]),
+        new("0.1.6", "Colisage hétérogène et colisage validé",
+        [
+            "Colisage de plusieurs articles (« Plusieurs articles » dans l'espace Colisage) : articles × quantités dans une même caisse, avec les règles d'une palette multi-articles (appui, charge, lourd sous léger), autant de caisses que nécessaire. Mêmes choix qu'en colisage simple : meilleure caisse du catalogue en fonction de la palette de destination, caisse imposée du catalogue, caisse spécifique.",
+            "Meilleure caisse : manutentionnable à la main (25 kg brut) d'abord, puis le moins de palettes, puis le plus petit volume de caisses (meilleur remplissage), puis le moins de caisses. Chaque caisse respecte sa charge maxi et les 25 kg brut.",
+            "Résultat : n caisses (sélecteur « Caisse 1 / n » pour les vues 3D et 2D), contenu et poids brut de chacune, caisses par palette et palettes nécessaires ; couleur distincte par article. « Créer l'article caisse » crée l'article de la caisse affichée (caisse mixte : contenu dans la désignation, quantité totale par caisse).",
+            "Colisage validé contre des références indépendantes : un cas par type de produit (bornes de Barnes, mailles de cercles, carton de 12 bouteilles…) et sept caisses hétérogènes multi-types (bornes de volume et de poids). Résultats : docs/VALIDATION_MOTEUR.md §6–7.",
+            "Correction : une caisse dont une seule couche dépasse la charge maxi (bouteilles lourdes, carton de 30 kg) était déclarée impossible ; la dernière couche est maintenant remplie jusqu'au poids.",
+            "Fiche article : l'ascenseur des types passe sous les pastilles (plus de recouvrement) ; « Autre » est rangé en dernier."
+        ]),
+        new("0.1.5", "Moteur validé, bidons et autres types, conditionnements en cours",
+        [
+            "Validation du moteur contre des références indépendantes : un cas homogène par type de produit (optimums publiés du pallet loading problem, bornes de surface et de Barnes, mailles de cercles, usages industriels) et huit compositions hétérogènes multi-types (bornes de volume et de poids), chaque solution passant le contrôle indépendant. Résultats : docs/VALIDATION_MOTEUR.md.",
+            "Plans de couche des cartons améliorés par la validation : moulinets récursifs (chaque bloc peut lui-même être un moulinet). Sur 7 965 tailles de cartons, 43 plans gagnent une boîte par couche (exemples sur EUR : 271 × 201 : 14 → 15 ; 208 × 165 : 26 → 27), aucun n'est dégradé.",
+            "Nouveaux types (catégorie « Autre ») : Bidon / jerrican (poignée plastique), Seau / pot, Bouteille / flacon, Cuve IBC / GRV. Calculés comme leur forme de base (bac rigide ou fût debout) en homogène comme en hétérogène, dessinés avec leur forme réelle (poignée et bouchon, col, rebord, cage et palette intégrée).",
+            "Bidons, seaux et bouteilles gerbés sur plusieurs couches sans intercalaire : conseil d'intercalaire (dessus non plat).",
+            "Import : TYPE BIDON, JERRICAN, SEAU, POT, BOUTEILLE, FLACON, CUVE, IBC, GRV. Attention : BIDON désigne désormais un bidon / jerrican (il était lu comme un fût) ; les articles déjà importés ne changent pas.",
+            "Écran Conditionnements : liste repliable « En cours » au-dessus de « Récents » — le conditionnement en cours de création y apparaît aussitôt ; on passe d'un conditionnement à l'autre sans perdre la saisie non enregistrée (gardée pendant la session), la croix l'abandonne. Les listes s'empilent en haut, sans grand vide."
+        ]),
+        new("0.1.4", "Fiches liées à l'article, pages bien séparées",
+        [
+            "Boutons d'impression liés à l'article, quel que soit le menu : actifs si la fiche est possible pour l'article affiché, grisés et non cliquables sinon. Le survol donne la raison (article incomplet, ne tient dans aucune caisse, caisse non palettisable, produit contenu inconnu…).",
+            "Article des fiches : article sélectionné (Articles), article du conditionnement (Conditionnements, Gestion des conditionnements), produit du colisage (Colisage) ; dans les autres espaces, le dernier article affiché. Il est rappelé au-dessus des boutons (« Fiches de … »).",
+            "Plus besoin de calculer avant d'imprimer : la solution affichée ou enregistrée est reprise, sinon elle est calculée en tâche de fond dès que l'article change (palette de son dernier conditionnement, à défaut la palette de destination du colisage).",
+            "Fiche de colisage d'un produit : meilleure caisse du catalogue ; d'un article caisse créé au colisage : son produit dans sa caisse.",
+            "Fiche de conditionnement : la fiche palette d'abord, puis la fiche de colisage qui repart en haut d'une nouvelle page (aucune page partagée entre les deux)."
+        ]),
         new("0.1.3", "Quantité par caisse et trois fiches d'impression",
         [
             "Quantité par caisse sur l'article caisse / carton (facultative) : renseignée automatiquement quand une caisse est créée au colisage, modifiable sur la fiche article. Non renseignée, rien ne change.",

@@ -15,8 +15,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>0.1.3</Version>
-    <InformationalVersion>0.1.3</InformationalVersion>
+    <Version>0.1.8</Version>
+    <InformationalVersion>0.1.8</InformationalVersion>
     <AssemblyName>PalTunes</AssemblyName>
     <RootNamespace>PalTunes.App</RootNamespace>
     <Title>PalTunes</Title>

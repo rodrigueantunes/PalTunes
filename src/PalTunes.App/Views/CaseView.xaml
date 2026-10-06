@@ -10,6 +10,14 @@
              mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:CaseViewModel}"
              d:DesignWidth="1300" d:DesignHeight="850">
     <UserControl.Resources>
+        <DataTemplate x:Key="ArticleItem">
+            <StackPanel Orientation="Horizontal">
+                <Border Width="12" Height="12" CornerRadius="3" Margin="0,0,8,0" VerticalAlignment="Center"
+                        Background="{Binding Color, Converter={StaticResource HexToBrush}}" />
+                <TextBlock Text="{Binding Code}" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding DimensionsText}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" />
+            </StackPanel>
+        </DataTemplate>
         <DataTemplate x:Key="CaseItem">
             <StackPanel Orientation="Horizontal">
                 <Border Width="12" Height="12" CornerRadius="3" Margin="0,0,8,0" VerticalAlignment="Center"
@@ -51,7 +59,7 @@
                                     <TextBlock Text="Créer et palettiser la caisse" />
                                 </StackPanel>
                             </Button>
-                            <Button Style="{StaticResource OutlineButton}" Command="{Binding DataContext.PrintCaseSheetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            <Button Style="{StaticResource OutlineButton}" Command="{Binding DataContext.Print.CaseSheetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                     ToolTip="Fiche de colisage du résultat affiché (produit, caisse, quantité par caisse, plans, vue 3D)">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,8,0" />
@@ -63,32 +71,79 @@
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap"
-                                           Text="Combien de produits dans une caisse ? Mêmes plans de couche optimaux que la palettisation ; la caisse obtenue devient un article à palettiser." />
+                                           Text="Combien de produits dans une caisse ? Un article (plans de couche optimaux) ou plusieurs articles (autant de caisses que nécessaire) ; la caisse obtenue devient un article à palettiser." />
 
-                                <TextBlock Style="{StaticResource SectionTitle}" Text="PRODUIT À METTRE EN CAISSE" />
-                                <TextBlock Style="{StaticResource FormLabel}" Text="Client" Margin="0,0,0,2" />
-                                <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Clients, Converter={StaticResource OwnView}}" SelectedItem="{Binding Picker.Client}"
-                                          b:ComboFilter.MinItems="0" ToolTip="Limite la liste des produits à ceux du client" />
-                                <TextBlock Style="{StaticResource FormLabel}" Text="Produit" />
-                                <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Articles, Converter={StaticResource OwnView}}" SelectedItem="{Binding Article}"
-                                          b:ComboFilter.MinItems="0">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Border Width="12" Height="12" CornerRadius="3" Margin="0,0,8,0" VerticalAlignment="Center"
-                                                        Background="{Binding Color, Converter={StaticResource HexToBrush}}" />
-                                                <TextBlock Text="{Binding Code}" FontWeight="SemiBold" />
-                                                <TextBlock Text="{Binding DimensionsText}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" />
-                                                <TextBlock Text="{Binding Designation}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" MaxWidth="180" TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                                <TextBlock Style="{StaticResource Muted}" Margin="2,3,0,0">
-                                    <Run Text="{Binding Article.KindLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Article.Weight, Mode=OneWay, StringFormat={}{0:0.#####} kg}" />
-                                </TextBlock>
-                                <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,4,0,0" FontSize="11.5"
-                                           Visibility="{Binding ArticleWarning, Converter={StaticResource NotNullToVisibility}}" />
+                                <TextBlock Style="{StaticResource SectionTitle}" Text="PRODUITS À METTRE EN CAISSE" />
+                                <WrapPanel Margin="0,0,0,4">
+                                    <RadioButton Style="{StaticResource TileRadio}" GroupName="CaseContent" IsChecked="{Binding IsSingle, Mode=OneWay}"
+                                                 Command="{Binding SetMixedCommand}" CommandParameter="False" ToolTip="Produits identiques dans la caisse">
+                                        <TextBlock Text="Un article" />
+                                    </RadioButton>
+                                    <RadioButton Style="{StaticResource TileRadio}" GroupName="CaseContent" IsChecked="{Binding IsMixed, Mode=OneWay}"
+                                                 Command="{Binding SetMixedCommand}" CommandParameter="True"
+                                                 ToolTip="Colisage hétérogène : plusieurs articles × quantités, autant de caisses que nécessaire (comme une palette multi-articles)">
+                                        <TextBlock Text="Plusieurs articles" />
+                                    </RadioButton>
+                                </WrapPanel>
+                                <StackPanel Visibility="{Binding IsSingle, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Client" Margin="0,0,0,2" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Clients, Converter={StaticResource OwnView}}" SelectedItem="{Binding Picker.Client}"
+                                              b:ComboFilter.MinItems="0" ToolTip="Limite la liste des produits à ceux du client" />
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Produit" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Articles, Converter={StaticResource OwnView}}" SelectedItem="{Binding Article}"
+                                              b:ComboFilter.MinItems="0">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Border Width="12" Height="12" CornerRadius="3" Margin="0,0,8,0" VerticalAlignment="Center"
+                                                            Background="{Binding Color, Converter={StaticResource HexToBrush}}" />
+                                                    <TextBlock Text="{Binding Code}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding DimensionsText}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" />
+                                                    <TextBlock Text="{Binding Designation}" Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" MaxWidth="180" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Style="{StaticResource Muted}" Margin="2,3,0,0">
+                                        <Run Text="{Binding Article.KindLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Article.Weight, Mode=OneWay, StringFormat={}{0:0.#####} kg}" />
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,4,0,0" FontSize="11.5"
+                                               Visibility="{Binding ArticleWarning, Converter={StaticResource NotNullToVisibility}}" />
+                                </StackPanel>
+                                <StackPanel Visibility="{Binding IsMixed, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Client" Margin="0,0,0,2" />
+                                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Clients, Converter={StaticResource OwnView}}" SelectedItem="{Binding Picker.Client}"
+                                              b:ComboFilter.MinItems="0" ToolTip="Limite la liste des articles à ceux du client" />
+                                    <TextBlock Style="{StaticResource FormLabel}" Text="Articles × quantités" />
+                                    <ItemsControl ItemsSource="{Binding Lines}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,0,0,5">
+                                                    <Button DockPanel.Dock="Right" Style="{StaticResource LightButton}" Margin="5,0,0,0" ToolTip="Retirer la ligne"
+                                                            Command="{Binding DataContext.RemoveLineCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
+                                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" />
+                                                    </Button>
+                                                    <Border DockPanel.Dock="Left" Width="6" CornerRadius="3" Margin="0,2,6,2" Background="{Binding ViewBrush}"
+                                                            ToolTip="Couleur de l'article dans les vues" />
+                                                    <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="70" Margin="5,0,0,0"
+                                                             Text="{Binding Quantity, UpdateSourceTrigger=PropertyChanged, Delay=300}" ToolTip="Quantité" />
+                                                    <ComboBox Style="{StaticResource FormCombo}" SelectedItem="{Binding Article}" ItemTemplate="{StaticResource ArticleItem}"
+                                                              ItemsSource="{Binding DataContext.Picker.Articles, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={StaticResource OwnView}}"
+                                                              b:ComboFilter.MinItems="0" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <Button Style="{StaticResource OutlineButton}" Command="{Binding AddLineCommand}" HorizontalAlignment="Left">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,6,0" />
+                                            <TextBlock Text="Ajouter un article" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Border Background="#F4F7F9" CornerRadius="8" Padding="8,5" Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding LinesSummary}" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold" />
+                                    </Border>
+                                </StackPanel>
                                 <StackPanel Visibility="{Binding ShowAxis, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock Style="{StaticResource FormLabel}" Text="Axe des tubes dans la caisse" />
                                     <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding AxisChoices}" SelectedItem="{Binding AxisChoice}" DisplayMemberPath="Label"
@@ -240,6 +295,15 @@
                     </DockPanel>
                 </TabItem>
 
+                <TabItem Header="Détails du calcul">
+                    <Grid Margin="4,4,4,0">
+                        <TextBlock Style="{StaticResource Muted}" Text="Calculez le colisage : le détail du calcul s'affiche ici." TextWrapping="Wrap"
+                                   Visibility="{Binding CurrentSolution, Converter={StaticResource NullToVisibility}}" />
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding CalculationSections}" Margin="0,0,6,0" />
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
             </TabControl>
         </Border>
 
@@ -280,6 +344,9 @@
             <Border Grid.Row="1" Margin="8,0,8,4" Padding="12,8" CornerRadius="10" Background="#E9F7EF"
                     Visibility="{Binding Summary, Converter={StaticResource NotNullToVisibility}}">
                 <StackPanel>
+                    <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Units}" SelectedItem="{Binding SelectedUnit}" DisplayMemberPath="Label"
+                              HorizontalAlignment="Left" MinWidth="240" Margin="0,0,0,6" ToolTip="Caisse affichée (vues 3D et 2D, résumé)"
+                              Visibility="{Binding HasMultipleUnits, Converter={StaticResource BoolToVisibility}}" />
                     <TextBlock Text="{Binding SelectedSolution.Solution.Recommendation}" TextWrapping="Wrap" Foreground="#1E8449" FontWeight="SemiBold"
                                Visibility="{Binding SelectedSolution.Solution.Recommendation, Converter={StaticResource NotNullToVisibility}}" />
                     <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Foreground="#1E8449" />
