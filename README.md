@@ -8,9 +8,9 @@
 
 Palettisation, conditionnement et optimisation de chargement.
 
-Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
+Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.1.4` · Windows · .NET 10 · WPF
+`v0.1.5` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -80,9 +80,17 @@ PalTunes calcule plusieurs configurations possibles, contrôle leur validité pu
 | Tube            | cylindre long, plein ou **creux**        | tubes, profilés, bagues, mandrins |
 | Plaque          | parallélépipède mince                    | panneaux, feuilles, plaques       |
 | Sac             | volume rectangulaire                     | sacs industriels                  |
-| Fût             | cylindre debout                          | fûts, bidons                      |
+| Fût             | cylindre debout                          | fûts métalliques, barils          |
 | Bac             | parallélépipède                          | bacs logistiques                  |
 | Autre           | dimensions libres                        | cas spécifiques                   |
+| Bidon           | pavé hors tout, poignée et bouchon       | jerricans plastiques 5 à 60 L     |
+| Seau            | cylindre debout (diamètre du haut)       | seaux, pots à anse                |
+| Bouteille       | cylindre debout, col et bouchon          | bouteilles, flacons               |
+| Cuve IBC        | pavé sur palette intégrée, cage          | GRV 1000 L                        |
+
+Bidons, seaux, bouteilles et cuves (catégorie « Autre ») se calculent comme leur forme de base — bac rigide ou fût
+debout —, en homogène comme en hétérogène, et sont dessinés avec leur forme réelle. Gerbés sur plusieurs couches
+sans intercalaire, bidons, seaux et bouteilles déclenchent un conseil (dessus non plat).
 
 Chaque famille conserve ses propres règles.
 
@@ -554,6 +562,8 @@ Les champs nécessaires dépendent du type de produit. La colonne `CLIENT` conti
 | Bobine | diamètre × laize               | diamètre du mandrin (creux)       |
 | Tube   | diamètre × longueur            | diamètre intérieur (tube creux)   |
 | Fût    | diamètre × hauteur             |                                   |
+| Bidon, cuve | longueur × largeur × hauteur hors tout |                         |
+| Seau, bouteille | diamètre × hauteur         |                                   |
 
 Le code, le type et le poids complètent ces informations minimales.
 
@@ -728,6 +738,13 @@ MOTEUR
 
 Cette séparation permet de contrôler les configurations générées avant de les présenter comme utilisables. Les contrôles de chevauchement et d'appui reposent sur un index spatial : ils restent rapides même avec des dizaines de milliers de produits.
 
+Le moteur est lui-même validé contre des références indépendantes — optimums publiés du *pallet loading problem*, bornes de surface et de Barnes, mailles de cercles, usages industriels, bornes de volume et de poids en hétérogène — par des tests rejoués à chaque compilation : [`docs/VALIDATION_MOTEUR.md`](docs/VALIDATION_MOTEUR.md).
+
+```text
+19 cas homogènes (tous les types)     optimum ou meilleure maille atteint, sauf 1 instance publiée à 1 boîte
+8 compositions hétérogènes            toutes conformes, 6 à la borne de palettes, 2 à borne + 1
+```
+
 ---
 
 # 22 / LES ESPACES
@@ -744,6 +761,8 @@ Ctrl+7  GESTION DES        tous les conditionnements rangés par client, famille
 ```
 
 L'écran **Conditionnements** ne garde que les **10 derniers** conditionnements modifiés (liste « Récents », repliable) ; une recherche porte sur tous. Les autres se retrouvent dans **Gestion des conditionnements**, rangés comme les articles.
+
+Au-dessus, la liste repliable **« En cours »** garde les conditionnements créés ou modifiés et pas encore enregistrés : on passe de l'un à l'autre sans perdre la saisie (gardée pendant la session) ; la croix abandonne une saisie.
 
 Sur les vues, chaque article reçoit une **couleur bien distincte** des autres ; la case **Couleur d'origine** (décochée par défaut, mémorisée) reprend les couleurs des fiches articles.
 
@@ -934,6 +953,12 @@ Elle couvre notamment :
 [`docs/ETUDE_HETEROGENE.md`](docs/ETUDE_HETEROGENE.md)
 
 Référence spécifique aux palettes multi-articles.
+
+### Validation du moteur
+
+[`docs/VALIDATION_MOTEUR.md`](docs/VALIDATION_MOTEUR.md)
+
+Méthode, références indépendantes et résultats chiffrés (homogène par type, hétérogène multi-types).
 
 ### Import
 
