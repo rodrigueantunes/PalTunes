@@ -16,8 +16,9 @@ public class ImportExportTests
         var db = new List<Article>();
         var report = ArticleCsv.Import(ArticleCsv.Template(), db);
         Assert.Equal(0, report.Errors);
-        Assert.Equal(7, report.Created);
-        Assert.Equal(7, db.Select(a => a.Kind).Distinct().Count());
+        Assert.Equal(8, report.Created);
+        Assert.Equal(8, db.Select(a => a.Kind).Distinct().Count());
+        Assert.Equal(ArticleKind.Bidon, db.Single(a => a.Code == "BID-20").Kind);
         Assert.Equal(CoilAxis.Indifferent, db.Single(a => a.Kind == ArticleKind.Tube).CoilAxis);
     }
 
@@ -375,7 +376,7 @@ public class EnclosureNoteTests
             var store = new DatabaseStore(path);
             store.Save(db);
             var loaded = store.Load();
-            Assert.Equal(5, loaded.SchemaVersion);
+            Assert.Equal(6, loaded.SchemaVersion);
             Assert.All(loaded.Articles, a => Assert.Contains(loaded.Clients, c => c.Code == a.Client));
             var agro = loaded.FindClient("AGRO")!;
             var count = loaded.ArticleCountOf(agro);
@@ -586,5 +587,22 @@ public class QuantityPerCaseTests
         var box = back.Articles.Single(a => a.Code == "CAI-B");
         Assert.Equal(24, box.QuantityPerCase);
         Assert.Equal(db.Articles[1].CaseContent, box.CaseContent);
+    }
+}
+
+public class PalletOfCasesTests
+{
+    [Fact]
+    public void CaseFromColisage_IsPalletized_WithQuantityAndContent()
+    {
+        var product = new Article { Code = "B", Kind = ArticleKind.Caisse, Length = 100, Width = 100, Height = 120, Weight = 0.5 };
+        var spec = new CaseSpec { InnerLength = 400, InnerWidth = 300, InnerHeight = 250, WallThickness = 4, Tare = 0.4 };
+        var colisage = CaseEngine.Solve(product, spec).Recommended!;
+        var pallet = PalletCatalog.Defaults().First(p => p.Code == "EUR1");
+        var (box, s) = CaseEngine.PalletOfCases(product, colisage, spec, null, null, pallet, new PackagingConstraints { MaxTotalHeight = 1800 }, "CAI-B");
+        Assert.NotNull(s);
+        Assert.Equal(24, box.QuantityPerCase);
+        Assert.Equal(product.Id, box.CaseContent!.ArticleId);
+        Assert.True(s!.ItemsPerUnit > 0);
     }
 }

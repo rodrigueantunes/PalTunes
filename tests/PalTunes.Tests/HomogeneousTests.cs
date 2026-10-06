@@ -31,7 +31,7 @@ public class HomogeneousTests
     }
 
     [Theory]
-    [InlineData(250, 13)]
+    [InlineData(250, 14)] // 13 en quinconce pure ; 14 en maille mixte (0.1.7)
     [InlineData(400, 6)]
     public void Circles_BestOfSquareAndHex(double diameter, int expected)
     {
