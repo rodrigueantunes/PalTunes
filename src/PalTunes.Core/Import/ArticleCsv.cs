@@ -31,7 +31,7 @@ public static class ArticleCsv
     public static IReadOnlyList<ColumnDoc> Columns { get; } =
     [
         new("CODE", ["CODE_ARTICLE", "ARTICLE", "REF", "REFERENCE", "ITEM"], "Obligatoire", "Code de l'article, unique pour un même client. Même code chez le même client : l'article est mis à jour.", "CAR-400"),
-        new("TYPE", ["TYPE_ARTICLE", "NATURE", "KIND"], "Obligatoire", "CAISSE, BOBINE, TUBE, PLAQUE, SAC, FUT, BAC ou AUTRE (synonymes acceptés : CARTON, ROULEAU, PANNEAU…).", "CAISSE"),
+        new("TYPE", ["TYPE_ARTICLE", "NATURE", "KIND"], "Obligatoire", "CAISSE, BOBINE, TUBE, PLAQUE, SAC, FUT, BAC, AUTRE, ou les autres types BIDON (jerrican), SEAU, BOUTEILLE, CUVE (IBC / GRV) ; synonymes acceptés : CARTON, ROULEAU, PANNEAU, JERRICAN, POT, FLACON, IBC…", "CAISSE"),
         new("LONGUEUR", ["L", "LONG", "LENGTH"], "Selon type", "mm. Caisse, sac, bac, plaque, autre ; longueur du tube.", "400"),
         new("LARGEUR", ["LARG", "WIDTH", "LAIZE"], "Selon type", "mm. Caisse, sac, bac, plaque, autre ; laize de la bobine.", "300"),
         new("HAUTEUR", ["H", "HAUT", "HEIGHT", "EPAISSEUR", "EP"], "Selon type", "mm. Hauteur (caisse, sac, bac, fût, autre) ou épaisseur (plaque) ; tube : épaisseur de paroi (Ø intérieur = Ø − 2 × épaisseur, si DIAMETRE_INT est vide).", "250"),
@@ -67,7 +67,11 @@ public static class ArticleCsv
             "TUBE" or "PROFILE" or "BARRE" or "PIPE" => ArticleKind.Tube,
             "PLAQUE" or "PLANCHE" or "FEUILLE" or "PANNEAU" or "SHEET" or "PLATE" => ArticleKind.Plaque,
             "SAC" or "SACHET" or "BAG" => ArticleKind.Sac,
-            "FUT" or "BIDON" or "TONNEAU" or "DRUM" => ArticleKind.Fut,
+            "FUT" or "TONNEAU" or "DRUM" or "BARIL" => ArticleKind.Fut,
+            "BIDON" or "JERRICAN" or "JERRYCAN" or "JERRICANE" or "CANISTER" => ArticleKind.Bidon,
+            "SEAU" or "POT" or "PAIL" or "BUCKET" => ArticleKind.Seau,
+            "BOUTEILLE" or "FLACON" or "BOTTLE" => ArticleKind.Bouteille,
+            "CUVE" or "IBC" or "GRV" or "CUVE_IBC" or "CONTAINER_IBC" => ArticleKind.Cuve,
             "BAC" or "CAISSE_PLASTIQUE" or "CONTENANT" or "CRATE" or "BAC_CAISSE_PLASTIQUE" => ArticleKind.Bac,
             "AUTRE" or "OTHER" => ArticleKind.Autre,
             _ => null
@@ -404,6 +408,7 @@ public static class ArticleCsv
             new Article { Code = "PLQ-1600", Kind = ArticleKind.Plaque, Length = 1600, Width = 1200, Height = 10, Weight = 15, Designation = "Plaque 1600 × 1200 ép. 10", Client = "BATI", Family = "Plaques" },
             new Article { Code = "SAC-25", Kind = ArticleKind.Sac, Length = 600, Width = 400, Height = 120, Weight = 25, Designation = "Sac 25 kg", Client = "CHIM", Family = "Vrac" },
             new Article { Code = "FUT-200", Kind = ArticleKind.Fut, Diameter = 585, Height = 880, Weight = 220, Designation = "Fût 200 L", Client = "CHIM", Family = "Liquides" },
+            new Article { Code = "BID-20", Kind = ArticleKind.Bidon, Length = 290, Width = 190, Height = 370, Weight = 21, Designation = "Jerrican 20 L plastique", Client = "CHIM", Family = "Liquides" },
             new Article { Code = "BAC-6040", Kind = ArticleKind.Bac, Length = 600, Width = 400, Height = 300, Weight = 8, MaxLoadOnTop = 200, Designation = "Bac plastique 600 × 400", Client = "CHIM", Family = "Contenants" }
         };
         return Export(examples);

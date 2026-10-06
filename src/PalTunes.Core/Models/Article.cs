@@ -115,24 +115,32 @@ public sealed class Article
     public Article ForPalletizing()
     {
         var effective = WithEffectiveDiameter();
-        if (!effective.IsFolded)
+        if (effective.IsFolded)
         {
-            return effective;
+            effective = effective.Clone();
+            (effective.Length, effective.Width, effective.Height) = PackedDimensions;
         }
 
-        var folded = effective.Clone();
-        (folded.Length, folded.Width, folded.Height) = PackedDimensions;
-        return folded;
+        // Bidon, seau, bouteille, cuve : forme de base pour les moteurs (bac rigide ou fût debout).
+        var engineKind = ArticleSchema.EngineKind(Kind);
+        if (engineKind != Kind)
+        {
+            effective = ReferenceEquals(effective, this) ? Clone() : effective;
+            effective.Kind = engineKind;
+            effective.Orientation = OrientationRule.HautImpose;
+        }
+
+        return effective;
     }
 
-    public bool IsCylinder => Kind is ArticleKind.Bobine or ArticleKind.Tube or ArticleKind.Fut;
+    public bool IsCylinder => Kind is ArticleKind.Bobine or ArticleKind.Tube or ArticleKind.Fut or ArticleKind.Seau or ArticleKind.Bouteille;
 
     /// <summary>Longueur d'axe d'un cylindre (laize, longueur de tube, hauteur de fût).</summary>
     public double AxisLength => Kind switch
     {
         ArticleKind.Bobine => Width,
         ArticleKind.Tube => Length,
-        ArticleKind.Fut => Height,
+        ArticleKind.Fut or ArticleKind.Seau or ArticleKind.Bouteille => Height,
         _ => 0
     };
 
@@ -163,7 +171,7 @@ public sealed class Article
             {
                 ArticleKind.Bobine => $"Ø{F(EffectiveDiameter)}{(UsesInnerAsDiameter ? " (Ø int.)" : "")} × laize {F(Width)}",
                 ArticleKind.Tube => $"Ø{F(EffectiveDiameter)}{(UsesInnerAsDiameter ? " (Ø int.)" : "")} × {F(Length)}",
-                ArticleKind.Fut => $"Ø{F(Diameter)} × h {F(Height)}",
+                ArticleKind.Fut or ArticleKind.Seau or ArticleKind.Bouteille => $"Ø{F(Diameter)} × h {F(Height)}",
                 ArticleKind.Plaque => $"{F(Length)} × {F(Width)} × ép. {F(Height)}",
                 ArticleKind.Caisse when IsFolded =>
                     $"{F(Length)} × {F(Width)} × {F(Height)} (plié {F(PackedDimensions.Length)} × {F(PackedDimensions.Width)} × {F(PackedDimensions.Height)})",

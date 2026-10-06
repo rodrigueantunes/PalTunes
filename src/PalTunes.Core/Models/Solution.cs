@@ -234,6 +234,9 @@ public sealed class Solution
     public int ItemsPerPallet { get; set; }
     public string? DestinationPallet { get; set; }
 
+    /// <summary>Colisage hétérogène : palettes nécessaires pour toutes les caisses de la solution.</summary>
+    public int PalletCount { get; set; }
+
     // Hétérogène
     public int RequestedItems { get; set; }
     public int UnplacedItems { get; set; }

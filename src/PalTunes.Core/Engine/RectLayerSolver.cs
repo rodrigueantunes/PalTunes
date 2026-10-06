@@ -33,9 +33,10 @@ public sealed class RectLayerResult
 /// <summary>
 /// Plans de couche pour rectangles identiques a × b (rotation 90° autorisée) dans X × Y (étude §4.3–4.4) :
 /// grille simple, guillotine optimale par programmation dynamique sur les points de discrétisation
-/// (Herz 1972, Christofides &amp; Whitlock 1977, Beasley 1985), moulinet non-guillotine à 5 blocs d'ordre 1
-/// (Smith &amp; De Cani 1980, Bischoff &amp; Dowsland 1982, structure G4 de Scheithauer &amp; Terno 1996),
-/// et borne d'aire sur dimensions efficaces (Barnes 1979, Dowsland 1987).
+/// (Herz 1972, Christofides &amp; Whitlock 1977, Beasley 1985), moulinet non-guillotine à 5 blocs
+/// (Smith &amp; De Cani 1980, Bischoff &amp; Dowsland 1982, structure G4 de Scheithauer &amp; Terno 1996), récursif quand
+/// la taille le permet — chaque bloc peut lui-même être un moulinet (Morabito &amp; Morales 1998) —, et borne d'aire sur
+/// dimensions efficaces (Barnes 1979, Dowsland 1987).
 /// Calcul en entiers (dixièmes de mm) pour des égalités exactes.
 /// </summary>
 public static class RectLayerSolver
@@ -44,6 +45,15 @@ public static class RectLayerSolver
 
     /// <summary>Au-delà, le moulinet (O(n⁴)) n'est pas énuméré : les plans guillotine sont alors quasi optimaux.</summary>
     private const long PinwheelBudget = 30_000_000;
+
+    /// <summary>
+    /// Moulinet récursif (5 blocs dans chaque sous-rectangle) : coût de l'ordre de nx³·ny³ / 9 opérations ; au-delà,
+    /// seul le moulinet du plan entier est cherché.
+    /// </summary>
+    private const double RecursiveBudget = 250_000_000;
+
+    /// <summary>Moulinets récursifs activés (diagnostic : comparaison avec le seul moulinet du plan entier, avant 0.1.5).</summary>
+    public static bool RecursivePinwheels { get; set; } = true;
 
     public static RectLayerResult Solve(double containerX, double containerY, double a, double b, double gap = 0)
     {
@@ -83,9 +93,9 @@ public static class RectLayerSolver
         solver.Run();
 
         var grid = ToPattern("Grille", solver.BestGrid());
-        var guillotine = ToPattern(solver.GuillotineIsGrid ? "Grille" : "Guillotine", solver.BuildGuillotine());
-        var best = guillotine;
-        if (solver.PinwheelValue > guillotine.Count)
+        var table = ToPattern(solver.HasPinwheel ? "Moulinet" : solver.GuillotineIsGrid ? "Grille" : "Guillotine", solver.BuildGuillotine());
+        var best = table;
+        if (solver.PinwheelValue > table.Count)
         {
             best = ToPattern("Moulinet", solver.BuildPinwheel());
         }
@@ -95,8 +105,8 @@ public static class RectLayerSolver
             Best = best,
             Grid = grid,
             UpperBound = solver.UpperBound,
-            GuillotineCount = guillotine.Count,
-            PinwheelCount = Math.Max(solver.PinwheelValue, 0)
+            GuillotineCount = solver.GuillotineValue,
+            PinwheelCount = solver.HasPinwheel ? table.Count : Math.Max(solver.PinwheelValue, 0)
         };
     }
 
@@ -211,14 +221,24 @@ public static class RectLayerSolver
         private int[] _normY = [];
         private int[,] _f = new int[0, 0];
 
-        // Choix : 0 = grille a×b, 1 = grille b×a, 2 = coupe verticale, 3 = coupe horizontale ; _cut = indice de coupe.
+        // Choix : 0 = grille a×b, 1 = grille b×a, 2 = coupe verticale, 3 = coupe horizontale, 4 = moulinet ;
+        // _cut = indice de coupe ; _pins = moulinet retenu pour un sous-rectangle.
         private byte[,] _kind = new byte[0, 0];
         private int[,] _cut = new int[0, 0];
+        private readonly Dictionary<(int, int), (int x1, int x2, int y1, int y2, bool chiral)> _pins = [];
 
         public int PinwheelValue { get; private set; } = -1;
         private (int x1, int x2, int y1, int y2, bool chiral) _pin;
         public int UpperBound { get; private set; }
         public bool GuillotineIsGrid => _kind[_rx.Length - 1, _ry.Length - 1] <= 1;
+
+        /// <summary>Meilleur plan guillotine du plan entier (avant moulinets récursifs).</summary>
+        public int GuillotineValue { get; private set; }
+
+        /// <summary>Le plan retenu contient un moulinet (à un niveau quelconque).</summary>
+        public bool HasPinwheel { get; private set; }
+
+        public int Value => _f[_rx.Length - 1, _ry.Length - 1];
 
         public void Run()
         {
@@ -230,6 +250,42 @@ public static class RectLayerSolver
             _kind = new byte[nx, ny];
             _cut = new int[nx, ny];
 
+            // 1re passe : guillotine optimale. Si elle n'atteint pas la borne, 2e passe avec les moulinets dans chaque
+            // sous-rectangle (récursifs : les blocs d'un moulinet sont eux-mêmes guillotine ou moulinet).
+            Pass(withPinwheels: false);
+            UpperBound = (int)((long)_rx[nx - 1] * _ry[ny - 1] / ((long)a * b));
+            GuillotineValue = _f[nx - 1, ny - 1];
+            if (GuillotineValue >= UpperBound)
+            {
+                return;
+            }
+
+            if (RecursivePinwheels && Math.Pow(nx, 3) * Math.Pow(ny, 3) / 9 <= RecursiveBudget)
+            {
+                var (f, kind, cut) = ((int[,])_f.Clone(), (byte[,])_kind.Clone(), (int[,])_cut.Clone());
+                Pass(withPinwheels: true);
+                if (_f[nx - 1, ny - 1] > GuillotineValue)
+                {
+                    HasPinwheel = true;
+                    return;
+                }
+
+                // Pas mieux : le plan guillotine (plus simple à poser) est gardé.
+                (_f, _kind, _cut) = (f, kind, cut);
+                _pins.Clear();
+                return;
+            }
+
+            if ((long)nx * nx * ny * ny / 2 <= PinwheelBudget)
+            {
+                SearchPinwheel(GuillotineValue);
+            }
+        }
+
+        private void Pass(bool withPinwheels)
+        {
+            var nx = _rx.Length;
+            var ny = _ry.Length;
             for (var i = 0; i < nx; i++)
             {
                 for (var j = 0; j < ny; j++)
@@ -272,15 +328,87 @@ public static class RectLayerSolver
                     _f[i, j] = best;
                     _kind[i, j] = kind;
                     _cut[i, j] = cut;
+
+                    // Moulinet de ce sous-rectangle : ses 5 blocs sont plus étroits (déjà calculés, moulinets compris).
+                    if (withPinwheels && i >= 2 && j >= 2 && best < (int)((long)w * h / ((long)a * b)))
+                    {
+                        var pin = BestPinwheel(i, j, best);
+                        if (pin.Value > best)
+                        {
+                            _f[i, j] = pin.Value;
+                            _kind[i, j] = 4;
+                            _pins[(i, j)] = pin.Cut;
+                        }
+                    }
+                }
+            }
+        }
+
+        private bool UsesPinwheel(int i, int j)
+        {
+            if (_f[i, j] == 0)
+            {
+                return false;
+            }
+
+            var w = _rx[i];
+            var h = _ry[j];
+            return _kind[i, j] switch
+            {
+                4 => true,
+                2 => UsesPinwheel(_cut[i, j], j) || UsesPinwheel(_normX[w - _rx[_cut[i, j]]], j),
+                3 => UsesPinwheel(i, _cut[i, j]) || UsesPinwheel(i, _normY[h - _ry[_cut[i, j]]]),
+                _ => false
+            };
+        }
+
+        /// <summary>Meilleur moulinet à 5 blocs du sous-rectangle (i, j), blocs évalués par la table (récursivité).</summary>
+        private (int Value, (int x1, int x2, int y1, int y2, bool chiral) Cut) BestPinwheel(int i, int j, int floor)
+        {
+            var w = _rx[i];
+            var h = _ry[j];
+            var bound = (int)((long)w * h / ((long)a * b));
+            var best = floor;
+            (int, int, int, int, bool) cut = default;
+            for (var i1 = 1; i1 < i; i1++)
+            {
+                var x1 = _rx[i1];
+                for (var i2 = 1; i2 < i; i2++)
+                {
+                    if (i2 == i1)
+                    {
+                        continue;
+                    }
+
+                    var x2 = _rx[i2];
+                    var chiral = x1 < x2;
+                    for (var j1 = 1; j1 < j; j1++)
+                    {
+                        var y1 = _ry[j1];
+                        for (var j2 = 1; j2 < j; j2++)
+                        {
+                            var y2 = _ry[j2];
+                            if (j2 == j1 || (chiral ? y2 >= y1 : y1 >= y2))
+                            {
+                                continue;
+                            }
+
+                            var v = F(x1, y1) + F(w - x1, y2) + F(w - x2, h - y2) + F(x2, h - y1) + F(Math.Abs(x2 - x1), Math.Abs(y1 - y2));
+                            if (v > best)
+                            {
+                                best = v;
+                                cut = (x1, x2, y1, y2, chiral);
+                                if (best >= bound)
+                                {
+                                    return (best, cut);
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            UpperBound = (int)((long)_rx[nx - 1] * _ry[ny - 1] / ((long)a * b));
-            var guillotine = _f[nx - 1, ny - 1];
-            if (guillotine < UpperBound && (long)nx * nx * ny * ny / 2 <= PinwheelBudget)
-            {
-                SearchPinwheel(guillotine);
-            }
+            return (best, cut);
         }
 
         /// <summary>Points de discrétisation i·a + j·b ≤ L, et table « plus grand point ≤ v ».</summary>
@@ -434,6 +562,22 @@ public static class RectLayerSolver
                     var k = _cut[i, j];
                     Build(cells, k, j, ox, oy);
                     Build(cells, _normX[w - _rx[k]], j, ox + _rx[k], oy);
+                    break;
+                case 4:
+                    var (x1, x2, y1, y2, chiral) = _pins[(i, j)];
+                    Block(cells, ox, oy, x1, y1);
+                    Block(cells, ox + x1, oy, w - x1, y2);
+                    Block(cells, ox + x2, oy + y2, w - x2, h - y2);
+                    Block(cells, ox, oy + y1, x2, h - y1);
+                    if (chiral)
+                    {
+                        Block(cells, ox + x1, oy + y2, x2 - x1, y1 - y2);
+                    }
+                    else
+                    {
+                        Block(cells, ox + x2, oy + y1, x1 - x2, y2 - y1);
+                    }
+
                     break;
                 default:
                     var m = _cut[i, j];

@@ -70,12 +70,52 @@ public static class HeterogeneousEngine
         }
 
         // Palettes complètes mono-article (quantité au moins égale à une palette pleine) : posées telles quelles et
-        // communes aux trois stratégies ; seul le reliquat de chaque article est mélangé.
+        // communes aux trois stratégies ; seul le reliquat de chaque article est mélangé. Une palette « pleine » d'un
+        // article peut pourtant laisser de la place à un autre (bande libre le long d'un côté) : la variante tout mélangé
+        // est aussi calculée tant que la pose un à un le permet, et pour chaque stratégie la variante qui demande le moins
+        // d'unités est retenue.
+        var requested = feasible.Sum(f => f.Quantity);
+        var withFull = Variant(feasible, ctx, c, requested, extractFull: true, out var fullCount, result.Messages);
+        var chosen = withFull;
+        if (fullCount > 0 && requested <= MaxItemsPlacedOneByOne)
+        {
+            var mixed = Variant(feasible, ctx, c, requested, extractFull: false, out _, []);
+            chosen = withFull.Select(w =>
+            {
+                var m = mixed.FirstOrDefault(x => x.Strategy == w.Strategy);
+                return m != null && m.IsCompliant && m.UnplacedItems <= w.UnplacedItems && m.Units.Count < w.Units.Count ? m : w;
+            }).ToList();
+        }
+
+        foreach (var s in chosen)
+        {
+            foreach (var e in excluded)
+            {
+                s.Warnings.Add("Article exclu (ne tient pas sur la base) : " + e);
+            }
+
+            s.ExcludedArticles = [.. excluded];
+            result.Solutions.Add(s);
+        }
+
+        Rank(result.Solutions);
+        var hollow = valid.GroupBy(v => v.Item1.Id).ToDictionary(g => g.Key, g => g.First().Item1.HollowDiameter);
+        HomogeneousEngine.MarkHollow(result.Solutions, id => hollow.GetValueOrDefault(id));
+        return result;
+    }
+
+    /// <summary>
+    /// Une variante de calcul : palettes complètes mono-article extraites d'abord (<paramref name="extractFull"/>) ou
+    /// tout mélangé ; les trois stratégies, en parallèle, chacune terminée (contrôle, indicateurs).
+    /// </summary>
+    private static List<Solution> Variant(List<(Article Article, int Quantity)> feasible, Ctx ctx, PackagingConstraints c, int requested,
+        bool extractFull, out int fullCount, List<string> messages)
+    {
         var full = new List<LoadUnit>();
         var demand = new List<Demand>();
         foreach (var (article, qty) in feasible)
         {
-            var (units, rest) = FullPallets(article, qty, ctx);
+            var (units, rest) = extractFull ? FullPallets(article, qty, ctx) : ([], qty);
             full.AddRange(units);
             if (rest > 0)
             {
@@ -88,6 +128,7 @@ public static class HeterogeneousEngine
             full[i].Index = i + 1;
         }
 
+        fullCount = full.Count;
         var mixedCount = demand.Sum(d => d.Count);
         var runs = new List<Func<Solution>> { () => Layered(demand, ctx) };
         if (mixedCount <= MaxItemsPlacedOneByOne)
@@ -100,13 +141,12 @@ public static class HeterogeneousEngine
         }
         else
         {
-            result.Messages.Add($"{mixedCount.ToString("#,0", Fr)} produits à mélanger : seule la stratégie « Couches homogènes » est calculée " +
-                                $"(les stratégies « Piles par article » et « Densité maximale » posent les produits un à un, jusqu'à {MaxItemsPlacedOneByOne.ToString("#,0", Fr)}).");
+            messages.Add($"{mixedCount.ToString("#,0", Fr)} produits à mélanger : seule la stratégie « Couches homogènes » est calculée " +
+                         $"(les stratégies « Piles par article » et « Densité maximale » posent les produits un à un, jusqu'à {MaxItemsPlacedOneByOne.ToString("#,0", Fr)}).");
         }
 
         var solutions = new Solution[runs.Count];
         Parallel.For(0, runs.Count, i => solutions[i] = runs[i]());
-        var requested = feasible.Sum(f => f.Quantity);
         foreach (var s in solutions)
         {
             // Palettes complètes en tête, puis les unités mélangées.
@@ -121,20 +161,9 @@ public static class HeterogeneousEngine
             {
                 s.Description = $"{full.Count} palette(s) complète(s) mono-article, puis : " + s.Description;
             }
-
-            foreach (var e in excluded)
-            {
-                s.Warnings.Add("Article exclu (ne tient pas sur la base) : " + e);
-            }
-
-            s.ExcludedArticles = [.. excluded];
-            result.Solutions.Add(s);
         }
 
-        Rank(result.Solutions);
-        var hollow = valid.GroupBy(v => v.Item1.Id).ToDictionary(g => g.Key, g => g.First().Item1.HollowDiameter);
-        HomogeneousEngine.MarkHollow(result.Solutions, id => hollow.GetValueOrDefault(id));
-        return result;
+        return [.. solutions];
     }
 
     /// <summary>
@@ -518,7 +547,52 @@ public static class HeterogeneousEngine
             }
         }
 
-        return best!;
+        return Intensify(best!, ctx, strategy, orders[0]);
+    }
+
+    /// <summary>Recherche élargie : nombre d'ordres de pose essayés au plus, et budget de temps (commandes courantes).</summary>
+    private const int IntensifyOrders = 120;
+
+    private const int IntensifyMilliseconds = 1500;
+
+    /// <summary>
+    /// Recherche élargie (commandes de 400 produits au plus) : d'autres ordres de pose — articles dans un autre ordre,
+    /// volumes légèrement perturbés — avec les deux règles de pose, tant que la borne de volume n'est pas atteinte et dans
+    /// la limite du budget de temps. Tirages à graine fixe : même commande, même résultat.
+    /// </summary>
+    private static Solution Intensify(Solution best, Ctx ctx, MixedStrategy strategy, List<Item> all)
+    {
+        if (all.Count == 0 || all.Count > 400 || best.UnplacedItems > 0)
+        {
+            return best;
+        }
+
+        var usable = (ctx.MaxX - ctx.MinX) * (ctx.MaxY - ctx.MinY) * ctx.MaxZ;
+        var bound = usable <= 0 ? 1 : Math.Max(1, (int)Math.Ceiling(all.Sum(i => i.Volume) / usable - 1e-9));
+        if (best.Units.Count <= bound)
+        {
+            return best;
+        }
+
+        var rnd = new Random(all.Count * 7919 + all.Select(i => i.Article.Code.Length).Sum());
+        var groups = all.GroupBy(i => i.Article.Id).Select(g => g.ToList()).ToList();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (var k = 0; k < IntensifyOrders && best.Units.Count > bound && sw.ElapsedMilliseconds < IntensifyMilliseconds; k++)
+        {
+            var order = k % 2 == 0
+                ? groups.OrderBy(_ => rnd.Next()).SelectMany(g => g).ToList()
+                : all.OrderByDescending(i => i.Volume * (0.7 + 0.6 * rnd.NextDouble())).ToList();
+            foreach (var priority in new[] { Priority.BottomLeft, Priority.Walls })
+            {
+                var s = Packed(order, ctx, priority, strategy);
+                if (Compare(s, best) < 0)
+                {
+                    best = s;
+                }
+            }
+        }
+
+        return best;
     }
 
     private static int Compare(Solution a, Solution b)

@@ -10,7 +10,20 @@ public enum ArticleKind
     Sac,
     Fut,
     Bac,
-    Autre
+    Autre,
+
+    // Autres types courants hors des formes de base (enregistrés par leur nom : ajoutés en fin de liste).
+    /// <summary>Bidon / jerrican plastique à poignée : pavé, haut imposé, poignée et bouchon sur le dessus.</summary>
+    Bidon,
+
+    /// <summary>Seau / pot à anse : cylindre debout.</summary>
+    Seau,
+
+    /// <summary>Bouteille / flacon : cylindre debout, col et bouchon sur le dessus.</summary>
+    Bouteille,
+
+    /// <summary>Cuve IBC / GRV (1000 L) : pavé sur palette intégrée, cage métallique.</summary>
+    Cuve
 }
 
 /// <summary>Orientation d'un produit pavé : haut imposé (seule rotation dans le plan) ou libre (6 orientations).</summary>

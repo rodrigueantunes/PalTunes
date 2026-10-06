@@ -21,7 +21,8 @@ public sealed record FieldSpec(ArticleField Field, string Label, bool Required, 
 /// </summary>
 public static class ArticleSchema
 {
-    public static IReadOnlyList<ArticleKind> Kinds { get; } = Enum.GetValues<ArticleKind>();
+    /// <summary>Types proposés, « Autre » (générique) en dernier, après les autres types courants.</summary>
+    public static IReadOnlyList<ArticleKind> Kinds { get; } = [.. Enum.GetValues<ArticleKind>().Where(k => k != ArticleKind.Autre), ArticleKind.Autre];
 
     public static string KindLabel(ArticleKind kind) => kind switch
     {
@@ -32,8 +33,29 @@ public static class ArticleSchema
         ArticleKind.Sac => "Sac",
         ArticleKind.Fut => "Fût",
         ArticleKind.Bac => "Bac / caisse plastique",
+        ArticleKind.Bidon => "Bidon / jerrican",
+        ArticleKind.Seau => "Seau / pot",
+        ArticleKind.Bouteille => "Bouteille / flacon",
+        ArticleKind.Cuve => "Cuve IBC / GRV",
         _ => "Autre"
     };
+
+    /// <summary>Types de la catégorie « Autre » : générique et formes courantes hors norme (bidon, seau, bouteille, cuve).</summary>
+    public static bool IsOther(ArticleKind kind) => kind is ArticleKind.Autre or ArticleKind.Bidon or ArticleKind.Seau or ArticleKind.Bouteille or ArticleKind.Cuve;
+
+    /// <summary>
+    /// Forme de base utilisée par les moteurs (homogène, hétérogène, colisage, profil de gerbage) : bidon et cuve se
+    /// palettisent comme un bac rigide (haut imposé, colonne), seau et bouteille comme un fût (cylindre debout).
+    /// </summary>
+    public static ArticleKind EngineKind(ArticleKind kind) => kind switch
+    {
+        ArticleKind.Bidon or ArticleKind.Cuve => ArticleKind.Bac,
+        ArticleKind.Seau or ArticleKind.Bouteille => ArticleKind.Fut,
+        _ => kind
+    };
+
+    /// <summary>Produits dont le dessus n'est pas plat (poignée, col, anse) : intercalaire conseillé pour les gerber.</summary>
+    public static bool NeedsSlipSheetToStack(ArticleKind kind) => kind is ArticleKind.Bidon or ArticleKind.Seau or ArticleKind.Bouteille;
 
     public static string KindDescription(ArticleKind kind) => kind switch
     {
@@ -44,12 +66,18 @@ public static class ArticleSchema
         ArticleKind.Sac => "Pavé déformable posé à plat, toujours en croisé.",
         ArticleKind.Fut => "Cylindre debout uniquement.",
         ArticleKind.Bac => "Pavé rigide, haut imposé, empilé en colonne.",
+        ArticleKind.Bidon => "Bidon plastique à poignée (jerrican) : pavé hors tout, haut imposé, en colonne ; intercalaire conseillé pour gerber (poignée, bouchon).",
+        ArticleKind.Seau => "Seau ou pot à anse : cylindre debout (diamètre du haut), en colonne ; intercalaire conseillé pour gerber.",
+        ArticleKind.Bouteille => "Bouteille ou flacon : cylindre debout, en colonne ; intercalaire conseillé pour gerber (col, bouchon).",
+        ArticleKind.Cuve => "Cuve IBC / GRV : pavé hors tout sur sa palette intégrée, haut imposé, en colonne.",
         _ => "Pavé générique."
     };
 
     /// <summary>Glyphe Segoe MDL2 Assets associé au type (arborescence, listes).</summary>
     public static string KindGlyph(ArticleKind kind) => kind switch
     {
+        ArticleKind.Bidon or ArticleKind.Cuve => KindGlyph(ArticleKind.Bac),
+        ArticleKind.Seau or ArticleKind.Bouteille => KindGlyph(ArticleKind.Fut),
         ArticleKind.Caisse => "",
         ArticleKind.Bobine => "",
         ArticleKind.Tube => "",
@@ -87,6 +115,28 @@ public static class ArticleSchema
             new(ArticleField.FoldedLength, "Longueur pliée (mm)", false, "Facultatif : carton livré plié (à plat). Renseignée, elle remplace la longueur pour le conditionnement"),
             new(ArticleField.FoldedWidth, "Largeur pliée (mm)", false, "Facultatif : carton plié. Renseignée, elle remplace la largeur pour le conditionnement"),
             new(ArticleField.FoldedHeight, "Hauteur pliée (mm)", false, "Facultatif : carton plié. Renseignée, elle remplace la hauteur pour le conditionnement")
+        ],
+        ArticleKind.Bidon =>
+        [
+            new(ArticleField.Length, "Longueur (mm)", true, "Hors tout, dimension au sol la plus grande (jerrican 20 L : environ 290)"),
+            new(ArticleField.Width, "Largeur (mm)", true, "Hors tout, dimension au sol la plus petite (jerrican 20 L : environ 190)"),
+            new(ArticleField.Height, "Hauteur hors tout (mm)", true, "Poignée et bouchon compris")
+        ],
+        ArticleKind.Cuve =>
+        [
+            new(ArticleField.Length, "Longueur (mm)", true, "Hors tout (GRV 1000 L : 1200)"),
+            new(ArticleField.Width, "Largeur (mm)", true, "Hors tout (GRV 1000 L : 1000)"),
+            new(ArticleField.Height, "Hauteur hors tout (mm)", true, "Palette intégrée et bouchon compris (GRV 1000 L : 1160)")
+        ],
+        ArticleKind.Seau =>
+        [
+            new(ArticleField.Diameter, "Diamètre du haut (mm)", true, "Plus grand diamètre, rebord compris"),
+            new(ArticleField.Height, "Hauteur (mm)", true, "Anse rabattue, couvercle compris")
+        ],
+        ArticleKind.Bouteille =>
+        [
+            new(ArticleField.Diameter, "Diamètre (mm)", true, "Plus grand diamètre du corps"),
+            new(ArticleField.Height, "Hauteur (mm)", true, "Bouchon compris")
         ],
         ArticleKind.Plaque =>
         [

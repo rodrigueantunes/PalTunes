@@ -31,6 +31,10 @@ public static class DemoData
         var plaque = A("PLQ-1600", ArticleKind.Plaque, "Plaque 1600 × 1200 ép. 10", "BATI", "Plaques", "Composite", "#7FB3D5", 1600, 1200, 10, weight: 15);
         A("FUT-200", ArticleKind.Fut, "Fût 200 L", "CHIM", "Liquides", "Fûts", "#2E86C1", h: 880, d: 585, weight: 220);
         A("BAC-6040", ArticleKind.Bac, "Bac plastique 600 × 400 × 300", "CHIM", "Contenants", "Bacs", "#52BE80", 600, 400, 300, weight: 8, top: 200);
+        A("BID-20", ArticleKind.Bidon, "Jerrican 20 L plastique", "CHIM", "Liquides", "Bidons", "#F4D03F", 290, 190, 370, weight: 21, top: 80);
+        A("SEAU-10", ArticleKind.Seau, "Seau 10 L avec couvercle", "CHIM", "Liquides", "Seaux", "#EC7063", h: 260, d: 270, weight: 11);
+        A("BTL-1L5", ArticleKind.Bouteille, "Bouteille 1,5 L", "AGRO", "Boissons", "Bouteilles", "#76D7C4", h: 320, d: 90, weight: 1.6);
+        A("IBC-1000", ArticleKind.Cuve, "Cuve IBC 1000 L", "CHIM", "Liquides", "Cuves", "#ECF0F1", 1200, 1000, 1160, weight: 1050, top: 1100);
         db.Articles.Single(a => a.Code == "BOB-250").InnerDiameter = 76;
         db.Articles.Single(a => a.Code == "BOB-1000").InnerDiameter = 152;
 

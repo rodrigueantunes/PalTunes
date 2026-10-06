@@ -8,7 +8,7 @@ namespace PalTunes.Core.Storage;
 /// <summary>Base PalTunes : articles, palettes, conditionnements (un fichier JSON, partageable).</summary>
 public sealed class Database
 {
-    public int SchemaVersion { get; set; } = 5;
+    public int SchemaVersion { get; set; } = 6;
     public List<Client> Clients { get; set; } = [];
     public List<Article> Articles { get; set; } = [];
     public List<PalletType> Pallets { get; set; } = [];
@@ -208,6 +208,90 @@ public sealed class Database
     }
 
     /// <summary>
+    /// Caisses créées au colisage avant la 0.1.3, sans quantité par caisse ni contenu : tout est repris de la fiche créée
+    /// à l'époque — désignation « Carton 800 × 600 × 400 de 550 × BAG0000001 » (quantité, produit), code
+    /// « CAI-produit-caisse » (caisse du catalogue), notes « Intérieur 786 × 586 × 386 mm, paroi 7 mm » et position
+    /// (couché, debout). Caisse mixte « … mixte : 4 × A + 2 × B » : quantité totale. Renvoie le nombre de caisses complétées.
+    /// </summary>
+    public int CompleteLegacyCaseArticles()
+    {
+        var count = 0;
+        var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+        static double Num(string v, System.Globalization.CultureInfo fr) =>
+            double.TryParse(v.Replace('.', ','), System.Globalization.NumberStyles.Float, fr, out var d) ? d : 0;
+        foreach (var box in Articles.Where(a => a.Kind == ArticleKind.Caisse && a.CaseContent == null && !string.IsNullOrWhiteSpace(a.Designation)).ToList())
+        {
+            var designation = box.Designation!.Trim();
+            var mixed = System.Text.RegularExpressions.Regex.Match(designation, @"\bmixte\s*:\s*(?<content>.+)$");
+            if (mixed.Success)
+            {
+                if (box.QuantityPerCase == null)
+                {
+                    var total = System.Text.RegularExpressions.Regex.Matches(mixed.Groups["content"].Value, @"(?<q>\d+)\s*×").Sum(m => int.Parse(m.Groups["q"].Value));
+                    if (total > 0)
+                    {
+                        box.QuantityPerCase = total;
+                        count++;
+                    }
+                }
+
+                continue;
+            }
+
+            var single = System.Text.RegularExpressions.Regex.Match(designation, @"^(?<name>.*?)\s+de\s+(?<q>\d+)\s*×\s*(?<code>\S+)$");
+            if (!single.Success)
+            {
+                continue;
+            }
+
+            var quantity = int.Parse(single.Groups["q"].Value);
+            var code = single.Groups["code"].Value;
+            var candidates = Articles.Where(a => a.Id != box.Id && string.Equals(a.Code, code, StringComparison.OrdinalIgnoreCase)).ToList();
+            var content = candidates.FirstOrDefault(a => string.Equals(a.Client, box.Client, StringComparison.OrdinalIgnoreCase)) ?? candidates.FirstOrDefault();
+            box.QuantityPerCase ??= quantity;
+            count++;
+            if (content == null)
+            {
+                continue;
+            }
+
+            // Caisse du catalogue : suffixe du code « CAI-produit-caisse », sinon nom de la caisse en tête de désignation.
+            var prefix = $"CAI-{content.Code}-";
+            var type = box.Code.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? Cases.FirstOrDefault(c => box.Code.Substring(prefix.Length).StartsWith(c.Code, StringComparison.OrdinalIgnoreCase) &&
+                                            (box.Code.Length == prefix.Length + c.Code.Length || box.Code[prefix.Length + c.Code.Length] == '-'))
+                : null;
+            type ??= Cases.FirstOrDefault(c => string.Equals(c.Name, single.Groups["name"].Value.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            var notes = box.Notes ?? "";
+            var inner = System.Text.RegularExpressions.Regex.Match(notes, @"Intérieur\s+(?<l>[\d.,]+)\s*×\s*(?<w>[\d.,]+)\s*×\s*(?<h>[\d.,]+)\s*mm,\s*paroi\s+(?<t>[\d.,]+)\s*mm");
+            double l, w, h, t;
+            if (inner.Success)
+            {
+                (l, w, h, t) = (Num(inner.Groups["l"].Value, fr), Num(inner.Groups["w"].Value, fr), Num(inner.Groups["h"].Value, fr), Num(inner.Groups["t"].Value, fr));
+            }
+            else if (type != null)
+            {
+                (l, w, h, t) = (type.InnerLength, type.InnerWidth, type.InnerHeight, type.WallThickness);
+            }
+            else
+            {
+                continue;
+            }
+
+            CoilAxis? axis = content.Kind is ArticleKind.Tube or ArticleKind.Bobine
+                ? notes.Contains("Couché", StringComparison.OrdinalIgnoreCase) || notes.Contains("couchés", StringComparison.OrdinalIgnoreCase) ? CoilAxis.Horizontal
+                : notes.Contains("debout", StringComparison.OrdinalIgnoreCase) || notes.Contains("vertical", StringComparison.OrdinalIgnoreCase) ? CoilAxis.Vertical
+                : null
+                : null;
+            var tare = type?.Tare ?? Math.Max(0, Math.Round(box.Weight - quantity * content.Weight, 5));
+            box.CaseContent = new CaseContent(content.Id, type?.Code, l, w, h, t, tare, 0, axis);
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// Tubes importés avant la v0.0.7 avec une HAUTEUR : c'était l'épaisseur de paroi (la hauteur n'a pas de sens pour un
     /// tube). Elle devient le diamètre intérieur (Ø − 2 × épaisseur), comme à l'import. Renvoie le nombre de tubes convertis.
     /// </summary>
@@ -403,6 +487,14 @@ public sealed class DatabaseStore
         {
             loaded.ConvertTubeWallThickness();
             loaded.SchemaVersion = 5;
+            changed++;
+        }
+
+        if (loaded.SchemaVersion < 6)
+        {
+            // Caisses créées au colisage avant la 0.1.3 : quantité par caisse et contenu repris de la fiche.
+            loaded.CompleteLegacyCaseArticles();
+            loaded.SchemaVersion = 6;
             changed++;
         }
 

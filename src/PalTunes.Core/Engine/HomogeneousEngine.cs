@@ -22,7 +22,8 @@ public static class HomogeneousEngine
 
     public static EngineResult Solve(Article article, BaseInfo baseInfo, PackagingConstraints c, int? targetQuantity = null)
     {
-        article = article.ForPalletizing(); // carton plié : hauteur pliée
+        var sourceKind = article.Kind;
+        article = article.ForPalletizing(); // carton plié : hauteur pliée ; bidon, seau, bouteille, cuve : forme de base
         var result = new EngineResult();
         var errors = ArticleSchema.Validate(article);
         if (errors.Count > 0)
@@ -79,6 +80,15 @@ public static class HomogeneousEngine
         Deduplicate(result.Solutions);
         Rank(result.Solutions, article);
         MarkHollow(result.Solutions, _ => article.HollowDiameter);
+        if (ArticleSchema.NeedsSlipSheetToStack(sourceKind) && c.SlipSheetThickness <= 0)
+        {
+            foreach (var s in result.Solutions.Where(s => s.LayerCount > 1))
+            {
+                s.Warnings.Add($"{ArticleSchema.KindLabel(sourceKind)} sur {s.LayerCount} couches : dessus non plat (poignée, col, anse), " +
+                               "intercalaire conseillé entre les couches (Accessoires).");
+            }
+        }
+
         return result;
     }
 

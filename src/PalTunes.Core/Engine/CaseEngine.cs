@@ -57,7 +57,10 @@ public static class CaseEngine
         CenterLoad = true,
         MaxStackLevels = 1,
         MaxStackedHeight = 0,
-        MinSupportPercent = 80
+        MinSupportPercent = 80,
+        // Caisse limitée par sa charge maxi : la dernière couche est remplie jusqu'au poids (sinon, une seule couche trop
+        // lourde rendait la caisse impossible : 26 bouteilles de 1,6 kg pour une charge de 30 kg).
+        AllowPartialLayer = true
     };
 
     public static EngineResult Solve(Article article, CaseSpec spec, int? targetQuantity = null, CaseType? type = null,
@@ -106,6 +109,47 @@ public static class CaseEngine
         {
             caseSolution.Warnings.Add($"Caisse non palettisable sur {pallet.Code} avec les contraintes saisies (dimensions, hauteur ou poids).");
         }
+    }
+
+    /// <summary>
+    /// Caisse d'un colisage (article non enregistré : dimensions extérieures, poids brut, quantité, contenu) palettisée
+    /// sur une palette : meilleure solution homogène, null si la caisse n'est pas palettisable.
+    /// </summary>
+    public static (Article Box, Solution? Solution) PalletOfCases(Article content, Solution caseSolution, CaseSpec spec, CaseType? type, CoilAxis? axis,
+        PalletType pallet, PackagingConstraints constraints, string code)
+    {
+        var box = CreateCaseArticle(content, caseSolution, spec, code, type, axis);
+        if (type != null)
+        {
+            box.Designation = $"{type.Name} de {caseSolution.ItemsPerUnit} × {content.Code}";
+            box.Color = type.Color;
+        }
+
+        var best = HomogeneousEngine.Solve(box, BaseInfo.From(pallet, false, 1, 1), constraints).Recommended;
+        return (box, best?.FirstUnit == null ? null : best);
+    }
+
+    /// <summary>
+    /// Article « caisse » d'une caisse mixte (colisage hétérogène) : dimensions extérieures, poids brut de cette caisse,
+    /// quantité totale de produits ; contenu détaillé dans la désignation et les notes (pas de fiche de colisage recalculable).
+    /// </summary>
+    public static Article CreateMixedCaseArticle(LoadUnit unit, CaseSpec spec, CaseType? type, string code, Func<Guid, string> codeOf)
+    {
+        var content = string.Join(" + ", unit.Items.GroupBy(p => p.ArticleId).OrderByDescending(g => g.Count()).Select(g => $"{g.Count()} × {codeOf(g.Key)}"));
+        return new Article
+        {
+            Code = code,
+            Kind = ArticleKind.Caisse,
+            QuantityPerCase = unit.Items.Count,
+            Designation = $"{type?.Name ?? "Caisse"} mixte : {content}",
+            Length = Math.Max(spec.OuterLength, spec.OuterWidth),
+            Width = Math.Min(spec.OuterLength, spec.OuterWidth),
+            Height = spec.OuterHeight,
+            Weight = Math.Round(unit.Items.Sum(p => p.Weight) + spec.Tare, 5),
+            Orientation = OrientationRule.HautImpose,
+            Color = type?.Color,
+            Notes = $"Colisage mixte : {content}. Intérieur {spec.InnerLength:0} × {spec.InnerWidth:0} × {spec.InnerHeight:0} mm, paroi {spec.WallThickness:0.#} mm."
+        };
     }
 
     /// <summary>Colisage d'un article caisse créé au colisage, recalculé pour la fiche (produit, caisse, solution).</summary>
@@ -203,6 +247,180 @@ public static class CaseEngine
 
     /// <summary>Poids brut maximal d'une caisse manutentionnée à la main (NF X35-109 : 25 kg, valeur courante).</summary>
     public const double DefaultManualHandlingLimit = 25;
+
+    // ------------------------------------------------------------------ Colisage hétérogène (plusieurs articles)
+
+    /// <summary>
+    /// Plusieurs articles dans une caisse donnée : moteur hétérogène dans le volume intérieur (mêmes règles d'appui,
+    /// de charge et d'ordre lourd / léger qu'une palette), autant de caisses identiques que nécessaire. Poids des produits
+    /// par caisse limité par la charge maxi de la caisse et, si <paramref name="manualHandlingLimit"/> &gt; 0, par le
+    /// poids brut manutentionnable à la main. Palette de destination : caisses par palette et palettes nécessaires.
+    /// </summary>
+    public static EngineResult SolveMixed(IReadOnlyList<(Article Article, int Quantity)> lines, CaseSpec spec, CaseType? type = null,
+        PalletType? pallet = null, PackagingConstraints? palletConstraints = null, CoilAxis? axis = null, double manualHandlingLimit = 0)
+    {
+        var constraints = CaseConstraints(spec, axis);
+        var limits = new List<double>();
+        if (spec.MaxWeight > 0)
+        {
+            limits.Add(spec.MaxWeight);
+        }
+
+        string? manualNote = null;
+        var heaviest = lines.Count == 0 ? 0 : lines.Max(l => l.Article.Weight);
+        if (manualHandlingLimit > 0)
+        {
+            if (heaviest + spec.Tare <= manualHandlingLimit + 1e-9)
+            {
+                limits.Add(manualHandlingLimit - spec.Tare);
+            }
+            else
+            {
+                manualNote = $"Un produit seul dépasse {manualHandlingLimit:0.#} kg brut en caisse : limite de manutention à la main ignorée.";
+            }
+        }
+
+        if (limits.Count > 0)
+        {
+            constraints.MaxLoadWeight = limits.Min();
+        }
+
+        var result = HeterogeneousEngine.Solve(lines, CaseBase(spec, type), constraints);
+        foreach (var s in result.Solutions)
+        {
+            s.StackLevels = 1;
+            s.StackLimitReason = "";
+            // Dans une caisse, les parois tiennent les produits : ni élancement, ni centre de gravité à surveiller.
+            s.Warnings.RemoveAll(w => w.Contains("élancement", StringComparison.OrdinalIgnoreCase) ||
+                                      w.Contains("centre de gravité", StringComparison.Ordinal) ||
+                                      w.StartsWith("Tubes couchés", StringComparison.Ordinal) ||
+                                      w.StartsWith("Bobines couchées", StringComparison.Ordinal));
+            for (var i = 0; i < s.Warnings.Count; i++)
+            {
+                s.Warnings[i] = s.Warnings[i].Replace("Unité ", "Caisse ").Replace("ne tient pas sur la base", "ne tient pas dans la caisse");
+            }
+
+            for (var i = 0; i < s.Violations.Count; i++)
+            {
+                s.Violations[i] = s.Violations[i].Replace("Unité ", "Caisse ").Replace("sur cette base", "dans cette caisse");
+            }
+
+            if (manualNote != null)
+            {
+                s.Warnings.Add(manualNote);
+            }
+
+            s.Title = s.Title.Replace("unité(s)", "caisse(s)");
+            s.Recommendation = s.Recommendation?.Replace("unité(s) de charge", "caisse(s)");
+            if (pallet != null && s.Units.Count > 0)
+            {
+                PalletizeMixed(s, spec, pallet, palletConstraints);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Caisses mixtes sur la palette de destination : toutes ont les mêmes dimensions extérieures ; le poids retenu est
+    /// celui de la plus lourde (prudent). Caisses par palette, puis palettes nécessaires pour toutes les caisses.
+    /// </summary>
+    public static void PalletizeMixed(Solution s, CaseSpec spec, PalletType pallet, PackagingConstraints? palletConstraints)
+    {
+        var box = new Article
+        {
+            Code = CaseCode,
+            Kind = ArticleKind.Caisse,
+            Length = Math.Max(spec.OuterLength, spec.OuterWidth),
+            Width = Math.Min(spec.OuterLength, spec.OuterWidth),
+            Height = spec.OuterHeight,
+            Weight = Math.Max(0.001, s.Units.Max(u => u.Items.Sum(p => p.Weight)) + spec.Tare),
+            Orientation = OrientationRule.HautImpose
+        };
+        var best = HomogeneousEngine.Solve(box, BaseInfo.From(pallet, false, 1, 1), palletConstraints ?? new PackagingConstraints()).Recommended;
+        s.DestinationPallet = pallet.Code;
+        s.CasesPerPallet = best is { IsCompliant: true } ? best.ItemsPerUnit : 0;
+        s.PalletCount = s.CasesPerPallet > 0 ? (int)Math.Ceiling(s.Units.Count / (double)s.CasesPerPallet) : 0;
+        s.ItemsPerPallet = s.PalletCount > 0 ? (int)Math.Ceiling(s.TotalItems / (double)s.PalletCount) : 0;
+        if (s.CasesPerPallet == 0)
+        {
+            s.Warnings.Add($"Caisse non palettisable sur {pallet.Code} avec les contraintes saisies (dimensions, hauteur ou poids).");
+        }
+    }
+
+    /// <summary>
+    /// Meilleure caisse du catalogue pour une composition de plusieurs articles. Pour chaque caisse active où chaque
+    /// article tient seul, la solution recommandée du moteur hétérogène ; classement : caisses manutentionnables à la
+    /// main d'abord, puis (palette connue) le moins de palettes, puis le plus petit volume total de caisses (meilleur
+    /// remplissage), puis le moins de caisses.
+    /// </summary>
+    public static EngineResult ProposeMixed(IReadOnlyList<(Article Article, int Quantity)> lines, IEnumerable<CaseType> cases, double gap = 0,
+        double manualHandlingLimit = DefaultManualHandlingLimit, PalletType? pallet = null, PackagingConstraints? palletConstraints = null,
+        CoilAxis? axis = null)
+    {
+        var result = new EngineResult();
+        var list = new List<(Solution Solution, CaseType Case)>();
+        var refused = new List<string>();
+        foreach (var c in cases.Where(c => c.Active && c.Validate().Count == 0))
+        {
+            var spec = c.ToSpec(gap);
+            var misfit = lines.FirstOrDefault(l => !(c.MaxWeight <= 0 || l.Article.Weight <= c.MaxWeight) ||
+                                                   Solve(l.Article, spec, 1, c, axis: axis).Solutions.Count == 0).Article;
+            if (misfit != null)
+            {
+                refused.Add($"{c.Code} ({misfit.Code})");
+                continue;
+            }
+
+            var solved = SolveMixed(lines, spec, c, pallet, palletConstraints, axis, manualHandlingLimit);
+            if (solved.Recommended is { IsCompliant: true, Units.Count: > 0 } best && best.ExcludedArticles.Count == 0 && best.UnplacedItems == 0)
+            {
+                best.Recommended = false;
+                best.Recommendation = null;
+                best.Title = $"{c.Code} · {best.Units.Count} caisse(s)";
+                list.Add((best, c));
+            }
+        }
+
+        if (list.Count == 0)
+        {
+            result.Messages.Add(refused.Count > 0
+                ? $"Aucune caisse active ne convient à toute la composition : un article ne tient pas (ou est trop lourd) dans {string.Join(", ", refused.Take(6))}{(refused.Count > 6 ? "…" : "")}."
+                : "Aucune caisse active dans le catalogue : activez ou ajoutez des caisses (espace Caisses).");
+            return result;
+        }
+
+        double Fill((Solution Solution, CaseType Case) x) => x.Solution.Units.Average(u => u.Metrics.FillRate);
+        double Volume((Solution Solution, CaseType Case) x) => x.Case.InnerLength * x.Case.InnerWidth * x.Case.InnerHeight;
+        double Gross((Solution Solution, CaseType Case) x) => x.Solution.Units.Max(u => u.Items.Sum(p => p.Weight)) + x.Case.Tare;
+        bool Manual((Solution Solution, CaseType Case) x) => manualHandlingLimit <= 0 || Gross(x) <= manualHandlingLimit + 1e-9;
+        foreach (var x in list.Where(x => !Manual(x)))
+        {
+            x.Solution.Warnings.Add($"Poids brut jusqu'à {Gross(x):0.##} kg > {manualHandlingLimit:0.#} kg : manutention mécanisée nécessaire.");
+        }
+
+        // Caisses manutentionnables à la main d'abord ; puis, palette connue, le moins de palettes ; puis le plus petit
+        // volume total de caisses (meilleur remplissage) ; puis le moins de caisses.
+        var ranked = list
+            .OrderBy(x => Manual(x) ? 0 : 1)
+            .ThenBy(x => pallet == null ? 0 : x.Solution.PalletCount > 0 ? x.Solution.PalletCount : int.MaxValue)
+            .ThenBy(x => x.Solution.Units.Count * Volume(x))
+            .ThenBy(x => x.Solution.Units.Count)
+            .Take(12)
+            .ToList();
+        var top = ranked[0].Solution;
+        top.Recommended = true;
+        top.Recommendation = $"Recommandée : {ranked[0].Case.Code} – {ranked[0].Case.Name}, {top.Units.Count} caisse(s) pour {top.TotalItems} produit(s), " +
+                             $"remplissage moyen {Fill(ranked[0]):0} %" +
+                             (pallet != null && top.PalletCount > 0 ? $", {top.CasesPerPallet} caisses par palette {pallet.Code} → {top.PalletCount} palette(s)." : ".");
+        result.Solutions.AddRange(ranked.Select(x => x.Solution));
+        if (refused.Count > 0)
+        {
+            result.Messages.Add($"{refused.Count} caisse(s) écartée(s) : un article n'y tient pas seul.");
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// Meilleure composition en caisse (catalogue actif) : pour chaque caisse possible, la solution recommandée.
