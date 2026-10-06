@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Formats spécifiques
 
-`v0.1.3` · Windows · .NET 10 · WPF
+`v0.1.4` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -688,10 +688,18 @@ Trois fiches peuvent être imprimées ou enregistrées au format PDF via le syst
 ```text
 FICHE PALETTE            spécification, plans de couche, plan de palettisation      Ctrl + P
 FICHE DE COLISAGE        produit, caisse, quantité par caisse, poids brut, plans, vue 3D
-FICHE DE CONDITIONNEMENT fiche de colisage puis fiche palette, en un seul document
+FICHE DE CONDITIONNEMENT fiche palette, puis fiche de colisage sur une nouvelle page
 ```
 
-Les boutons sont grisés quand la fiche n'est pas possible pour l'article affiché. Dans l'espace Colisage, ils portent sur le colisage affiché (la fiche palette montre les caisses sur la palette de destination) ; ailleurs, sur le conditionnement affiché — fiche de colisage pour un article caisse créé au colisage.
+Les fiches portent sur **l'article affiché**, quel que soit le menu : article sélectionné, article du conditionnement, produit du colisage (dans les autres espaces, le dernier article affiché, rappelé au-dessus des boutons). Chaque bouton est actif si la fiche est possible pour cet article, grisé sinon — le survol en donne la raison :
+
+```text
+fiche palette        article palettisable (solution affichée ou enregistrée, sinon calculée)
+fiche de colisage    caisse créée au colisage, ou produit qui tient dans une caisse du catalogue
+fiche de conditionnement   colisage possible et caisse palettisable
+```
+
+Ce qui manque est calculé en tâche de fond dès que l'article change, puis réutilisé à l'impression.
 
 Un article caisse peut porter une **quantité par caisse** (facultative) : renseignée automatiquement à la création d'une caisse au colisage, ou importée (`QTE_PAR_CAISSE`). La fiche palette indique alors aussi les produits contenus par palette ; vide, rien ne change.
 
