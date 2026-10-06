@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.1.5` · Windows · .NET 10 · WPF
+`v0.1.6` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -370,7 +370,7 @@ Le catalogue des caisses dispose de son propre espace, à l'image des palettes, 
 
 PalTunes peut :
 
-1. rechercher les caisses compatibles ;
+1. rechercher les caisses compatibles, pour un article ou pour **plusieurs articles** (colisage hétérogène) ;
 2. comparer les possibilités en fonction de la palette de destination ;
 3. proposer le meilleur contenant (ou en forcer un) ;
 4. afficher son contenu, caisse ouverte ou fermée ;
@@ -378,6 +378,20 @@ PalTunes peut :
 6. expliquer pourquoi aucune caisse ne convient (trop lourd, trop grand) ;
 7. créer l'article correspondant au colis ;
 8. lancer directement sa palettisation.
+
+### Colisage hétérogène
+
+Plusieurs articles × quantités dans une même caisse, comme une palette multi-articles : mêmes règles d'appui, de
+charge et d'ordre lourd / léger, autant de caisses que nécessaire. Les trois choix sont conservés : meilleure caisse
+du catalogue (en fonction de la palette de destination), caisse imposée du catalogue, caisse spécifique.
+
+```text
+meilleure caisse   manutentionnable à la main (25 kg brut) → moins de palettes → moins de volume de caisses → moins de caisses
+chaque caisse      poids des produits ≤ charge maxi de la caisse et ≤ 25 kg brut (si chaque produit le permet)
+résultat           n caisses, contenu et poids brut de chacune, caisses par palette, palettes nécessaires
+```
+
+Chaque caisse peut devenir un article « caisse mixte » (contenu dans la désignation, quantité totale par caisse).
 
 ### Chaîne possible
 
@@ -741,8 +755,10 @@ Cette séparation permet de contrôler les configurations générées avant de l
 Le moteur est lui-même validé contre des références indépendantes — optimums publiés du *pallet loading problem*, bornes de surface et de Barnes, mailles de cercles, usages industriels, bornes de volume et de poids en hétérogène — par des tests rejoués à chaque compilation : [`docs/VALIDATION_MOTEUR.md`](docs/VALIDATION_MOTEUR.md).
 
 ```text
-19 cas homogènes (tous les types)     optimum ou meilleure maille atteint, sauf 1 instance publiée à 1 boîte
-8 compositions hétérogènes            toutes conformes, 6 à la borne de palettes, 2 à borne + 1
+19 palettes homogènes (tous les types)   optimum ou meilleure maille atteint, sauf 1 instance publiée à 1 boîte
+8 palettes hétérogènes multi-types       toutes conformes, 6 à la borne de palettes, 2 à borne + 1
+12 colisages homogènes (tous les types)  référence atteinte partout (Barnes, mailles, carton de 12 bouteilles)
+7 colisages hétérogènes multi-types      tous conformes, 6 à la borne de caisses, 1 à borne + 1
 ```
 
 ---
