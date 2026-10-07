@@ -8,7 +8,7 @@ namespace PalTunes.Core.Storage;
 /// <summary>Base PalTunes : articles, palettes, conditionnements (un fichier JSON, partageable).</summary>
 public sealed class Database
 {
-    public int SchemaVersion { get; set; } = 7;
+    public int SchemaVersion { get; set; } = 8;
     public List<Client> Clients { get; set; } = [];
     public List<Article> Articles { get; set; } = [];
     public List<PalletType> Pallets { get; set; } = [];
@@ -527,11 +527,26 @@ public sealed class DatabaseStore
             changed++;
         }
 
+        if (loaded.SchemaVersion < 8)
+        {
+            // Dimensions de poignée saisies en % en 0.2.1 : converties en mm (au plus les dimensions du produit).
+            foreach (var article in loaded.Articles)
+            {
+                article.ConvertHandlePercents();
+            }
+        }
+
         if (loaded.SchemaVersion < 7)
         {
             // Caisses mixtes créées avant la 0.1.9 : articles × quantités et caisse repris de la fiche (fiche de colisage complète).
             loaded.CompleteLegacyCaseArticles();
             loaded.SchemaVersion = 7;
+            changed++;
+        }
+
+        if (loaded.SchemaVersion < 8)
+        {
+            loaded.SchemaVersion = 8;
             changed++;
         }
 

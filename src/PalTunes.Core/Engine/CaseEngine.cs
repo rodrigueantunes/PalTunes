@@ -63,9 +63,33 @@ public static class CaseEngine
         AllowPartialLayer = true
     };
 
+    /// <summary>
+    /// Sac tassé à la mise en caisse (case cochée sur l'article) : épaisseur réduite du taux de tassement, empreinte
+    /// inchangée (c'est l'air qui est chassé). Même identifiant ; article inchangé s'il n'est pas tassable.
+    /// </summary>
+    public static Article Pressed(Article article)
+    {
+        if (article.CompressionRate <= 0)
+        {
+            return article;
+        }
+
+        var pressed = article.Clone();
+        pressed.Height = Math.Round(article.Height * (1 - article.CompressionRate), 2);
+        return pressed;
+    }
+
+    /// <summary>Avertissement de tassement : épaisseur avant / après, fermeture sous presse.</summary>
+    public static string? PressNote(Article article) => article.CompressionRate <= 0
+        ? null
+        : $"Sacs {article.Code} tassés de {(article.CompressionRate * 100).ToString("0.#", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"))} % à la mise en caisse : " +
+          $"épaisseur {article.Height:0.#} → {Pressed(article).Height:0.#} mm ; fermer la caisse en appuyant (le sac repousse sur le couvercle).";
+
     public static EngineResult Solve(Article article, CaseSpec spec, int? targetQuantity = null, CaseType? type = null,
         PalletType? pallet = null, PackagingConstraints? palletConstraints = null, CoilAxis? axis = null)
     {
+        var pressNote = PressNote(article);
+        article = Pressed(article);
         var result = HomogeneousEngine.Solve(article, CaseBase(spec, type), CaseConstraints(spec, axis), targetQuantity);
         if (result.Solutions.Count == 0 && result.Messages.Count > 0 && result.Messages[^1].StartsWith("Aucune disposition", StringComparison.Ordinal))
         {
@@ -84,6 +108,10 @@ public static class CaseEngine
             s.Recommendation = s.Recommendation?
                 .Replace("produits par conditionnement", "produit(s) par caisse")
                 .Replace("plan de couche optimal prouvé", "plan optimal prouvé");
+            if (pressNote != null)
+            {
+                s.Warnings.Add(pressNote);
+            }
             if (pallet != null)
             {
                 Palletize(article, s, spec, pallet, palletConstraints);
@@ -321,7 +349,8 @@ public static class CaseEngine
             constraints.MaxLoadWeight = limits.Min();
         }
 
-        var result = HeterogeneousEngine.Solve(lines, CaseBase(spec, type), constraints);
+        var pressNotes = lines.Select(l => PressNote(l.Article)).OfType<string>().ToList();
+        var result = HeterogeneousEngine.Solve([.. lines.Select(l => (Pressed(l.Article), l.Quantity))], CaseBase(spec, type), constraints);
         foreach (var s in result.Solutions)
         {
             s.StackLevels = 1;
@@ -345,6 +374,8 @@ public static class CaseEngine
             {
                 s.Warnings.Add(manualNote);
             }
+
+            s.Warnings.AddRange(pressNotes);
 
             s.Title = s.Title.Replace("unité(s)", "caisse(s)");
             s.Recommendation = s.Recommendation?.Replace("unité(s) de charge", "caisse(s)");

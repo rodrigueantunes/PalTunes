@@ -51,6 +51,86 @@ public sealed class Article
 
     public bool Fragile { get; set; }
 
+    /// <summary>Bidon, seau, bouteille : forme du dessus (droit ou arrondi). Null = non renseignée.</summary>
+    public TopShape? TopShape { get; set; }
+
+    /// <summary>Angle du dessus par rapport à l'horizontale (°) : pente d'un dessus droit, bord d'un dessus bombé.</summary>
+    public double? TopAngle { get; set; }
+
+    /// <summary>Poignée ou anse : encastrée, saillante, rabattable, aucune.</summary>
+    public HandleKind? Handle { get; set; }
+
+    /// <summary>Poignée arrondie (section ronde : contact sur une ligne) ; null ou faux = poignée à dessus plat.</summary>
+    public bool? HandleRounded { get; set; }
+
+    /// <summary>Longueur de la poignée (mm), au plus la longueur du produit (diamètre pour un fût, un seau, une bouteille). Null = proportions usuelles.</summary>
+    public double? HandleLength { get; set; }
+
+    /// <summary>Largeur de la poignée (mm), au plus la largeur du produit.</summary>
+    public double? HandleWidth { get; set; }
+
+    /// <summary>Hauteur de la poignée (mm), au plus la hauteur du produit : saillie au-dessus du corps, ou profondeur du puits.</summary>
+    public double? HandleHeight { get; set; }
+
+    /// <summary>Ancien format (0.2.1) : dimensions de poignée en % du produit, converties en mm à l'ouverture de la base.</summary>
+    public double? HandleLengthPercent { get; set; }
+
+    public double? HandleWidthPercent { get; set; }
+
+    public double? HandleHeightPercent { get; set; }
+
+    /// <summary>
+    /// Dimensions de référence de la poignée : longueur, largeur et hauteur du produit (diamètre, diamètre, hauteur pour
+    /// un fût, un seau, une bouteille).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public (double Length, double Width, double Height) HandleReference => Kind is ArticleKind.Fut or ArticleKind.Seau or ArticleKind.Bouteille
+        ? (Diameter, Diameter, Height)
+        : (Length, Width, Height);
+
+    /// <summary>Convertit les dimensions de poignée en % (0.2.1) en mm. Renvoie vrai si quelque chose a changé.</summary>
+    public bool ConvertHandlePercents()
+    {
+        if (HandleLengthPercent == null && HandleWidthPercent == null && HandleHeightPercent == null)
+        {
+            return false;
+        }
+
+        var (l, w, h) = HandleReference;
+        static double? Mm(double? pct, double reference) => pct is { } p && reference > 0 ? Math.Round(Math.Clamp(p, 0, 100) / 100 * reference, 1) : null;
+        HandleLength ??= Mm(HandleLengthPercent, l);
+        HandleWidth ??= Mm(HandleWidthPercent, w);
+        HandleHeight ??= Mm(HandleHeightPercent, h);
+        HandleLengthPercent = null;
+        HandleWidthPercent = null;
+        HandleHeightPercent = null;
+        return true;
+    }
+
+    /// <summary>Poignée arrondie : inclinaison du côté gauche par rapport à la verticale (°, 0 = côté droit vertical).</summary>
+    public double? HandleAngleLeft { get; set; }
+
+    /// <summary>Poignée arrondie : inclinaison du côté droit par rapport à la verticale (°).</summary>
+    public double? HandleAngleRight { get; set; }
+
+    /// <summary>Poignée pleine : moulée d'un seul tenant avec le corps, sans ouverture (décoché par défaut).</summary>
+    public bool HandleSolid { get; set; }
+
+    /// <summary>
+    /// Sac : tassement accepté à la mise en caisse (air chassé en appuyant). Décoché par défaut : épaisseur saisie
+    /// conservée.
+    /// </summary>
+    public bool Compressible { get; set; }
+
+    /// <summary>Tassement maxi de l'épaisseur du sac (%) ; null = valeur usuelle (10 %).</summary>
+    public double? CompressionPercent { get; set; }
+
+    /// <summary>Taux de tassement appliqué à la mise en caisse (0 si non coché ou si ce n'est pas un sac).</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double CompressionRate => Kind == ArticleKind.Sac && Compressible
+        ? Math.Clamp(CompressionPercent ?? ArticleSchema.DefaultCompressionPercent, 0, ArticleSchema.MaxCompressionPercent) / 100
+        : 0;
+
     // Champs facultatifs (classement, recherche, export)
     public string? Designation { get; set; }
     public string? Client { get; set; }

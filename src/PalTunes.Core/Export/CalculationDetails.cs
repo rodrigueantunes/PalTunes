@@ -23,6 +23,29 @@ public static class CalculationDetails
     private static string Pct(double v) => v.ToString("0.#", Fr);
     private static string D(double v) => v.ToString("#,0.##", Fr);
 
+    /// <summary>Texte brut des sections (titre souligné, une ligne par étape) : copie vers un courriel ou un document.</summary>
+    public static string ToText(IEnumerable<DetailSection> sections, string? title = null)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (title != null)
+        {
+            sb.AppendLine(title).AppendLine(new string('=', title.Length)).AppendLine();
+        }
+
+        foreach (var section in sections)
+        {
+            sb.AppendLine(section.Title).AppendLine(new string('-', section.Title.Length));
+            foreach (var line in section.Lines)
+            {
+                sb.AppendLine(line.StartsWith("   ", StringComparison.Ordinal) ? line : "• " + line);
+            }
+
+            sb.AppendLine();
+        }
+
+        return sb.ToString().Replace('\u202F', ' ');
+    }
+
     // ------------------------------------------------------------------ Palette
 
     /// <summary>
@@ -113,6 +136,13 @@ public static class CalculationDetails
         };
         sections.Add(new("Caisse et limites", caseLines));
 
+        var pressed = (s.Kind == PackagingKind.Homogene && article != null ? [article] : s.Units.SelectMany(u => u.Items).Select(x => x.ArticleId).Distinct().Select(find).OfType<Article>())
+            .Where(x => x.CompressionRate > 0).ToList();
+        if (pressed.Count > 0)
+        {
+            sections.Add(new("Tassement à la mise en caisse", PressLines(pressed, spec)));
+        }
+
         if (s.Kind == PackagingKind.Homogene && article != null)
         {
             sections.AddRange(Homogeneous(s, unit, c, article, spec.InnerLength, spec.InnerWidth, spec.InnerHeight, weightLimit, "caisse"));
@@ -172,9 +202,15 @@ public static class CalculationDetails
 
             if (s.Units.Count > 1)
             {
-                lines.Add($"Quantité totale : {N(s.Units.Sum(u => u.Items.Count))} {noun} sur {N(s.Units.Count)} palettes" +
-                          $" (cette palette : {N(unit.Items.Count)}).");
+                var all = s.Units.Sum(u => u.Items.Count);
+                lines.Add($"Quantité totale : {N(all)} {noun} sur {N(s.Units.Count)} palettes = ⌈{N(all)} / {N(s.Units[0].Items.Count)}⌉" +
+                          $" (cette palette : {N(unit.Items.Count)} ; dernière palette : {N(s.Units[^1].Items.Count)}).");
             }
+
+            var m = unit.Metrics;
+            lines.Add($"Contrôle : {N(unit.Items.Count)} × {Kg(article.Weight)} kg = {Kg(m.LoadWeight)} kg de charge" +
+                      (m.TotalWeight > 0 ? $", {Kg(m.TotalWeight)} kg au total" : "") +
+                      $" ; hauteur {Mm(m.EnclosureHeight)} mm ; chaque produit compté une fois, aucun chevauchement (contrôle géométrique de la solution).");
 
             if (article.CaseQuantity is { } q)
             {
@@ -262,6 +298,28 @@ public static class CalculationDetails
         return lines.Count == 0 ? null : new("Quantité par colisage", lines);
     }
 
+    /// <summary>Sacs tassés : épaisseur avant / après, pourquoi c'est possible, limite, gain de couches.</summary>
+    private static List<string> PressLines(List<Article> sacks, CaseSpec spec)
+    {
+        var lines = new List<string>();
+        foreach (var a in sacks)
+        {
+            var h = a.Height;
+            var hp = CaseEngine.Pressed(a).Height;
+            var before = h > 0 ? (int)Math.Floor(spec.InnerHeight / h + 1e-9) : 0;
+            var after = hp > 0 ? (int)Math.Floor(spec.InnerHeight / hp + 1e-9) : 0;
+            lines.Add($"{a.Code} : tassement de {Pct(a.CompressionRate * 100)} % (case cochée sur l'article) : épaisseur {Mm(h)} mm → {Mm(hp)} mm, empreinte {Mm(a.Length)} × {Mm(a.Width)} mm inchangée.");
+            lines.Add($"{a.Code} : par la hauteur intérieure, ⌊{Mm(spec.InnerHeight)} / {Mm(h)}⌋ = {N(before)} couche(s) sans tassement → ⌊{Mm(spec.InnerHeight)} / {Mm(hp)}⌋ = {N(after)} couche(s) tassés" +
+                      (after > before ? $" : +{N(after - before)} couche(s)." : " : pas de couche de plus ici (le gain d'épaisseur ne suffit pas pour une couche entière)."));
+        }
+
+        lines.Add("Pourquoi c'est possible : un sac contient de l'air — entre les plis d'une liasse de sacs vides, entre les grains d'une poudre ou d'un granulé. En appuyant, on le chasse : l'épaisseur diminue, l'empreinte ne change pas.");
+        lines.Add("Ordres de grandeur : aplatissement et désaération des sacs pleins en ligne de conditionnement 10 à 15 % ; liasses de sacs papier vides 15 à 25 % sous pression modérée.");
+        lines.Add($"Limite : {ArticleSchema.MaxCompressionPercent:0} % — au-delà, un sac plein repousse son contenu (incompressible) sur les parois : caisse bombée, sac éclaté ; des sacs vides se marquent ou se plient. Pour des sacs pleins, rester sous 15 %.");
+        lines.Add("Fermeture : la pile tassée repousse sur le couvercle ; fermer la caisse en appuyant (ruban, cerclage) et vérifier que la caisse supporte cette poussée.");
+        return lines;
+    }
+
     /// <summary>Quantité par colisage de la caisse calculée : produits par couche × couches, ou composition des caisses.</summary>
     private static DetailSection CaseQuantity(Solution s, LoadUnit unit, CaseSpec spec, Article? article, Func<Guid, Article?> find)
     {
@@ -318,6 +376,12 @@ public static class CalculationDetails
 
         yield return new("Produit", productLines);
 
+        var rule = TopStacking.For(article);
+        if (rule != null)
+        {
+            yield return new("Forme du dessus et gerbage", TopLines(rule, s, c, article, container));
+        }
+
         var n = s.ItemsPerLayer;
         var layerKind = string.IsNullOrEmpty(s.LayerPatternKind) ? s.PatternLabel : s.LayerPatternKind;
         var planLines = new List<string>
@@ -340,34 +404,227 @@ public static class CalculationDetails
         var (layerH, sheet, byHeight) = LayerFacts(unit, first, a, c, usableH);
         var layerLines = new List<string>
         {
-            $"Hauteur d'une couche : {Mm(layerH)} mm{(sheet > 0 ? $" + intercalaire {sheet.ToString("0.#", Fr)} mm" : "")}.",
-            $"Par la hauteur : ⌊{Mm(usableH)} / {Mm(layerH + sheet)}⌋ = {N(byHeight)} couche(s)."
+            $"Hauteur d'une couche : {Mm(layerH)} mm{(sheet > 0 ? $" ; intercalaire de {sheet.ToString("0.#", Fr)} mm {SheetPattern(c)}" : "")}."
         };
-        if (capacity > 0 && n > 0 && article.Weight > 0)
+        var limits = Limits(s, c, article, usableH, capacity, layerH, rule);
+        layerLines.Add("Chaque contrainte donne un nombre maximal de couches :");
+        layerLines.AddRange(limits.Select(l => $"   {l.Name} : {l.How} → {N(l.Layers)} couche(s){(l.Layers == limits.Min(x => x.Layers) ? "   ◄ la plus petite" : "")}"));
+        var smallest = limits.MinBy(l => l.Layers);
+        layerLines.Add($"La plus petite limite décide : {smallest.Name.ToLower(Fr)} → {N(smallest.Layers)} couche(s).");
+        if (s.LayerCount != smallest.Layers || s.PartialTopLayer)
         {
-            layerLines.Add($"Par le poids : ⌊{Kg(capacity)} / ({N(n)} × {Kg(article.Weight)})⌋ = {N((int)Math.Floor(capacity / (n * article.Weight) + 1e-9))} couche(s).");
+            layerLines.Add(s.LayerLimitReason == "quantité imposée"
+                ? $"Quantité imposée : {N(s.ItemsPerUnit)} produits, soit ⌈{N(s.ItemsPerUnit)} / {N(n)}⌉ = {N(s.LayerCount)} couche(s)."
+                : s.PartialTopLayer && capacity > 0 && article.Weight > 0
+                    ? $"Le poids admis permet ⌊{Kg(capacity)} / {Kg(article.Weight)}⌋ = {N((int)Math.Floor(capacity / article.Weight + 1e-9))} produits : " +
+                      $"{N(s.LayerCount - 1)} couche(s) complète(s) ({N(n * (s.LayerCount - 1))}) + {N(s.ItemsPerUnit - n * (s.LayerCount - 1))} sur une dernière couche incomplète, remplie jusqu'au poids."
+                    : s.PartialTopLayer
+                    ? $"Dernière couche remplie jusqu'à la limite de poids : {N(s.LayerCount)} couche(s), la dernière incomplète."
+                    : $"Retenu : {N(s.LayerCount)} couche(s) (limite : {s.LayerLimitReason}).");
         }
 
-        if (article.MaxLayers is { } ml)
-        {
-            layerLines.Add($"Couches maxi de l'article : {N(ml)}.");
-        }
-
-        if (article.EffectiveMaxLoadOnTop is { } top)
-        {
-            layerLines.Add($"Résistance : charge maxi sur un produit {Kg(top)} kg → {N(1 + (int)Math.Floor(top * s.StrengthFactor / article.Weight + 1e-9))} couche(s) au plus" +
-                           (Math.Abs(s.StrengthFactor - 1) > 1e-9 ? $" (facteur de répartition {s.StrengthFactor.ToString("0.##", Fr)} : produits en appui sur plusieurs)." : "."));
-        }
-
-        layerLines.Add($"Retenu : {N(s.LayerCount)} couche(s){(string.IsNullOrEmpty(s.LayerLimitReason) ? "" : $", limite : {s.LayerLimitReason}")}" +
-                       (s.PartialTopLayer ? " (dernière couche incomplète)." : "."));
         layerLines.Add($"Produits = {N(n)} par couche × {N(s.LayerCount)} couche(s){(s.PartialTopLayer ? " (dernière incomplète)" : "")} = {N(s.ItemsPerUnit)}.");
         yield return new("Nombre de couches", layerLines);
+        yield return new("Pourquoi pas plus ?", WhyNotMore(s, unit, c, article, usableX, usableY, usableH, capacity, layerH, rule, limits, container));
 
         if (s.Recommendation != null)
         {
             yield return new("Choix de la solution", [s.Recommendation, "Classement : solutions conformes d'abord, puis le plus de produits, puis la stabilité (colonne, croisé, imbrication)."]);
         }
+    }
+
+    /// <summary>Intercalaire sous la couche k (0 = sur la palette), comme le moteur.</summary>
+    private static bool SheetBelow(PackagingConstraints c, int k) => c.SlipSheetThickness > 0 && (k == 0 ? c.SlipSheetOnPallet : k % Math.Max(1, c.SlipSheetEvery) == 0);
+
+    private static string SheetPattern(PackagingConstraints c) =>
+        (Math.Max(1, c.SlipSheetEvery) == 1 ? "sous chaque couche" : $"toutes les {c.SlipSheetEvery} couches") + (c.SlipSheetOnPallet ? ", et sur la palette" : "");
+
+    /// <summary>Hauteur de charge de k couches, intercalaires compris.</summary>
+    private static double StackHeight(PackagingConstraints c, double layerH, int k)
+    {
+        double z = 0;
+        for (var i = 0; i < k; i++)
+        {
+            z += (SheetBelow(c, i) ? c.SlipSheetThickness : 0) + layerH;
+        }
+
+        return z;
+    }
+
+    private sealed record LayerLimit(string Name, int Layers, string How);
+
+    /// <summary>Chaque contrainte et le nombre de couches qu'elle autorise (mêmes règles que le moteur).</summary>
+    private static List<LayerLimit> Limits(Solution s, PackagingConstraints c, Article article, double usableH, double capacity, double layerH, TopStackRule? rule)
+    {
+        var n = Math.Max(1, s.ItemsPerLayer);
+        var limits = new List<LayerLimit>();
+        var byHeight = 0;
+        while (byHeight < 10000 && StackHeight(c, layerH, byHeight + 1) <= usableH + 1e-6)
+        {
+            byHeight++;
+        }
+
+        limits.Add(new("Hauteur", byHeight, c.SlipSheetThickness > 0
+            ? $"couches de {Mm(layerH)} mm et intercalaires tant que la hauteur cumulée reste ≤ {Mm(usableH)} mm ({N(byHeight)} couches = {Mm(StackHeight(c, layerH, byHeight))} mm)"
+            : $"⌊{Mm(usableH)} / {Mm(layerH)}⌋ = ⌊{(usableH / Math.Max(1, layerH)).ToString("0.##", Fr)}⌋"));
+        if (capacity > 0 && article.Weight > 0)
+        {
+            var layerWeight = n * article.Weight;
+            limits.Add(new("Poids", (int)Math.Floor(capacity / layerWeight + 1e-9),
+                $"⌊{Kg(capacity)} kg / ({N(n)} × {Kg(article.Weight)} kg par couche = {Kg(layerWeight)} kg)⌋ = ⌊{(capacity / layerWeight).ToString("0.##", Fr)}⌋"));
+        }
+
+        if (article.MaxLayers is { } ml)
+        {
+            limits.Add(new("Couches maxi de l'article", ml, "valeur saisie sur l'article"));
+        }
+
+        if (article.EffectiveMaxLoadOnTop is { } top && article.Weight > 0)
+        {
+            var tf = rule?.CapacityFactor ?? 1;
+            var allowed = top * s.StrengthFactor * tf;
+            var factors = (Math.Abs(s.StrengthFactor - 1) > 1e-9 ? $" × {s.StrengthFactor.ToString("0.##", Fr)} (répartition)" : "") +
+                          (tf < 1 ? $" × {tf.ToString("0.##", Fr)} (forme du dessus)" : "");
+            limits.Add(new("Résistance", 1 + (int)Math.Floor(allowed / article.Weight + 1e-9),
+                $"le produit du bas porte au plus {Kg(top)} kg{(factors.Length > 0 ? $"{factors} = {Kg(allowed)} kg" : "")}, soit ⌊{Kg(allowed)} / {Kg(article.Weight)}⌋ = {N((int)Math.Floor(allowed / article.Weight + 1e-9))} produit(s) au-dessus de lui, + 1"));
+        }
+
+        if (TopStacking.MaxLayers(rule, k => SheetBelow(c, k)) is { } byShape)
+        {
+            limits.Add(new("Forme du dessus", byShape, rule!.Mode == TopStackMode.NonGerbable
+                ? "rien ne peut être posé dessus"
+                : byShape == 1 ? "intercalaire obligatoire sous chaque couche, absent ici" : $"intercalaire obligatoire : présent sous les couches 2 à {N(byShape)}"));
+        }
+
+        return limits;
+    }
+
+    /// <summary>Forme du dessus : raisonnement, puis ce qu'il change pour ce conditionnement.</summary>
+    private static List<string> TopLines(TopStackRule rule, Solution s, PackagingConstraints c, Article article, string container)
+    {
+        var lines = new List<string>(rule.Steps)
+        {
+            $"Verdict : {rule.ModeLabel} — {rule.Summary}."
+        };
+        switch (rule.Mode)
+        {
+            case TopStackMode.Direct when rule.CapacityFactor < 1:
+                lines.Add(article.EffectiveMaxLoadOnTop is { } top
+                    ? $"Ici : la charge admissible saisie ({Kg(top)} kg) est ramenée à {Kg(top * rule.CapacityFactor)} kg par l'appui partiel."
+                    : "Ici : aucune charge maxi saisie sur l'article, seule la stabilité de l'appui est vérifiée.");
+                break;
+            case TopStackMode.Intercalaire:
+                var every = TopStacking.MaxLayers(rule, k => SheetBelow(c, k)) ?? 1;
+                lines.Add(c.SlipSheetThickness > 0 && Math.Max(1, c.SlipSheetEvery) == 1
+                    ? $"Ici : intercalaire sous chaque couche ({c.SlipSheetThickness.ToString("0.#", Fr)} mm) : gerbage accepté, charge admissible × {rule.CapacityFactor.ToString("0.##", Fr)}."
+                    : container == "caisse"
+                        ? "Ici : pas d'intercalaire dans la caisse : une seule couche de produits."
+                        : $"Ici : {(c.SlipSheetThickness > 0 ? $"intercalaire {SheetPattern(c)} seulement" : "aucun intercalaire")} : {N(every)} couche(s) au plus. " +
+                          "Mettez un intercalaire sous chaque couche (Accessoires, « tous les 1 ») pour monter plus haut.");
+                break;
+            case TopStackMode.NonGerbable:
+                lines.Add("Ici : une seule couche.");
+                break;
+        }
+
+        if (rule.Mode != TopStackMode.Direct && container == "palette")
+        {
+            lines.Add(c.CapHeight > 0
+                ? "Gerbage des palettes : la coiffe répartit la charge de la palette du dessus."
+                : "Gerbage des palettes : sans coiffe, la palette du dessus reposerait sur les poignées ou les cols — non gerbable.");
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// Pourquoi pas une couche de plus, pas un produit de plus par couche : chaque contrainte que l'on dépasserait,
+    /// avec les chiffres.
+    /// </summary>
+    private static List<string> WhyNotMore(Solution s, LoadUnit unit, PackagingConstraints c, Article article, double usableX, double usableY,
+        double usableH, double capacity, double layerH, TopStackRule? rule, List<LayerLimit> limits, string container)
+    {
+        var lines = new List<string>();
+        var n = Math.Max(1, s.ItemsPerLayer);
+        var layers = s.LayerCount;
+        if (s.LayerLimitReason == "quantité imposée")
+        {
+            lines.Add($"Une couche de plus : la quantité imposée ({N(s.ItemsPerUnit)}) est atteinte.");
+        }
+        else
+        {
+            var next = layers + 1;
+            lines.Add($"Une couche de plus ({N(next)} couches, {N(next * n)} produits) dépasserait :");
+            var reasons = new List<string>();
+            var hNext = StackHeight(c, layerH, next);
+            if (hNext > usableH + 1e-6)
+            {
+                reasons.Add($"la hauteur : {Mm(hNext)} mm de charge > {Mm(usableH)} mm utiles (+{Mm(hNext - usableH)} mm)");
+            }
+
+            if (capacity > 0 && next * n * article.Weight > capacity + 1e-9)
+            {
+                reasons.Add($"le poids : {N(next * n)} × {Kg(article.Weight)} kg = {Kg(next * n * article.Weight)} kg > {Kg(capacity)} kg admis");
+            }
+
+            if (article.MaxLayers is { } ml && next > ml)
+            {
+                reasons.Add($"les couches maxi de l'article ({N(ml)})");
+            }
+
+            if (article.EffectiveMaxLoadOnTop is { } top && article.Weight > 0)
+            {
+                var allowed = top * s.StrengthFactor * (rule?.CapacityFactor ?? 1);
+                if (layers * article.Weight > allowed + 1e-9)
+                {
+                    reasons.Add($"la résistance : le produit du bas porterait {N(layers)} × {Kg(article.Weight)} kg = {Kg(layers * article.Weight)} kg > {Kg(allowed)} kg admis");
+                }
+            }
+
+            if (limits.FirstOrDefault(l => l.Name == "Forme du dessus") is { } shape && next > shape.Layers)
+            {
+                reasons.Add($"la forme du dessus ({rule!.Summary})");
+            }
+
+            if (s.PartialTopLayer && reasons.Count == 0)
+            {
+                reasons.Add($"le poids : la dernière couche est déjà remplie jusqu'au poids admis ({Kg(capacity)} kg)");
+            }
+
+            lines.AddRange(reasons.Count > 0 ? reasons.Select(r => "   → " + r + ".") : ["   → aucune contrainte de couche : la solution retenue privilégie la stabilité (voir « Choix de la solution »)."]);
+        }
+
+        // Un produit de plus par couche.
+        if (s.UpperBound > 0 && n >= s.UpperBound)
+        {
+            lines.Add($"Un produit de plus par couche ({N(n + 1)}) : impossible, la borne théorique est de {N(s.UpperBound)} par couche (surface utile et longueurs réellement combinables) et le plan l'atteint.");
+        }
+        else if (s.UpperBound > 0)
+        {
+            lines.Add($"Un produit de plus par couche ({N(n + 1)}) : la borne théorique ({N(s.UpperBound)}) ne l'exclut pas, mais aucune disposition à {N(n + 1)} n'a été trouvée " +
+                      "par la recherche exhaustive (grilles, découpes guillotine, moulinets récursifs, mailles alignées et en quinconce) : la borne n'est qu'un plafond, pas toujours atteignable.");
+        }
+        else
+        {
+            var area = article.ForPalletizing() is { IsCylinder: true } cyl ? Math.PI * cyl.Diameter * cyl.Diameter / 4 : 0;
+            lines.Add(area > 0
+                ? $"Un produit de plus par couche ({N(n + 1)}) : des cercles couvrent au mieux 90,7 % d'une surface ; ici {Pct(100 * n * area / Math.Max(1, usableX * usableY))} % sont couverts, et aucune maille (alignée, quinconce, mixte) n'en place {N(n + 1)}."
+                : $"Un produit de plus par couche ({N(n + 1)}) : aucune disposition trouvée dans la surface utile {Mm(usableX)} × {Mm(usableY)} mm.");
+        }
+
+        if (s.PartialTopLayer && layers > 0)
+        {
+            var full = n * (layers - 1);
+            lines.Add($"Dernière couche incomplète ({N(s.ItemsPerUnit - full)} sur {N(n)}) : " +
+                      (s.LayerLimitReason == "quantité imposée" ? "la quantité imposée est atteinte." : $"le poids admis ({Kg(capacity)} kg) est atteint avant la fin de la couche."));
+        }
+
+        if (container == "palette" && s.Units.Count == 1 && s.LayerLimitReason != "quantité imposée")
+        {
+            lines.Add("Pour plus de produits : palette plus grande, débord autorisé, hauteur maximale plus haute ou charge maxi plus élevée (onglet Contraintes) — l'assistant compare toutes les palettes.");
+        }
+
+        return lines;
     }
 
     /// <summary>Hauteur d'une couche, intercalaire, couches par la hauteur.</summary>
@@ -704,12 +961,27 @@ public static class CalculationDetails
             .Select(g => $"{find(g.Key)?.DisplayName ?? "?"} : {N(g.Count())} produit(s), {Kg(g.Sum(p => p.Weight))} kg.")
             .Prepend($"{N(all.Count)} produits, {Kg(weight)} kg, volume des enveloppes {(volume / 1e9).ToString("0.###", Fr)} m³.").ToList());
 
+        var shaped = all.Select(p => p.ArticleId).Distinct().Select(find).OfType<Article>()
+            .Select(a => (Article: a, Rule: TopStacking.For(a))).Where(x => x.Rule != null).ToList();
+        if (shaped.Count > 0)
+        {
+            yield return new("Forme du dessus", shaped.Select(x =>
+                $"{x.Article.Code} : {x.Rule!.ModeLabel} ({x.Rule.Summary}) — " +
+                (x.Rule.Mode == TopStackMode.Direct
+                    ? x.Rule.CapacityFactor < 1 ? $"charge reçue limitée à {Pct(100 * x.Rule.CapacityFactor)} % de sa capacité." : "charge reçue jusqu'à sa capacité."
+                    : "rien n'est posé dessus dans un mélange (pas d'intercalaire par couche en hétérogène) : il est placé en haut d'une pile ou sans rien au-dessus.")).ToList());
+        }
+
         yield return new("Bornes", new List<string>
         {
             $"Par le volume : ⌈{(volume / 1e9).ToString("0.###", Fr)} m³ / {(unitVolume / 1e9).ToString("0.###", Fr)} m³ utiles⌉ = {N(byVolume)} {plural} au moins.",
             capacity > 0 ? $"Par le poids : ⌈{Kg(weight)} / {Kg(capacity)} kg⌉ = {N(byWeight)} {plural} au moins." : "Par le poids : non limité.",
-            $"Solution : {N(s.Units.Count)} {plural}" + (s.Units.Count <= Math.Max(1, Math.Max(byVolume, byWeight)) ? " : la borne est atteinte, minimum prouvé." : ".")
-        });
+            $"Solution : {N(s.Units.Count)} {plural}" + (s.Units.Count <= Math.Max(1, Math.Max(byVolume, byWeight)) ? " : la borne est atteinte, minimum prouvé." : "."),
+            s.Units.Count > Math.Max(1, Math.Max(byVolume, byWeight))
+                ? $"Pourquoi pas {N(s.Units.Count - 1)} ? Les bornes ne l'interdisent pas, mais aucune pose n'y fait tenir tous les produits en respectant les règles (appui, charge reçue, lourd sous léger, formes) : " +
+                  $"le volume des enveloppes n'est jamais rempli à 100 % ({Pct(100 * volume / Math.Max(1, s.Units.Count * unitVolume))} % ici, les vides entre formes différentes sont inévitables)."
+                : $"Pourquoi pas moins ? {(byWeight >= byVolume && byWeight > 0 ? $"le poids ({Kg(weight)} kg) dépasse ce que {N(Math.Max(0, s.Units.Count - 1))} {plural} peuvent porter." : $"le volume des produits dépasse celui de {N(Math.Max(0, s.Units.Count - 1))} {plural}.")}"
+        }.Where(l => l.Length > 0).ToList());
 
         yield return new("Règles de pose", new List<string>
         {

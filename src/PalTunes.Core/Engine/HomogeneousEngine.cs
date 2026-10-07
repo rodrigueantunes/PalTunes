@@ -23,6 +23,7 @@ public static class HomogeneousEngine
     public static EngineResult Solve(Article article, BaseInfo baseInfo, PackagingConstraints c, int? targetQuantity = null)
     {
         var sourceKind = article.Kind;
+        var topRule = TopStacking.For(article); // bidon, seau, bouteille : forme du dessus renseignée
         article = article.ForPalletizing(); // carton plié : hauteur pliée ; bidon, seau, bouteille, cuve : forme de base
         var result = new EngineResult();
         var errors = ArticleSchema.Validate(article);
@@ -32,7 +33,7 @@ public static class HomogeneousEngine
             return result;
         }
 
-        var ctx = new Context(article, baseInfo, c, targetQuantity);
+        var ctx = new Context(article, baseInfo, c, targetQuantity, topRule);
         if (ctx.UsefulHeight <= 0)
         {
             result.Messages.Add("Hauteur utile nulle : la hauteur maximale est inférieure à la palette + coiffe.");
@@ -80,7 +81,21 @@ public static class HomogeneousEngine
         Deduplicate(result.Solutions);
         Rank(result.Solutions, article);
         MarkHollow(result.Solutions, _ => article.HollowDiameter);
-        if (ArticleSchema.NeedsSlipSheetToStack(sourceKind) && c.SlipSheetThickness <= 0)
+        if (topRule != null)
+        {
+            foreach (var s in result.Solutions)
+            {
+                if (s.LayerLimitReason == ReasonNotStackable)
+                {
+                    s.Warnings.Add($"Forme du dessus ({topRule.Summary}) : une seule couche.");
+                }
+                else if (s.LayerLimitReason == ReasonSheetRequired)
+                {
+                    s.Warnings.Add($"Forme du dessus ({topRule.Summary}) : ajoutez un intercalaire sous chaque couche (Accessoires) pour monter plus haut.");
+                }
+            }
+        }
+        else if (ArticleSchema.NeedsSlipSheetToStack(sourceKind) && c.SlipSheetThickness <= 0)
         {
             foreach (var s in result.Solutions.Where(s => s.LayerCount > 1))
             {
@@ -219,10 +234,16 @@ public static class HomogeneousEngine
 
     // ------------------------------------------------------------------ Contexte
 
+    /// <summary>Limite de couches due à la forme du dessus (bidon, seau, bouteille).</summary>
+    public const string ReasonNotStackable = "dessus non gerbable (forme)";
+
+    public const string ReasonSheetRequired = "intercalaire obligatoire (forme du dessus)";
+
     private sealed class Context
     {
-        public Context(Article article, BaseInfo baseInfo, PackagingConstraints c, int? target)
+        public Context(Article article, BaseInfo baseInfo, PackagingConstraints c, int? target, TopStackRule? top = null)
         {
+            Top = top;
             Article = article;
             Base = baseInfo;
             C = c;
@@ -238,6 +259,12 @@ public static class HomogeneousEngine
 
         /// <summary>Axe retenu pour les tubes et bobines.</summary>
         public CoilAxis Axis { get; }
+
+        /// <summary>Gerbage selon la forme du dessus (null : non renseignée ou type non concerné).</summary>
+        public TopStackRule? Top { get; }
+
+        /// <summary>Coefficient de la forme du dessus sur la charge admissible (1 sans forme renseignée).</summary>
+        public double TopFactor => Top?.CapacityFactor ?? 1;
 
         /// <summary>Intercalaire sous la couche d'indice k (0 = sur la palette).</summary>
         public bool SheetBelow(int k) => C.SlipSheetThickness > 0 &&
@@ -487,9 +514,15 @@ public static class HomogeneousEngine
             limits.Add((ml, "couches maxi de l'article"));
         }
 
+        // Forme du dessus avant la résistance : à égalité, c'est elle qui explique la limite.
+        if (TopStacking.MaxLayers(ctx.Top, ctx.SheetBelow) is { } byShape)
+        {
+            limits.Add((byShape, ctx.Top!.Mode == TopStackMode.NonGerbable ? ReasonNotStackable : ReasonSheetRequired));
+        }
+
         if (article.EffectiveMaxLoadOnTop is { } top)
         {
-            limits.Add((1 + (int)Math.Floor(top * factor / article.Weight + 1e-9), "résistance (charge maxi sur le dessus)"));
+            limits.Add((1 + (int)Math.Floor(top * factor * ctx.TopFactor / article.Weight + 1e-9), "résistance (charge maxi sur le dessus)"));
         }
 
         var (layers, reason) = limits.OrderBy(l => l.layers).First();
@@ -979,7 +1012,7 @@ public static class HomogeneousEngine
         if (a.EffectiveMaxLoadOnTop is { } top)
         {
             var own = (s.LayerCount - 1) * a.Weight;
-            var capacity = top * factor;
+            var capacity = top * factor * ctx.TopFactor;
             var k = 1;
             while (k < 20 && own + k * unitWeight / topLayerCount <= capacity + 1e-9)
             {
@@ -992,6 +1025,12 @@ public static class HomogeneousEngine
         if (s.PartialTopLayer)
         {
             limits.Add((1, "dernière couche incomplète"));
+        }
+
+        // Forme du dessus : la palette du dessus reposerait sur les poignées ou les cols, sauf coiffe.
+        if (ctx.Top is { Mode: not TopStackMode.Direct } && c.CapHeight <= 0)
+        {
+            limits.Add((1, "forme du dessus : coiffe nécessaire pour gerber"));
         }
 
         if (ctx.Base.StaticCapacity > 0)

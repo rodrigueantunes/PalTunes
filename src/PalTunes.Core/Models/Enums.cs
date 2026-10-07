@@ -100,3 +100,39 @@ public enum MixedStrategy
     PilesParArticle,
     DensiteMaximale
 }
+
+/// <summary>Forme du dessus d'un produit à poignée, à anse ou à col (bidon, seau, bouteille).</summary>
+public enum TopShape
+{
+    /// <summary>Dessus droit : plan, éventuellement incliné (angle).</summary>
+    Droit,
+
+    /// <summary>Dessus arrondi, bombé : angle mesuré au bord.</summary>
+    Arrondi
+}
+
+/// <summary>Poignée ou anse sur le dessus.</summary>
+public enum HandleKind
+{
+    /// <summary>Encastrée : ne dépasse pas le plan du dessus (jerrican gerbable).</summary>
+    Encastree,
+
+    /// <summary>Saillante : dépasse le dessus.</summary>
+    Saillante,
+
+    /// <summary>Anse rabattable : couchée à plat sur le couvercle (seau).</summary>
+    Rabattable,
+
+    Aucune
+}
+
+/// <summary>
+/// Forme effective du dessus : forme, angle (°) par rapport à l'horizontale, poignée, et dimensions de la poignée en %
+/// des dimensions du produit (null = proportions usuelles), poignée arrondie ou à dessus plat.
+/// </summary>
+public sealed record TopForm(TopShape Shape, double Angle, HandleKind Handle, double? HandleLength = null, double? HandleWidth = null,
+    double? HandleHeight = null, bool HandleRounded = false, double HandleAngleLeft = 0, double HandleAngleRight = 0, bool HandleSolid = false,
+    double? HandleLengthMm = null, double? HandleWidthMm = null, double? HandleHeightMm = null)
+{
+    public bool HasHandleSize => HandleLength != null || HandleWidth != null || HandleHeight != null;
+}

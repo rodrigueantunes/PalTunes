@@ -209,6 +209,15 @@ public static class ArticleSchema
     }
 
     /// <summary>Contrôle les données minimales ; une liste vide signifie « article calculable ».</summary>
+    /// <summary>Inclinaison maxi d'un côté de poignée arrondie (°).</summary>
+    public const double MaxHandleSideAngle = 80;
+
+    /// <summary>Tassement usuel d'un sac à la mise en caisse (%).</summary>
+    public const double DefaultCompressionPercent = 10;
+
+    /// <summary>Tassement maxi admis (%) : au-delà, sac plein éclaté ou contenu repoussé sur les parois ; sacs vides marqués.</summary>
+    public const double MaxCompressionPercent = 25;
+
     public static List<string> Validate(Article a)
     {
         var errors = new List<string>();
@@ -238,6 +247,38 @@ public static class ArticleSchema
         if (!(a.Weight > 0))
         {
             errors.Add("Poids (kg) : valeur > 0 obligatoire.");
+        }
+
+        var (refL, refW, refH) = a.HandleReference;
+        var isDrum = a.Kind is ArticleKind.Fut or ArticleKind.Seau or ArticleKind.Bouteille;
+        foreach (var (value, label, reference, of) in new[]
+                 {
+                     (a.HandleLength, "Longueur de la poignée", refL, isDrum ? "le diamètre" : "la longueur"),
+                     (a.HandleWidth, "Largeur de la poignée", refW, isDrum ? "le diamètre" : "la largeur"),
+                     (a.HandleHeight, "Hauteur de la poignée", refH, "la hauteur")
+                 })
+        {
+            if (value is < 0)
+            {
+                errors.Add($"{label} : valeur négative.");
+            }
+            else if (value is { } v && reference > 0 && v > reference + 1e-9)
+            {
+                errors.Add($"{label} : {v:0.#} mm, au plus {of} du produit ({reference:0.#} mm).");
+            }
+        }
+
+        foreach (var (value, label) in new[] { (a.HandleAngleLeft, "Angle du côté gauche de la poignée"), (a.HandleAngleRight, "Angle du côté droit de la poignée") })
+        {
+            if (value is < 0 or > MaxHandleSideAngle)
+            {
+                errors.Add($"{label} : entre 0 et {MaxHandleSideAngle:0}° (0 = côté vertical).");
+            }
+        }
+
+        if (a.Kind == ArticleKind.Sac && a.Compressible && a.CompressionPercent is < 0 or > MaxCompressionPercent)
+        {
+            errors.Add($"Tassement : entre 0 et {MaxCompressionPercent:0} % de l'épaisseur du sac.");
         }
 
         if (a.Kind == ArticleKind.Caisse && a.QuantityPerCase is <= 0)

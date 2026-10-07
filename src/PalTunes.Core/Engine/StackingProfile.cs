@@ -87,6 +87,7 @@ public sealed class StackingProfile
     /// </summary>
     public static StackingProfile For(Article a, CoilAxis? axis = null)
     {
+        var topRule = TopStacking.For(a); // bidon, seau, bouteille : forme du dessus renseignée
         a = a.ForPalletizing(); // diamètre pris en compte, carton plié
         var effectiveAxis = axis ?? a.CoilAxis;
         var lying = a.Kind is ArticleKind.Tube or ArticleKind.Bobine && effectiveAxis == CoilAxis.Horizontal;
@@ -147,6 +148,23 @@ public sealed class StackingProfile
             if (k < 1 && aligned > capacity)
             {
                 text += $" ; {aligned.ToString("0.##", Fr)} kg en colonne alignée";
+            }
+        }
+
+        // Forme du dessus : en hétérogène, rien n'est posé sur un dessus qui exige un intercalaire ; appui partiel réduit.
+        if (topRule != null && !a.Fragile)
+        {
+            if (topRule.Mode != TopStackMode.Direct)
+            {
+                capacity = 0;
+                aligned = 0;
+                text = $"0 kg (forme du dessus : {topRule.Summary})";
+            }
+            else if (topRule.CapacityFactor < 1)
+            {
+                capacity *= topRule.CapacityFactor;
+                aligned *= topRule.CapacityFactor;
+                text += $" × {topRule.CapacityFactor.ToString("0.00", Fr)} (forme du dessus : appui {topRule.SupportPercent.ToString("0", Fr)} %)";
             }
         }
 

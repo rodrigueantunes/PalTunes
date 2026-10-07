@@ -47,6 +47,17 @@ public static class ArticleCsv
         new("CHARGE_MAX", ["CHARGE_MAX_DESSUS", "GERBABILITE", "LOAD_ON_TOP"], "Facultatif", "kg supportables par un exemplaire (résistance au gerbage).", "80"),
         new("COUCHES_MAX", ["NB_COUCHES_MAX", "MAX_LAYERS"], "Facultatif", "Nombre maximal de couches superposées de ce produit.", ""),
         new("FRAGILE", [], "Facultatif", "OUI / NON : rien ne sera posé dessus.", "NON"),
+        new("FORME_DESSUS", ["DESSUS", "FORME_DU_DESSUS", "TOP_SHAPE"], "Facultatif", "Bidon, seau, bouteille : DROIT ou ARRONDI (bombé). Avec l'angle et la poignée, décide si l'on peut gerber directement, sur intercalaire seulement, ou pas du tout.", ""),
+        new("ANGLE_DESSUS", ["ANGLE", "PENTE_DESSUS", "TOP_ANGLE"], "Facultatif", "Bidon, seau, bouteille : angle du dessus par rapport à l'horizontale, en degrés (0 = plat ; dessus bombé : angle au bord).", ""),
+        new("POIGNEE", ["ANSE", "HANDLE"], "Facultatif", "Bidon, seau, bouteille, fût : ENCASTREE (sous le plan du dessus), SAILLANTE (dépasse), RABATTABLE (anse couchée) ou AUCUNE.", ""),
+        new("POIGNEE_FORME", ["FORME_POIGNEE", "HANDLE_SHAPE"], "Facultatif", "ARRONDIE (section ronde : contact sur une ligne) ou DROITE (dessus plat).", ""),
+        new("POIGNEE_LONGUEUR", ["LONGUEUR_POIGNEE", "HANDLE_LENGTH"], "Facultatif", "mm. Longueur de la poignée, au plus la longueur du produit (le diamètre pour un fût, un seau, une bouteille). « 40 % » accepté : % de la longueur du produit.", ""),
+        new("POIGNEE_LARGEUR", ["LARGEUR_POIGNEE", "HANDLE_WIDTH"], "Facultatif", "mm. Largeur de la poignée, au plus la largeur du produit (le diamètre pour un fût, un seau, une bouteille).", ""),
+        new("POIGNEE_HAUTEUR", ["HAUTEUR_POIGNEE", "HANDLE_HEIGHT"], "Facultatif", "mm. Hauteur de la poignée, au plus la hauteur du produit : saillie, ou profondeur du puits si encastrée.", ""),
+        new("POIGNEE_ANGLE_GAUCHE", ["ANGLE_POIGNEE_GAUCHE", "HANDLE_ANGLE_LEFT"], "Facultatif", "Poignée arrondie : inclinaison du côté gauche par rapport à la verticale, en degrés (0 à 80).", ""),
+        new("POIGNEE_ANGLE_DROIT", ["ANGLE_POIGNEE_DROIT", "HANDLE_ANGLE_RIGHT"], "Facultatif", "Poignée arrondie : inclinaison du côté droit par rapport à la verticale, en degrés (0 à 80).", ""),
+        new("POIGNEE_PLEINE", ["HANDLE_SOLID"], "Facultatif", "OUI / NON : poignée moulée pleine, d'un seul tenant avec le corps.", ""),
+        new("TASSEMENT", ["TASSABLE", "COMPRESSION"], "Facultatif", "Sac : tassement accepté à la mise en caisse. OUI (10 %), un pourcentage (0 à 25), ou NON / vide (épaisseur conservée).", ""),
         new("DESIGNATION", ["LIBELLE", "DESCRIPTION", "NOM"], "Facultatif", "Libellé de l'article.", "Carton 400 × 300"),
         new("CLIENT", ["CODE_CLIENT", "CLIENT_CODE", "CUSTOMER"], "Facultatif", "Code du client (base clients) ; un code inconnu crée le client. 1er niveau de l'arborescence par défaut.", "AGRO"),
         new("FAMILLE", ["FAMILY", "GROUPE"], "Facultatif", "Famille d'articles.", "Emballages"),
@@ -268,6 +279,69 @@ public static class ArticleCsv
                 article.Fragile = ParseBool(Get("FRAGILE"));
             }
 
+            if (Has("FORME_DESSUS"))
+            {
+                var f = Csv.NormalizeHeader(Get("FORME_DESSUS"));
+                article.TopShape = f.StartsWith("ARR") || f.StartsWith("BOMB") || f.StartsWith("ROUND") ? TopShape.Arrondi : TopShape.Droit;
+            }
+
+            Num("ANGLE_DESSUS", v => article.TopAngle = Math.Clamp(v, 0, 90));
+            // Poignée en mm ; « 40 % » (ancien format) : % de la dimension du produit.
+            void HandleDim(string column, Action<double?> set, Func<double> reference)
+            {
+                if (!Has(column))
+                {
+                    return;
+                }
+
+                var raw = Get(column).Trim();
+                var percent = raw.EndsWith('%');
+                if (!double.TryParse(raw.TrimEnd('%').Trim().Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v))
+                {
+                    messages.Add($"{column} « {raw} » : nombre attendu (mm).");
+                    return;
+                }
+
+                set(percent ? Math.Round(Math.Clamp(v, 0, 100) / 100 * reference(), 1) : v);
+            }
+
+            HandleDim("POIGNEE_LONGUEUR", v => article.HandleLength = v, () => article.HandleReference.Length);
+            HandleDim("POIGNEE_LARGEUR", v => article.HandleWidth = v, () => article.HandleReference.Width);
+            HandleDim("POIGNEE_HAUTEUR", v => article.HandleHeight = v, () => article.HandleReference.Height);
+            Num("POIGNEE_ANGLE_GAUCHE", v => article.HandleAngleLeft = v);
+            Num("POIGNEE_ANGLE_DROIT", v => article.HandleAngleRight = v);
+            if (Has("POIGNEE_PLEINE"))
+            {
+                article.HandleSolid = ParseBool(Get("POIGNEE_PLEINE"));
+            }
+            if (Has("POIGNEE_FORME"))
+            {
+                article.HandleRounded = Csv.NormalizeHeader(Get("POIGNEE_FORME")).StartsWith("ARR") || Csv.NormalizeHeader(Get("POIGNEE_FORME")).StartsWith("ROND");
+            }
+
+            if (Has("TASSEMENT"))
+            {
+                var t = Get("TASSEMENT").Trim().TrimEnd('%').Trim();
+                if (double.TryParse(t.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var pct))
+                {
+                    article.Compressible = pct > 0;
+                    article.CompressionPercent = pct > 0 ? pct : null;
+                }
+                else
+                {
+                    article.Compressible = ParseBool(t);
+                    article.CompressionPercent = null;
+                }
+            }
+            if (Has("POIGNEE"))
+            {
+                var h = Csv.NormalizeHeader(Get("POIGNEE"));
+                article.Handle = h.StartsWith("SAIL") || h.StartsWith("DEPASS") ? HandleKind.Saillante
+                    : h.StartsWith("RAB") || h.StartsWith("ANSE") ? HandleKind.Rabattable
+                    : h.StartsWith("AUC") || h is "NON" or "SANS" or "NONE" ? HandleKind.Aucune
+                    : HandleKind.Encastree;
+            }
+
             string? Opt(string column) => map.ContainsKey(column) ? (Has(column) ? Get(column) : null) : null;
             void Text(string column, Action<string?> set)
             {
@@ -387,6 +461,18 @@ public static class ArticleCsv
         yield return a.MaxLoadOnTop is { } m ? Csv.Number(m, "0.###") : "";
         yield return a.MaxLayers?.ToString() ?? "";
         yield return a.Fragile ? "OUI" : "NON";
+        var top = Engine.TopStacking.Applies(a.Kind);
+        yield return top && a.TopShape is { } ts ? (ts == TopShape.Arrondi ? "ARRONDI" : "DROIT") : "";
+        yield return top && a.TopAngle is { } ta ? Csv.Number(ta, "0.#") : "";
+        yield return top && a.Handle is { } h ? h switch { HandleKind.Saillante => "SAILLANTE", HandleKind.Rabattable => "RABATTABLE", HandleKind.Aucune => "AUCUNE", _ => "ENCASTREE" } : "";
+        yield return top && a.HandleRounded is { } r ? (r ? "ARRONDIE" : "DROITE") : "";
+        yield return top && a.HandleLength is { } hl ? Csv.Number(hl, "0.#") : "";
+        yield return top && a.HandleWidth is { } hw ? Csv.Number(hw, "0.#") : "";
+        yield return top && a.HandleHeight is { } hh ? Csv.Number(hh, "0.#") : "";
+        yield return top && a.HandleAngleLeft is { } al ? Csv.Number(al, "0.#") : "";
+        yield return top && a.HandleAngleRight is { } ar ? Csv.Number(ar, "0.#") : "";
+        yield return top && a.HandleSolid ? "OUI" : "";
+        yield return a.Kind == ArticleKind.Sac && a.Compressible ? Csv.Number(a.CompressionPercent ?? ArticleSchema.DefaultCompressionPercent, "0.#") : "";
         yield return a.Designation;
         yield return a.Client;
         yield return a.Family;
@@ -408,7 +494,7 @@ public static class ArticleCsv
             new Article { Code = "PLQ-1600", Kind = ArticleKind.Plaque, Length = 1600, Width = 1200, Height = 10, Weight = 15, Designation = "Plaque 1600 × 1200 ép. 10", Client = "BATI", Family = "Plaques" },
             new Article { Code = "SAC-25", Kind = ArticleKind.Sac, Length = 600, Width = 400, Height = 120, Weight = 25, Designation = "Sac 25 kg", Client = "CHIM", Family = "Vrac" },
             new Article { Code = "FUT-200", Kind = ArticleKind.Fut, Diameter = 585, Height = 880, Weight = 220, Designation = "Fût 200 L", Client = "CHIM", Family = "Liquides" },
-            new Article { Code = "BID-20", Kind = ArticleKind.Bidon, Length = 290, Width = 190, Height = 370, Weight = 21, Designation = "Jerrican 20 L plastique", Client = "CHIM", Family = "Liquides" },
+            new Article { Code = "BID-20", Kind = ArticleKind.Bidon, Length = 290, Width = 190, Height = 370, Weight = 21, TopShape = TopShape.Droit, TopAngle = 0, Handle = HandleKind.Encastree, Designation = "Jerrican 20 L plastique", Client = "CHIM", Family = "Liquides" },
             new Article { Code = "BAC-6040", Kind = ArticleKind.Bac, Length = 600, Width = 400, Height = 300, Weight = 8, MaxLoadOnTop = 200, Designation = "Bac plastique 600 × 400", Client = "CHIM", Family = "Contenants" }
         };
         return Export(examples);
