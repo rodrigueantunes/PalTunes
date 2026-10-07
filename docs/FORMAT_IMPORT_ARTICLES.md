@@ -36,6 +36,17 @@
 | `CHARGE_MAX` | CHARGE_MAX_DESSUS, GERBABILITE, LOAD_ON_TOP | Facultatif | kg supportables par un exemplaire |
 | `COUCHES_MAX` | NB_COUCHES_MAX, MAX_LAYERS | Facultatif | couches superposées maximum |
 | `FRAGILE` | – | Facultatif | OUI / NON (rien dessus) |
+| `FORME_DESSUS` | DESSUS, FORME_DU_DESSUS, TOP_SHAPE | Facultatif | Bidon, seau, bouteille : DROIT ou ARRONDI (bombé) |
+| `ANGLE_DESSUS` | ANGLE, PENTE_DESSUS, TOP_ANGLE | Facultatif | Bidon, seau, bouteille : angle du dessus par rapport à l'horizontale, en degrés (0 = plat ; bombé : angle au bord) |
+| `POIGNEE` | ANSE, HANDLE | Facultatif | Bidon, seau, bouteille, fût : ENCASTREE, SAILLANTE, RABATTABLE ou AUCUNE |
+| `POIGNEE_FORME` | FORME_POIGNEE, HANDLE_SHAPE | Facultatif | ARRONDIE ou DROITE |
+| `POIGNEE_LONGUEUR` | LONGUEUR_POIGNEE, HANDLE_LENGTH | Facultatif | mm, au plus la longueur du produit (diamètre pour un fût, un seau, une bouteille). « 40 % » accepté : % de la longueur du produit |
+| `POIGNEE_LARGEUR` | LARGEUR_POIGNEE, HANDLE_WIDTH | Facultatif | mm, au plus la largeur du produit (diamètre) |
+| `POIGNEE_HAUTEUR` | HAUTEUR_POIGNEE, HANDLE_HEIGHT | Facultatif | mm, au plus la hauteur du produit : saillie, ou profondeur du puits |
+| `POIGNEE_ANGLE_GAUCHE` | ANGLE_POIGNEE_GAUCHE, HANDLE_ANGLE_LEFT | Facultatif | Poignée arrondie : inclinaison du côté gauche par rapport à la verticale (0 à 80°) |
+| `POIGNEE_ANGLE_DROIT` | ANGLE_POIGNEE_DROIT, HANDLE_ANGLE_RIGHT | Facultatif | Poignée arrondie : inclinaison du côté droit (0 à 80°) |
+| `POIGNEE_PLEINE` | HANDLE_SOLID | Facultatif | OUI / NON : poignée moulée pleine, liée au corps |
+| `TASSEMENT` | TASSABLE, COMPRESSION | Facultatif | Sac : OUI (10 %), un pourcentage (0 à 25) ou NON / vide. Tassement à la mise en caisse uniquement |
 | `DESIGNATION` | LIBELLE, DESCRIPTION, NOM | Facultatif | Libellé |
 | `CLIENT` | CODE_CLIENT, CLIENT_CODE, CUSTOMER | Facultatif | **Code du client** (base clients). Un code inconnu crée le client (nom à compléter) ; un nom de client existant est remplacé par son code. 1er niveau de l'arborescence par défaut |
 | `FAMILLE` | FAMILY, GROUPE | Facultatif | |
@@ -50,13 +61,20 @@
 | Type | Obligatoire (en plus de CODE, TYPE, POIDS) | Facultatif |
 |---|---|---|
 | CAISSE | LONGUEUR, LARGEUR, HAUTEUR | LONGUEUR_PLIEE, LARGEUR_PLIEE, HAUTEUR_PLIEE (carton livré plié), QTE_PAR_CAISSE |
-| SAC, BAC, AUTRE | LONGUEUR, LARGEUR, HAUTEUR | |
+| SAC | LONGUEUR, LARGEUR, HAUTEUR | TASSEMENT |
+| BAC, AUTRE | LONGUEUR, LARGEUR, HAUTEUR | |
 | PLAQUE | LONGUEUR, LARGEUR, HAUTEUR (épaisseur) | |
 | BOBINE | DIAMETRE (à défaut DIAMETRE_INT, avec avertissement), LARGEUR (laize) | DIAMETRE_INT (mandrin) |
 | TUBE | DIAMETRE (à défaut DIAMETRE_INT, avec avertissement), LONGUEUR | DIAMETRE_INT, ou HAUTEUR = épaisseur de paroi (tube creux) |
-| FUT | DIAMETRE, HAUTEUR | |
-| BIDON (jerrican), CUVE (IBC / GRV) | LONGUEUR, LARGEUR, HAUTEUR (hors tout : poignée, bouchon, palette intégrée) | |
-| SEAU, BOUTEILLE | DIAMETRE (le plus grand), HAUTEUR | |
+| FUT | DIAMETRE, HAUTEUR | POIGNEE, POIGNEE_FORME, POIGNEE_LONGUEUR, POIGNEE_LARGEUR, POIGNEE_HAUTEUR, FORME_DESSUS, ANGLE_DESSUS |
+| BIDON (jerrican) | LONGUEUR, LARGEUR, HAUTEUR (hors tout : poignée, bouchon) | FORME_DESSUS, ANGLE_DESSUS, POIGNEE |
+| CUVE (IBC / GRV) | LONGUEUR, LARGEUR, HAUTEUR (hors tout, palette intégrée) | |
+| SEAU, BOUTEILLE | DIAMETRE (le plus grand), HAUTEUR | FORME_DESSUS, ANGLE_DESSUS, POIGNEE |
+
+Forme du dessus (bidon, seau, bouteille) : renseignée, elle décide du gerbage — direct, sur intercalaire sous chaque
+couche, ou pas du tout — d'après le glissement (un produit glisse sur une pente de θ dès que tan θ dépasse le
+frottement : 14° plastique sur plastique, 21,8° sur carton), l'appui réel du dessus et la poignée (une poignée
+saillante interdit la pose directe). Vide : comportement d'avant (gerbage direct, intercalaire conseillé).
 
 Carton plié : chaque dimension pliée renseignée remplace **uniquement** la dimension montée correspondante pour la
 palettisation et le colisage ; une dimension pliée vide (ou 0) garde la dimension montée.
