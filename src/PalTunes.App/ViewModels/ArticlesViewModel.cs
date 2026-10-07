@@ -385,6 +385,38 @@ public sealed partial class ArticlesViewModel : ObservableObject
             _main.Packagings.CreateFor(a);
         }
     }
+
+    /// <summary>Caisse créée au colisage (produit connu) : « Voir le colisage ».</summary>
+    public bool SelectedHasColisage => _main.HasColisage(SelectedArticle);
+
+    [RelayCommand]
+    private void OpenColisage()
+    {
+        if (SelectedArticle is { } a && _main.HasColisage(a))
+        {
+            _main.OpenColisage(a);
+        }
+    }
+
+    /// <summary>Gestion des conditionnements filtrée sur l'article (palettes de l'article ou des caisses qui le contiennent).</summary>
+    [RelayCommand]
+    private void ShowPackagings()
+    {
+        if (SelectedArticle is { } a)
+        {
+            _main.ShowPackagingsFor(a.Code);
+        }
+    }
+
+    /// <summary>Espace Colisage sur ce produit (mise en caisse).</summary>
+    [RelayCommand]
+    private void PackInCase()
+    {
+        if (SelectedArticle is { } a)
+        {
+            _main.Cases.OpenForProduct(a);
+        }
+    }
 }
 
 /// <summary>Formulaire d'un article : champs affichés et libellés selon le type (données minimales, étude §2).</summary>
@@ -533,7 +565,9 @@ public sealed partial class ArticleEditor : ObservableObject
         FoldedHeight = a.FoldedHeight;
         QuantityPerCase = a.QuantityPerCase;
         CaseContentText = a is { Kind: ArticleKind.Caisse, CaseContent: { } link }
-            ? $"Créée au colisage : {(FindArticle?.Invoke(link.ArticleId)?.DisplayName ?? "produit supprimé de la base")}" +
+            ? (link.IsMixed
+                ? $"Caisse mixte créée au colisage : {string.Join(" + ", link.Lines!.Select(l => $"{l.Quantity} × {FindArticle?.Invoke(l.ArticleId)?.Code ?? "produit supprimé"}"))}"
+                : $"Créée au colisage : {(FindArticle?.Invoke(link.ArticleId)?.DisplayName ?? "produit supprimé de la base")}") +
               $" · caisse {link.CaseTypeCode ?? $"spécifique {link.InnerLength:0} × {link.InnerWidth:0} × {link.InnerHeight:0} mm (intérieur)"}"
             : null;
         Weight = a.Weight;

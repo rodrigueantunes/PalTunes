@@ -51,6 +51,28 @@ public static class PrintService
     public static void PrintCaseSummarySheet(Article box, Packaging? palletPackaging, Database db) =>
         Print($"PalTunes – fiche de colisage {box.Code}", (w, h) => [BuildCaseSummaryDocument(box, palletPackaging, db, w, h)]);
 
+    /// <summary>Fiche de colisage d'une caisse : complète (colisage recalculé) ou résumée (quantité par caisse seule).</summary>
+    public sealed record ColisageDoc(Article Box, CaseEngine.CaseSheet? Sheet, IReadOnlyDictionary<Guid, Color> Colors);
+
+    private static FlowDocument CaseDocument(ColisageDoc c, Packaging? palletPackaging, Database db, double w, double h) =>
+        c.Sheet != null ? BuildCaseDocument(c.Sheet, c.Box.Code, db, c.Colors, w, h) : BuildCaseSummaryDocument(c.Box, palletPackaging, db, w, h);
+
+    /// <summary>Fiches de colisage de toutes les caisses d'une palette, chacune sur une nouvelle page, en un seul document.</summary>
+    public static void PrintCaseSheets(string title, IReadOnlyList<ColisageDoc> colisages, Database db) =>
+        Print($"PalTunes – {(colisages.Count > 1 ? "fiches" : "fiche")} de colisage {title}", (w, h) => [.. colisages.Select(c => CaseDocument(c, null, db, w, h))]);
+
+    /// <summary>
+    /// Fiche de conditionnement d'une palette à plusieurs caisses : fiche palette, puis toutes les fiches de colisage,
+    /// chacune repartant en haut d'une page.
+    /// </summary>
+    public static void PrintPackagingSheets(Packaging p, Solution s, LoadUnit unit, Database db, IReadOnlyDictionary<Guid, Color> palletColors,
+        IReadOnlyList<ColisageDoc> colisages, Article? article = null) =>
+        Print($"PalTunes – fiche de conditionnement {p.Code}", (w, h) =>
+        [
+            BuildDocument(p, s, unit, db, palletColors, w, h, article),
+            .. colisages.Select(c => CaseDocument(c, p.Kind == PackagingKind.Homogene ? p : null, db, w, h))
+        ]);
+
     /// <summary>
     /// Documents mis bout à bout : chaque document suivant est placé dans une section qui commence sur une nouvelle page
     /// (rien de la fiche précédente ne la partage).
@@ -132,6 +154,132 @@ public static class PrintService
         public override IDocumentPaginatorSource Source => inner.Source;
     }
 
+    /// <summary>
+    /// Densité de la première page : 0 = mise en page normale ; chaque niveau réduit les images du cartouche, puis le
+    /// texte et les marges, puis passe la spécification sur deux colonnes, jusqu'à ce que tout tienne sur une page.
+    /// </summary>
+    private sealed record Density(int Level)
+    {
+        public const int Max = 7;
+
+        private double TextScale => Level switch { 0 or 1 => 1, 2 => 0.93, 3 => 0.88, 4 => 0.88, 5 => 0.82, 6 => 0.76, _ => 0.7 };
+
+        /// <summary>Images du cartouche (palette, caisse).</summary>
+        public double ImageScale => Level switch { 0 => 1, 1 => 0.7, 2 => 0.6, 3 => 0.5, _ => 0.42 };
+
+        /// <summary>Spécification sur deux colonnes côte à côte.</summary>
+        public bool TwoColumns => Level >= 4;
+
+        public bool Tight => Level >= 2;
+
+        public double Font(double size) => Math.Round(size * TextScale, 1);
+
+        public double Space(double v) => Level == 0 ? v : Math.Round(v * (Level == 1 ? 0.7 : 0.45), 1);
+    }
+
+    [ThreadStatic] private static Density? _densityField;
+
+    private static Density _density => _densityField ??= new Density(0);
+
+    /// <summary>
+    /// Première page (en-tête, cartouche, spécification, messages) : construite en mise en page normale, puis de plus en
+    /// plus compacte tant qu'elle déborde sur une deuxième page. Rien n'est retiré : seules les images du cartouche,
+    /// les tailles de texte et les marges diminuent, et la spécification passe sur deux colonnes si besoin.
+    /// </summary>
+    private static void AddFirstPage(FlowDocument doc, Func<List<Block>> build)
+    {
+        List<Block> blocks = [];
+        try
+        {
+            for (var level = 0; level <= Density.Max; level++)
+            {
+                _densityField = new Density(level);
+                blocks = build();
+                if (level == Density.Max || FitsOnePage(doc.PageWidth, doc.PageHeight, blocks))
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            _densityField = null;
+        }
+
+        foreach (var block in blocks)
+        {
+            doc.Blocks.Add(block);
+        }
+    }
+
+    private static bool FitsOnePage(double width, double height, List<Block> blocks)
+    {
+        var probe = NewDocument(width, height);
+        foreach (var block in blocks)
+        {
+            probe.Blocks.Add(block);
+        }
+
+        var paginator = ((IDocumentPaginatorSource)probe).DocumentPaginator;
+        paginator.ComputePageCount();
+        var fits = paginator.PageCount <= 1;
+        probe.Blocks.Clear();
+        return fits;
+    }
+
+    /// <summary>Spécification : un tableau, ou deux côte à côte (groupes répartis à parts égales) en densité forte.</summary>
+    private static Block SpecBlock(IReadOnlyList<SpecRow> rows, Brush dark, Brush muted)
+    {
+        if (!_density.TwoColumns || rows.Count < 8)
+        {
+            return SpecTable(rows, dark, muted);
+        }
+
+        var groups = rows.GroupBy(r => r.Group).Select(g => g.ToList()).ToList();
+        var half = (rows.Count + groups.Count) / 2.0;
+        var left = new List<SpecRow>();
+        var right = new List<SpecRow>();
+        var size = 0;
+        foreach (var g in groups)
+        {
+            var target = size + (g.Count + 1) / 2.0 <= half || left.Count == 0 ? left : right;
+            target.AddRange(g);
+            if (ReferenceEquals(target, left))
+            {
+                size += g.Count + 1;
+            }
+        }
+
+        var table = new Table { CellSpacing = 0, Margin = new Thickness(0, _density.Space(6), 0, _density.Space(6)) };
+        table.Columns.Add(new TableColumn());
+        table.Columns.Add(new TableColumn());
+        var group = new TableRowGroup();
+        var row = new TableRow();
+        row.Cells.Add(new TableCell(SpecTable(left, dark, muted, flush: true)) { Padding = new Thickness(0, 0, 5, 0) });
+        row.Cells.Add(new TableCell(right.Count > 0 ? SpecTable(right, dark, muted, flush: true) : new Paragraph()) { Padding = new Thickness(5, 0, 0, 0) });
+        group.Rows.Add(row);
+        table.RowGroups.Add(group);
+        return table;
+    }
+
+    /// <summary>Recommandation (vert) et avertissements (orange) de la solution.</summary>
+    private static List<Block> Messages(Solution s)
+    {
+        var blocks = new List<Block>();
+        var size = _density.Font(11);
+        if (s.Recommendation != null)
+        {
+            blocks.Add(new Paragraph(new Run(s.Recommendation)) { Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0x84, 0x49)), FontSize = size, Margin = new Thickness(0, _density.Space(4), 0, _density.Space(4)) });
+        }
+
+        foreach (var w in s.Warnings.Concat(s.Violations))
+        {
+            blocks.Add(new Paragraph(new Run("• " + w)) { Foreground = new SolidColorBrush(Color.FromRgb(0xB9, 0x77, 0x0E)), FontSize = size, Margin = new Thickness(0, 1, 0, 1) });
+        }
+
+        return blocks;
+    }
+
     private static FlowDocument NewDocument(double pageWidth, double pageHeight) => new()
     {
         PageWidth = pageWidth,
@@ -150,22 +298,25 @@ public static class PrintService
         header.Columns.Add(new TableColumn());
         var hg = new TableRowGroup();
         var hr = new TableRow();
-        var logo = new Image { Source = Application.Current?.TryFindResource("LogoImage") as ImageSource, Width = 48, Height = 48 };
+        var d = _density;
+        var logoSize = d.Level >= 4 ? 36 : 48;
+        header.Columns[0].Width = new GridLength(logoSize + 12);
+        var logo = new Image { Source = Application.Current?.TryFindResource("LogoImage") as ImageSource, Width = logoSize, Height = logoSize };
         hr.Cells.Add(new TableCell(new BlockUIContainer(logo)));
         var title = new Paragraph { Margin = new Thickness(0) };
-        title.Inlines.Add(new Run(titleText) { FontSize = 20, FontWeight = FontWeights.Bold, Foreground = dark });
+        title.Inlines.Add(new Run(titleText) { FontSize = d.Font(20), FontWeight = FontWeights.Bold, Foreground = dark });
         title.Inlines.Add(new LineBreak());
-        title.Inlines.Add(new Run(subtitle) { FontSize = 12, Foreground = dark });
+        title.Inlines.Add(new Run(subtitle) { FontSize = d.Font(12), Foreground = dark });
         title.Inlines.Add(new LineBreak());
         var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-        title.Inlines.Add(new Run($"Édité le {DateTime.Now:dd/MM/yyyy HH:mm} · PalTunes {version?.ToString(3)}") { Foreground = muted });
+        title.Inlines.Add(new Run($"Édité le {DateTime.Now:dd/MM/yyyy HH:mm} · PalTunes {version?.ToString(3)}") { Foreground = muted, FontSize = d.Font(11) });
         hr.Cells.Add(new TableCell(title));
         hg.Rows.Add(hr);
         header.RowGroups.Add(hg);
         header.BorderBrush = new SolidColorBrush(Color.FromRgb(0x3E, 0x9B, 0xDC));
         header.BorderThickness = new Thickness(0, 0, 0, 2);
-        header.Padding = new Thickness(0, 0, 0, 6);
-        header.Margin = new Thickness(0, 0, 0, 10);
+        header.Padding = new Thickness(0, 0, 0, d.Space(6));
+        header.Margin = new Thickness(0, 0, 0, d.Space(10));
         return header;
     }
 
@@ -175,7 +326,8 @@ public static class PrintService
     /// </summary>
     private static Table Cartouche(IEnumerable<(string Label, string Value)> infos, IEnumerable<(BitmapSource Image, string Caption)> pictures, Brush dark, Brush muted)
     {
-        var table = new Table { CellSpacing = 0, Margin = new Thickness(0, 0, 0, 10) };
+        var d = _density;
+        var table = new Table { CellSpacing = 0, Margin = new Thickness(0, 0, 0, d.Space(10)) };
         table.Columns.Add(new TableColumn { Width = new GridLength(1.25, GridUnitType.Star) });
         table.Columns.Add(new TableColumn { Width = new GridLength(1, GridUnitType.Star) });
         var group = new TableRowGroup();
@@ -183,10 +335,10 @@ public static class PrintService
         var left = new Section();
         foreach (var (label, value) in infos.Where(i => !string.IsNullOrWhiteSpace(i.Value)))
         {
-            var para = new Paragraph { Margin = new Thickness(0, 0, 0, 5) };
-            para.Inlines.Add(new Run(label.ToUpperInvariant()) { FontSize = 8.5, FontWeight = FontWeights.SemiBold, Foreground = muted });
+            var para = new Paragraph { Margin = new Thickness(0, 0, 0, d.Space(5)), TextAlignment = TextAlignment.Left };
+            para.Inlines.Add(new Run(label.ToUpperInvariant()) { FontSize = Math.Max(7, d.Font(8.5)), FontWeight = FontWeights.SemiBold, Foreground = muted });
             para.Inlines.Add(new LineBreak());
-            para.Inlines.Add(new Run(value) { FontSize = 11.5, Foreground = dark });
+            para.Inlines.Add(new Run(value) { FontSize = d.Font(11.5), Foreground = dark });
             left.Blocks.Add(para);
         }
 
@@ -206,8 +358,8 @@ public static class PrintService
             var captionsRow = new TableRow();
             foreach (var (image, caption) in list)
             {
-                imagesRow.Cells.Add(new TableCell(new BlockUIContainer(new Image { Source = image, Width = list.Count == 1 ? 260 : 150 })));
-                captionsRow.Cells.Add(new TableCell(new Paragraph(new Run(caption)) { FontSize = 9, Foreground = muted, TextAlignment = TextAlignment.Center, Margin = new Thickness(0) }));
+                imagesRow.Cells.Add(new TableCell(new BlockUIContainer(new Image { Source = image, Width = (list.Count == 1 ? 260 : 150) * d.ImageScale })));
+                captionsRow.Cells.Add(new TableCell(new Paragraph(new Run(caption)) { FontSize = Math.Max(7, d.Font(9)), Foreground = muted, TextAlignment = TextAlignment.Center, Margin = new Thickness(0) }));
             }
 
             pg.Rows.Add(imagesRow);
@@ -273,7 +425,7 @@ public static class PrintService
         var muted = new SolidColorBrush(Color.FromRgb(0x7F, 0x8C, 0x8D));
         Article? Find(Guid? id) => article != null && id == article.Id ? article : db.FindArticle(id);
 
-        doc.Blocks.Add(Header("Fiche palette", $"{p.Code}{(string.IsNullOrWhiteSpace(p.Name) ? "" : " – " + p.Name)} · {p.KindLabel} · {s.Title}", dark, muted));
+        var subtitle = $"{p.Code}{(string.IsNullOrWhiteSpace(p.Name) ? "" : " – " + p.Name)} · {p.KindLabel} · {s.Title}";
 
         // Première page : cartouche (informations, palette choisie, caisse du catalogue), spécification.
         var homogeneous = p.Kind == PackagingKind.Homogene ? Find(p.ArticleId) : null;
@@ -305,8 +457,6 @@ public static class PrintService
             pictures.Add(CasePicture(caseType));
         }
 
-        doc.Blocks.Add(Cartouche(infos, pictures, dark, muted));
-
         var view = ReferenceEquals(unit, s.FirstUnit)
             ? s
             : new Solution
@@ -315,8 +465,7 @@ public static class PrintService
                 StackLevels = s.StackLevels, StackLimitReason = s.StackLimitReason, Pattern = s.Pattern
             };
         var rows = PackagingSpec.Rows(view, p.Constraints, homogeneous);
-        doc.Blocks.Add(SpecTable(rows, dark, muted));
-        AddMessages(doc, s);
+        AddFirstPage(doc, () => [Header("Fiche palette", subtitle, dark, muted), Cartouche(infos, pictures, dark, muted), SpecBlock(rows, dark, muted), .. Messages(s)]);
 
         // Deuxième page : schémas (couches 1 et 2, côté, face) et vue 3D.
         const int width = 330;
@@ -335,9 +484,10 @@ public static class PrintService
     }
 
     /// <summary>Tableau de spécification : groupes en bandeau, libellé, valeur, unité ou précision.</summary>
-    private static Table SpecTable(IEnumerable<SpecRow> rows, Brush dark, Brush muted)
+    private static Table SpecTable(IEnumerable<SpecRow> rows, Brush dark, Brush muted, bool flush = false)
     {
-        var table = new Table { CellSpacing = 0, Margin = new Thickness(0, 6, 0, 6) };
+        var d = _density;
+        var table = new Table { CellSpacing = 0, Margin = flush ? new Thickness(0) : new Thickness(0, d.Space(6), 0, d.Space(6)), FontSize = d.Font(11) };
         table.Columns.Add(new TableColumn { Width = new GridLength(3, GridUnitType.Star) });
         table.Columns.Add(new TableColumn { Width = new GridLength(1.2, GridUnitType.Star) });
         table.Columns.Add(new TableColumn { Width = new GridLength(2, GridUnitType.Star) });
@@ -345,7 +495,7 @@ public static class PrintService
         foreach (var g in rows.GroupBy(r => r.Group))
         {
             var gr = new TableRow { Background = new SolidColorBrush(Color.FromRgb(0x34, 0x49, 0x5E)) };
-            gr.Cells.Add(new TableCell(new Paragraph(new Run(g.Key.ToUpperInvariant())) { Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 3, 6, 3) }) { ColumnSpan = 3 });
+            gr.Cells.Add(new TableCell(new Paragraph(new Run(g.Key.ToUpperInvariant())) { Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, Margin = d.Tight ? new Thickness(5, 1.5, 5, 1.5) : new Thickness(6, 3, 6, 3) }) { ColumnSpan = 3 });
             group.Rows.Add(gr);
             var odd = false;
             foreach (var r in g)
@@ -384,13 +534,18 @@ public static class PrintService
     public static FlowDocument BuildCaseDocument(CaseEngine.CaseSheet sheet, string? caseArticleCode, Database db, IReadOnlyDictionary<Guid, Color> colors,
         double pageWidth, double pageHeight)
     {
-        var (a, type, spec, s, axis) = sheet;
+        if (sheet.IsMixed)
+        {
+            return BuildMixedCaseDocument(sheet, caseArticleCode, db, colors, pageWidth, pageHeight);
+        }
+
+        var (a, type, spec, s, axis, _, _) = sheet;
         var unit = s.FirstUnit!;
         var doc = NewDocument(pageWidth, pageHeight);
         var dark = new SolidColorBrush(Color.FromRgb(0x2C, 0x3E, 0x50));
         var muted = new SolidColorBrush(Color.FromRgb(0x7F, 0x8C, 0x8D));
         var caseName = type != null ? $"{type.Code} – {type.Name}" : "Caisse spécifique";
-        doc.Blocks.Add(Header("Fiche de colisage", $"{(caseArticleCode != null ? caseArticleCode + " · " : "")}{a.Code} en {caseName} · {s.Title}", dark, muted));
+        var subtitle = $"{(caseArticleCode != null ? caseArticleCode + " · " : "")}{a.Code} en {caseName} · {s.Title}";
 
         // Première page : cartouche (produit, caisse, palette de destination), spécification.
         var pictures = new List<(BitmapSource, string)>();
@@ -404,7 +559,7 @@ public static class PrintService
             pictures.Add(PalletPicture(destination));
         }
 
-        doc.Blocks.Add(Cartouche(
+        List<(string, string)> infos =
         [
             ("Produit", $"{a.DisplayName} · {a.KindLabel}"),
             ("Dimensions et poids", $"{a.DimensionsText} mm · {a.Weight.ToString(Formats.UnitWeight, Fr)} kg"),
@@ -412,7 +567,7 @@ public static class PrintService
             ("Article caisse", caseArticleCode ?? ""),
             ("Caisse", caseName),
             ("Résultat", $"{s.ItemsPerUnit.ToString("#,0", Fr)} produits par caisse · {(unit.Items.Sum(x => x.Weight) + spec.Tare).ToString(Formats.TotalWeight, Fr)} kg brut")
-        ], pictures, dark, muted));
+        ];
 
         string Mm(double v) => v.ToString("0", Fr);
         var productsWeight = unit.Items.Sum(p => p.Weight);
@@ -454,8 +609,7 @@ public static class PrintService
             }
         }
 
-        doc.Blocks.Add(SpecTable(rows, dark, muted));
-        AddMessages(doc, s);
+        AddFirstPage(doc, () => [Header("Fiche de colisage", subtitle, dark, muted), Cartouche(infos, pictures, dark, muted), SpecBlock(rows, dark, muted), .. Messages(s)]);
 
         // Deuxième page : schémas (couche, côté, face, caisse ouverte) et vue 3D.
         var constraints = CaseEngine.CaseConstraints(spec, axis);
@@ -473,6 +627,139 @@ public static class PrintService
     }
 
     /// <summary>
+    /// Fiche de colisage d'une caisse mixte (plusieurs articles) : même mise en page que la fiche d'un article —
+    /// cartouche, spécification, schémas et vue 3D de la caisse ouverte — avec la composition (chaque article, sa
+    /// quantité, son poids) et la façon dont la caisse est remplie (stratégie, niveaux, règles de pose).
+    /// </summary>
+    private static FlowDocument BuildMixedCaseDocument(CaseEngine.CaseSheet sheet, string? caseArticleCode, Database db, IReadOnlyDictionary<Guid, Color> colors,
+        double pageWidth, double pageHeight)
+    {
+        var (_, type, spec, s, axis, _, _) = sheet;
+        var unit = sheet.ShownUnit;
+        Article? Find(Guid id) => db.FindArticle(id) ?? sheet.Lines?.FirstOrDefault(l => l.Article.Id == id).Article;
+        var lines = sheet.ContentLines(Find);
+        var content = sheet.ContentText(Find);
+        var doc = NewDocument(pageWidth, pageHeight);
+        var dark = new SolidColorBrush(Color.FromRgb(0x2C, 0x3E, 0x50));
+        var muted = new SolidColorBrush(Color.FromRgb(0x7F, 0x8C, 0x8D));
+        var caseName = type != null ? $"{type.Code} – {type.Name}" : "Caisse spécifique";
+        var total = unit.Items.Count;
+        var productsWeight = unit.Items.Sum(p => p.Weight);
+        var subtitle = $"{(caseArticleCode != null ? caseArticleCode + " · " : "")}caisse mixte en {caseName} · {content}";
+
+        var pictures = new List<(BitmapSource, string)>();
+        if (type != null)
+        {
+            pictures.Add(CasePicture(type));
+        }
+
+        if (s.DestinationPallet != null && db.Pallets.FirstOrDefault(x => x.Code == s.DestinationPallet) is { } destination)
+        {
+            pictures.Add(PalletPicture(destination));
+        }
+
+        var clients = lines.Select(l => l.Article.Client).Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        List<(string, string)> infos =
+        [
+            ("Contenu", $"{content} = {total.ToString("#,0", Fr)} produits"),
+            ("Articles", string.Join(" · ", lines.Select(l => $"{l.Article.Code} : {l.Article.DimensionsText} mm, {l.Article.Weight.ToString(Formats.UnitWeight, Fr)} kg"))),
+            ("Client", clients.Count == 1 ? db.ClientLabel(clients[0]) : ""),
+            ("Article caisse", caseArticleCode ?? ""),
+            ("Caisse", caseName),
+            ("Résultat", $"{total.ToString("#,0", Fr)} produits par caisse · {(productsWeight + spec.Tare).ToString(Formats.TotalWeight, Fr)} kg brut")
+        ];
+
+        string Mm(double v) => v.ToString("0", Fr);
+        var fill = unit.Metrics.FillRate;
+        var support = CaseEngine.CaseConstraints(spec, axis).MinSupportPercent;
+        var rows = new List<SpecRow>();
+        foreach (var (article, quantity) in lines)
+        {
+            var weight = unit.Items.Where(p => p.ArticleId == article.Id).Sum(p => p.Weight);
+            rows.Add(new("Composition", $"{article.Code}{(string.IsNullOrWhiteSpace(article.Designation) ? "" : " – " + article.Designation)}", quantity.ToString("#,0", Fr),
+                $"× {article.Weight.ToString(Formats.UnitWeight, Fr)} kg = {weight.ToString(Formats.TotalWeight, Fr)} kg · {article.KindLabel}"));
+        }
+
+        rows.Add(new("Colisage", "Quantité par caisse", total.ToString("#,0", Fr), $"produits ({content})"));
+        rows.Add(new("Colisage", "Niveaux de pose", unit.Layers.Count.ToString(Fr), "du fond vers le haut"));
+        rows.Add(new("Colisage", "Stratégie de remplissage", s.Title, s.Description));
+        rows.Add(new("Colisage", "Règles de pose", $"appui ≥ {support.ToString("0", Fr)} %", "lourd sous léger, charge reçue par chaque produit limitée"));
+        rows.Add(new("Colisage", "Remplissage du volume intérieur", fill.ToString("0.#", Fr), "%"));
+        rows.Add(new("Caisse", "Caisse", type?.Code ?? "spécifique", type?.Name ?? ""));
+        rows.Add(new("Caisse", "Dimensions intérieures", $"{Mm(spec.InnerLength)} × {Mm(spec.InnerWidth)} × {Mm(spec.InnerHeight)}", "mm"));
+        rows.Add(new("Caisse", "Dimensions extérieures", $"{Mm(spec.OuterLength)} × {Mm(spec.OuterWidth)} × {Mm(spec.OuterHeight)}", "mm"));
+        rows.Add(new("Caisse", "Épaisseur de paroi", spec.WallThickness.ToString("0.#", Fr), "mm"));
+        if (type != null)
+        {
+            rows.Add(new("Caisse", "Matière", type.MaterialLabel));
+        }
+
+        if (spec.Gap > 0)
+        {
+            rows.Add(new("Caisse", "Jeu entre produits", spec.Gap.ToString("0.#", Fr), "mm"));
+        }
+
+        rows.Add(new("Poids", "Poids des produits", productsWeight.ToString(Formats.TotalWeight, Fr), "kg"));
+        rows.Add(new("Poids", "Tare de la caisse", spec.Tare.ToString("0.###", Fr), "kg"));
+        rows.Add(new("Poids", "Poids brut de la caisse", (productsWeight + spec.Tare).ToString(Formats.TotalWeight, Fr), "kg" +
+            (type is { MaxWeight: > 0 } ? $" (charge maxi de la caisse {type.MaxWeight.ToString("0.#", Fr)} kg)" : "")));
+        if (s.DestinationPallet != null)
+        {
+            rows.Add(new("Palettisation des caisses", "Palette de destination", s.DestinationPallet));
+            rows.Add(new("Palettisation des caisses", "Caisses par palette", s.CasesPerPallet > 0 ? s.CasesPerPallet.ToString("#,0", Fr) : "non palettisable"));
+            if (s.CasesPerPallet > 0)
+            {
+                rows.Add(new("Palettisation des caisses", "Produits par palette", (s.CasesPerPallet * total).ToString("#,0", Fr),
+                    $"{s.CasesPerPallet.ToString("#,0", Fr)} caisses × {total.ToString("#,0", Fr)}"));
+            }
+        }
+
+        var explanation = "Remplissage : chaque produit est posé au fond de la caisse ou sur d'autres produits, dans un coin libre, sans chevauchement ; " +
+                          $"il doit reposer sur au moins {support.ToString("0", Fr)} % de sa surface, les plus lourds en dessous, et ne porter que la charge qu'il supporte. " +
+                          "Les articles sont regroupés pour faciliter la préparation.";
+        AddFirstPage(doc, () =>
+        [
+            Header("Fiche de colisage", subtitle, dark, muted), Cartouche(infos, pictures, dark, muted), SpecBlock(rows, dark, muted),
+            new Paragraph(new Run(explanation)) { Foreground = muted, FontSize = _density.Font(11), Margin = new Thickness(0, 4, 0, 4) },
+            .. Messages(s)
+        ]);
+
+        // Deuxième page : schémas (niveaux, côté, face) et vue 3D de la caisse ouverte, couleurs par article.
+        var constraints = CaseEngine.CaseConstraints(spec, axis);
+        var color = type?.Color ?? "#C9A26B";
+        const int width = 330;
+        var plans = new List<(string, BitmapSource)>
+        {
+            ("Niveau 1 (fond)", Render(s, unit, constraints, colors, PlanViewMode.Top, 1, width, 240, caseWall: spec.WallThickness, caseColor: color))
+        };
+        if (unit.Layers.Count > 1)
+        {
+            plans.Add(("Niveau 2", Render(s, unit, constraints, colors, PlanViewMode.Top, 2, width, 240, caseWall: spec.WallThickness, caseColor: color)));
+        }
+
+        plans.Add(("Côté", Render(s, unit, constraints, colors, PlanViewMode.Side, 1, width, 240, caseWall: spec.WallThickness, caseColor: color)));
+        plans.Add(("Face", Render(s, unit, constraints, colors, PlanViewMode.Front, 1, width, 240, caseWall: spec.WallThickness, caseColor: color)));
+        doc.Blocks.Add(SchemasPage($"Caisse mixte en {caseName} · {content}", plans,
+            Render3D(s, unit, constraints, colors, 680, 300, new Scene3DBuilder.CaseRender(spec.WallThickness, color, true)), dark, muted));
+        doc.Blocks.Add(Legend(lines, colors, dark));
+        return doc;
+    }
+
+    /// <summary>Légende des couleurs des schémas : un carré de couleur par article.</summary>
+    private static Paragraph Legend(IReadOnlyList<(Article Article, int Quantity)> lines, IReadOnlyDictionary<Guid, Color> colors, Brush dark)
+    {
+        var p = new Paragraph { Margin = new Thickness(0, 6, 0, 0), FontSize = 11, Foreground = dark };
+        foreach (var (article, quantity) in lines)
+        {
+            var c = colors.TryGetValue(article.Id, out var col) ? col : Colors.SteelBlue;
+            p.Inlines.Add(new Run("■ ") { Foreground = new SolidColorBrush(c), FontSize = 14 });
+            p.Inlines.Add(new Run($"{article.Code} × {quantity.ToString("#,0", Fr)}     "));
+        }
+
+        return p;
+    }
+
+    /// <summary>
     /// Fiche de colisage d'un article caisse dont le contenu détaillé n'est pas connu (quantité par caisse seulement :
     /// caisse importée ou créée avant 0.1.3) : caisse, quantité, poids, palettisation enregistrée ; pas de plans.
     /// </summary>
@@ -481,19 +768,19 @@ public static class PrintService
         var doc = NewDocument(pageWidth, pageHeight);
         var dark = new SolidColorBrush(Color.FromRgb(0x2C, 0x3E, 0x50));
         var muted = new SolidColorBrush(Color.FromRgb(0x7F, 0x8C, 0x8D));
-        doc.Blocks.Add(Header("Fiche de colisage", $"{box.DisplayName} · {box.CaseQuantity?.ToString("#,0", Fr)} produit(s) par caisse", dark, muted));
+        var subtitle = $"{box.DisplayName} · {box.CaseQuantity?.ToString("#,0", Fr)} produit(s) par caisse";
         var pictures = new List<(BitmapSource, string)>();
         if (palletPackaging != null && db.FindPallet(palletPackaging.PalletId) is { } pallet)
         {
             pictures.Add(PalletPicture(pallet));
         }
 
-        doc.Blocks.Add(Cartouche(
+        List<(string, string)> infos =
         [
             ("Article caisse", $"{box.DisplayName} · {box.KindLabel}"),
             ("Client", string.IsNullOrWhiteSpace(box.Client) ? "" : db.ClientLabel(box.Client)),
             ("Contenu", "Quantité par caisse connue, produit contenu non renseigné : pas de plan de colisage.")
-        ], pictures, dark, muted));
+        ];
         var rows = new List<SpecRow>
         {
             new("Colisage", "Quantité par caisse", box.CaseQuantity?.ToString("#,0", Fr) ?? "", "produits"),
@@ -508,7 +795,7 @@ public static class PrintService
                 $"{ps.ItemsPerUnit.ToString("#,0", Fr)} caisses × {quantity.ToString("#,0", Fr)}"));
         }
 
-        doc.Blocks.Add(SpecTable(rows, dark, muted));
+        AddFirstPage(doc, () => [Header("Fiche de colisage", subtitle, dark, muted), Cartouche(infos, pictures, dark, muted), SpecBlock(rows, dark, muted)]);
         return doc;
     }
 
@@ -711,7 +998,7 @@ public static class PrintService
     private static TableCell Cell(string text, Brush brush, bool bold = false, bool right = false) =>
         new(new Paragraph(new Run(text))
         {
-            Margin = new Thickness(6, 2, 6, 2),
+            Margin = _density.Tight ? new Thickness(5, 0.5, 5, 0.5) : new Thickness(6, 2, 6, 2),
             Foreground = brush,
             FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
             TextAlignment = right ? TextAlignment.Right : TextAlignment.Left

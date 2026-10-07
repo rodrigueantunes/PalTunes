@@ -11,10 +11,10 @@ using PalTunes.Core.Models;
 namespace PalTunes.App.ViewModels;
 
 /// <summary>
-/// Espace « Gestion des conditionnements » : deux listes, les conditionnements palette et les caisses de colisage, rangées
-/// comme les articles (client, famille, sous-famille, type), recherche, fiche résumée avec aperçu 3D (solution enregistrée,
-/// ou colisage recalculé, caisse ouverte). D'une palette de caisses, « Voir le colisage » ouvre l'espace Colisage réglé sur
-/// son colisage. L'écran de création ne garde que les plus récents.
+/// Espace « Gestion des conditionnements » : tous les conditionnements créés, rangés comme les articles (client,
+/// famille, sous-famille, type), recherche, fiche résumée avec aperçu 3D de la solution enregistrée. D'une palette de
+/// caisses, « Voir le colisage » ouvre l'espace Colisage réglé sur le colisage de la caisse (choix si plusieurs caisses).
+/// L'écran de création ne garde que les plus récents.
 /// </summary>
 public sealed partial class PackagingLibraryViewModel : ObservableObject
 {
@@ -45,7 +45,7 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection), nameof(Title), nameof(Subtitle), nameof(KindLabel), nameof(ClientText), nameof(ContentText),
-        nameof(PalletText), nameof(SolutionText), nameof(DatesText))]
+        nameof(PalletText), nameof(SolutionText), nameof(DatesText), nameof(IsHomogeneousSelection))]
     private Packaging? _selected;
 
     [ObservableProperty] private Model3DGroup? _preview;
@@ -61,13 +61,16 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
 
     partial void OnSelectedChanged(Packaging? value)
     {
-        if (!ShowColisages)
+        Preview = BuildPreview(value);
+        Colisages.Clear();
+        foreach (var link in ColisagesOf(value))
         {
-            Preview = BuildPreview(value);
+            Colisages.Add(link);
         }
 
         OnPropertyChanged(nameof(HasColisageLink));
-        OpenColisageCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(ColisageButtonText));
+        OnPropertyChanged(nameof(ColisageText));
     }
 
     public void SelectNode(TreeNode? node)
@@ -75,10 +78,6 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
         if (node?.Packaging is { } p)
         {
             Selected = p;
-        }
-        else if (node?.Article is { } box)
-        {
-            SelectedBox = box;
         }
     }
 
@@ -109,27 +108,20 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
 
     private static string Group(string? v) => string.IsNullOrWhiteSpace(v) ? NotSet : v.Trim();
 
-    /// <summary>Élément de l'arborescence : conditionnement palette ou caisse de colisage.</summary>
+    /// <summary>Élément de l'arborescence : un conditionnement, ses clés de rangement, sa feuille, son texte de recherche.</summary>
     private sealed record Entry(Guid Id, Keys K, TreeNode Leaf, string SearchText);
 
     public void Rebuild()
     {
-        var selectedId = ShowColisages ? SelectedBox?.Id : Selected?.Id;
+        var selectedId = Selected?.Id;
         var expanded = new HashSet<string>(Flatten(Roots).Where(n => n.IsGroup && n.IsExpanded).Select(n => n.Header));
         var firstBuild = Roots.Count == 0;
         Roots.Clear();
         var query = SearchText.Trim();
-        var colisages = Colisages().ToList();
-        PalletCountText = $"Palettes ({_main.Db.Packagings.Count})";
-        ColisageCountText = $"Colisages ({colisages.Count})";
-
-        var all = ShowColisages
-            ? colisages.Select(a => ColisageEntry(a, a.Id == selectedId)).ToList()
-            : _main.Db.Packagings.Select(pk => PalletEntry(pk, pk.Id == selectedId)).ToList();
+        var all = _main.Db.Packagings.Select(pk => PalletEntry(pk, pk.Id == selectedId)).ToList();
         var shown = all.Where(x => query.Length == 0 || x.SearchText.Contains(query, StringComparison.CurrentCultureIgnoreCase))
             .OrderBy(x => x.Leaf.Header, StringComparer.CurrentCultureIgnoreCase).ToList();
-        var noun = ShowColisages ? "colisage(s)" : "conditionnement(s)";
-        CountText = shown.Count == all.Count ? $"{all.Count} {noun}" : $"{shown.Count} / {all.Count} {noun}";
+        CountText = shown.Count == all.Count ? $"{all.Count} conditionnement(s)" : $"{shown.Count} / {all.Count} conditionnement(s)";
 
         Func<Keys, string>[] levels = Grouping.Key switch
         {
@@ -175,19 +167,12 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
         }
 
         Build(Roots, shown, 0);
-        if (ShowColisages)
+        if (selectedId != null)
         {
-            SelectedBox = colisages.FirstOrDefault(a => a.Id == selectedId) ?? shown.Select(x => x.Leaf.Article).FirstOrDefault();
+            Selected = _main.Db.Packagings.FirstOrDefault(pk => pk.Id == selectedId);
         }
-        else
-        {
-            if (selectedId != null)
-            {
-                Selected = _main.Db.Packagings.FirstOrDefault(pk => pk.Id == selectedId);
-            }
 
-            Selected ??= shown.Select(x => x.Leaf.Packaging).FirstOrDefault();
-        }
+        Selected ??= shown.Select(x => x.Leaf.Packaging).FirstOrDefault();
     }
 
     private Entry PalletEntry(Packaging pk, bool selected)
@@ -204,178 +189,61 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
             IsSelected = selected
         };
         var text = string.Join(" ", new[] { pk.Code, pk.Name, k.Client, k.Family, k.SubFamily, k.Kind, pk.Notes }
-            .Concat(k.Articles.SelectMany(a => new[] { a.Code, a.Designation })));
+            .Concat(k.Articles.SelectMany(a => new[] { a.Code, a.Designation }))
+            .Concat(k.Articles.SelectMany(a => a.CaseContent is { } link
+                ? (link.Lines?.Select(l => l.ArticleId) ?? [link.ArticleId]).Select(id => _main.Db.FindArticle(id)?.Code)
+                : [])));
         return new Entry(pk.Id, k, leaf, text);
     }
 
-    // ------------------------------------------------------------------ Colisages
+    // ------------------------------------------------------------------ Colisages des caisses de la palette
 
-    /// <summary>Caisses de colisage : articles caisse dont le contenu (caisse créée au colisage) ou la quantité par caisse est connu.</summary>
-    private IEnumerable<Article> Colisages() =>
-        _main.Db.Articles.Where(a => a.Kind == ArticleKind.Caisse && (a.CaseContent != null || a.CaseQuantity != null));
+    /// <summary>Colisages accessibles depuis le conditionnement sélectionné (caisses créées au colisage, produit connu).</summary>
+    public ObservableCollection<ColisageLink> Colisages { get; } = [];
 
-    private Entry ColisageEntry(Article box, bool selected)
+    private List<ColisageLink> ColisagesOf(Packaging? p)
     {
-        var db = _main.Db;
-        var content = box.CaseContent is { } link ? db.FindArticle(link.ArticleId) : null;
-        var kind = box.CaseContent switch
+        if (p == null)
         {
-            { CaseTypeCode: { } code } => db.Cases.FirstOrDefault(c => string.Equals(c.Code, code, StringComparison.OrdinalIgnoreCase))?.Name ?? code,
-            not null => "Caisse spécifique",
-            _ => "Contenu non renseigné"
-        };
-        var k = new Keys(Group(db.ClientLabel(box.Client)), Group(box.Family ?? content?.Family), Group(box.SubFamily ?? content?.SubFamily), kind, box,
-            content == null ? [box] : [box, content]);
-        var leaf = new TreeNode
-        {
-            Header = box.Code,
-            Subtitle = box.Designation,
-            Detail = $"{box.CaseQuantity?.ToString("#,0", Fr)} produit(s) par caisse",
-            Glyph = ArticleSchema.KindGlyph(ArticleKind.Caisse),
-            Color = box.Color ?? "#C9A26B",
-            Article = box,
-            IsSelected = selected
-        };
-        var text = string.Join(" ", new[] { box.Code, box.Designation, k.Client, k.Family, k.SubFamily, kind, box.Notes, content?.Code, content?.Designation });
-        return new Entry(box.Id, k, leaf, text);
+            return [];
+        }
+
+        var ids = p.Kind == PackagingKind.Homogene ? [p.ArticleId ?? Guid.Empty] : p.Lines.Select(l => l.ArticleId).Distinct().ToList();
+        return ids.Select(id => _main.Db.FindArticle(id))
+            .Where(a => CaseEngine.CanRebuild(a, id => _main.Db.FindArticle(id)))
+            .Select(a => new ColisageLink(a!, a!.CaseContent!.IsMixed
+                ? $"{a.Code} · caisse mixte : {string.Join(" + ", a.CaseContent.Lines!.Select(l => $"{l.Quantity.ToString("#,0", Fr)} × {_main.Db.FindArticle(l.ArticleId)?.Code}"))}"
+                : $"{a.Code} · {a.CaseQuantity?.ToString("#,0", Fr)} × {_main.Db.FindArticle(a.CaseContent.ArticleId)?.Code}"))
+            .ToList();
     }
 
-    /// <summary>Liste affichée : conditionnements palette (par défaut) ou caisses de colisage.</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowPallets), nameof(HasSelection), nameof(Title), nameof(Subtitle), nameof(KindLabel), nameof(ClientText),
-        nameof(ContentText), nameof(PalletText), nameof(SolutionText), nameof(DatesText), nameof(PalletLabel), nameof(SolutionLabel),
-        nameof(LinksText), nameof(HasColisageLink), nameof(PreviewHint))]
-    private bool _showColisages;
+    /// <summary>Bouton « Voir le colisage » : visible si un colisage existe pour la palette sélectionnée.</summary>
+    public bool HasColisageLink => Colisages.Count > 0;
 
-    public bool ShowPallets => !ShowColisages;
+    public string ColisageButtonText => Colisages.Count > 1 ? $"Voir les colisages ({Colisages.Count})" : "Voir le colisage";
 
-    [ObservableProperty] private string _palletCountText = "Palettes";
-    [ObservableProperty] private string _colisageCountText = "Colisages";
+    /// <summary>Fiche : colisages des caisses de la palette.</summary>
+    public string ColisageText => string.Join(Environment.NewLine, Colisages.Select(c => c.Label));
 
+    /// <summary>Ouvre l'espace Colisage réglé sur le colisage de la caisse (la seule, ou celle choisie).</summary>
     [RelayCommand]
-    private void SetList(string list) => ShowColisages = list == "Colisages";
-
-    partial void OnShowColisagesChanged(bool value)
+    private void OpenColisage(ColisageLink? link)
     {
-        Preview = null;
-        Rebuild();
-        Preview = value ? BuildBoxPreview(SelectedBox) : BuildPreview(Selected);
-        OpenColisageCommand.NotifyCanExecuteChanged();
-    }
-
-    /// <summary>Caisse de colisage sélectionnée (liste « Colisages »).</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasSelection), nameof(Title), nameof(Subtitle), nameof(KindLabel), nameof(ClientText), nameof(ContentText),
-        nameof(PalletText), nameof(SolutionText), nameof(DatesText), nameof(LinksText), nameof(HasColisageLink))]
-    private Article? _selectedBox;
-
-    partial void OnSelectedBoxChanged(Article? value)
-    {
-        if (ShowColisages)
+        if ((link ?? Colisages.FirstOrDefault()) is { } target)
         {
-            Preview = BuildBoxPreview(value);
-        }
-
-        OpenColisageCommand.NotifyCanExecuteChanged();
-    }
-
-    /// <summary>Caisse dont on peut ouvrir le colisage : caisse sélectionnée, ou article caisse de la palette sélectionnée.</summary>
-    private Article? ColisageBox
-    {
-        get
-        {
-            var box = ShowColisages ? SelectedBox : Selected is { Kind: PackagingKind.Homogene } p ? _main.Db.FindArticle(p.ArticleId) : null;
-            return CaseEngine.CanRebuild(box, id => _main.Db.FindArticle(id)) ? box : null;
+            _main.OpenColisage(target.Box);
         }
     }
 
-    /// <summary>Bouton « Voir le colisage » : visible si un colisage existe pour l'élément sélectionné.</summary>
-    public bool HasColisageLink => ColisageBox != null;
+    public bool IsHomogeneousSelection => Selected is { Kind: PackagingKind.Homogene };
 
-    private Model3DGroup? BuildBoxPreview(Article? box)
-    {
-        if (box == null)
-        {
-            return null;
-        }
-
-        if (CaseEngine.Rebuild(box, id => _main.Db.FindArticle(id), _main.Db.Cases) is { Solution.FirstUnit: { } unit } sheet)
-        {
-            var color = _main.Settings.Current.UseArticleColors ? ArticleColors.Parse(sheet.Content.Color, ArticleColors.DistinctByIndex(0)) : ArticleColors.DistinctByIndex(0);
-            return Scene3DBuilder.Build(sheet.Solution, unit, CaseEngine.CaseConstraints(sheet.Spec, sheet.Axis), _ => color, int.MaxValue,
-                new Scene3DBuilder.CaseRender(sheet.Spec.WallThickness, sheet.Type?.Color ?? "#C9A26B", true)).Root;
-        }
-
-        return Scene3DBuilder.BuildArticle(box, ArticleColors.Parse(box.Color, Color.FromRgb(0xC9, 0xA2, 0x6B))).Root;
-    }
-
-    /// <summary>Conditionnements palette de la caisse de colisage sélectionnée.</summary>
-    private List<Packaging> PalletsOf(Article box) =>
-        _main.Db.Packagings.Where(pk => pk.Kind == PackagingKind.Homogene && pk.ArticleId == box.Id).OrderByDescending(pk => pk.ModifiedAt).ToList();
-
-    public string PalletLabel => ShowColisages ? "Caisse" : "Palette";
-    public string SolutionLabel => ShowColisages ? "Colisage" : "Solution enregistrée";
-    public string PreviewHint => ShowColisages ? "Colisage recalculé, caisse ouverte · clic droit : rotation · molette : zoom" : "Solution enregistrée, première unité · clic droit : rotation · molette : zoom";
-
-    /// <summary>Colisage : conditionnements palette de la caisse.</summary>
-    public string LinksText
-    {
-        get
-        {
-            if (!ShowColisages || SelectedBox is not { } box)
-            {
-                return "";
-            }
-
-            var pallets = PalletsOf(box);
-            return pallets.Count == 0
-                ? "Aucun conditionnement palette : « Palettiser » le crée."
-                : string.Join(Environment.NewLine, pallets.Select(pk => $"{pk.DisplayName} · " + (pk.Solution is { } ps
-                    ? $"{ps.ItemsPerUnit.ToString("#,0", Fr)} caisses / {ps.Base.Label}" + (box.CaseQuantity is { } q ? $" → {((long)ps.ItemsPerUnit * q).ToString("#,0", Fr)} produits" : "")
-                    : "pas de solution enregistrée")));
-        }
-    }
-
-    /// <summary>Ouvre l'espace Colisage réglé sur ce colisage (produit, caisse, quantité par caisse, axe), calculé.</summary>
-    [RelayCommand(CanExecute = nameof(CanOpenColisage))]
-    private void OpenColisage()
-    {
-        if (ColisageBox is { } box)
-        {
-            _main.Cases.OpenColisage(box);
-        }
-    }
-
-    private bool CanOpenColisage() => ColisageBox != null;
-
-    /// <summary>Fiche de l'article caisse (espace Articles).</summary>
+    /// <summary>Fiche de l'article du conditionnement homogène (espace Articles).</summary>
     [RelayCommand]
-    private void OpenBoxArticle()
+    private void OpenArticle()
     {
-        if (SelectedBox is { } box)
+        if (Selected is { Kind: PackagingKind.Homogene } p && _main.Db.FindArticle(p.ArticleId) is { } a)
         {
-            _main.SelectedSection = "Articles";
-            _main.Articles.SelectedArticle = box;
-            _main.Articles.RebuildTree();
-        }
-    }
-
-    /// <summary>Conditionnement palette de la caisse : le dernier existant, sinon un nouveau.</summary>
-    [RelayCommand]
-    private void Palletize()
-    {
-        if (SelectedBox is not { } box)
-        {
-            return;
-        }
-
-        if (PalletsOf(box).FirstOrDefault() is { } existing)
-        {
-            _main.Packagings.Open(existing);
-        }
-        else
-        {
-            _main.Packagings.CreateFor(box);
+            _main.ShowArticle(a);
         }
     }
 
@@ -397,31 +265,16 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
 
     // ------------------------------------------------------------------ Fiche
 
-    public bool HasSelection => ShowColisages ? SelectedBox != null : Selected != null;
-    public string Title => ShowColisages ? SelectedBox?.Code ?? "" : Selected?.Code ?? "";
-    public string Subtitle => ShowColisages ? SelectedBox?.Designation ?? "" : Selected?.Name ?? "";
-    public string KindLabel => ShowColisages ? SelectedBox?.CaseContent != null ? "Colisage" : "Colisage (quantité seule)" : Selected?.KindLabel ?? "";
-    public string ClientText => ShowColisages
-        ? SelectedBox == null ? "" : Group(_main.Db.ClientLabel(SelectedBox.Client))
-        : Selected == null ? "" : KeysOf(Selected).Client;
+    public bool HasSelection => Selected != null;
+    public string Title => Selected?.Code ?? "";
+    public string Subtitle => Selected?.Name ?? "";
+    public string KindLabel => Selected?.KindLabel ?? "";
+    public string ClientText => Selected == null ? "" : KeysOf(Selected).Client;
 
     public string ContentText
     {
         get
         {
-            if (ShowColisages)
-            {
-                if (SelectedBox is not { } box)
-                {
-                    return "";
-                }
-
-                var content = box.CaseContent is { } link ? _main.Db.FindArticle(link.ArticleId) : null;
-                return content == null
-                    ? $"{box.CaseQuantity?.ToString("#,0", Fr)} produit(s) par caisse (produit contenu non renseigné)"
-                    : $"{box.CaseQuantity?.ToString("#,0", Fr)} × {content.DisplayName} · {content.DimensionsText}";
-            }
-
             if (Selected is not { } p)
             {
                 return "";
@@ -443,20 +296,6 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
     {
         get
         {
-            if (ShowColisages)
-            {
-                if (SelectedBox is not { } box)
-                {
-                    return "";
-                }
-
-                var link = box.CaseContent;
-                var type = link?.CaseTypeCode is { } code ? _main.Db.Cases.FirstOrDefault(c => string.Equals(c.Code, code, StringComparison.OrdinalIgnoreCase)) : null;
-                return (type != null ? $"{type.Code} – {type.Name} · " : link != null ? "Caisse spécifique · " : "") +
-                       (link != null ? $"intérieur {link.InnerLength:0} × {link.InnerWidth:0} × {link.InnerHeight:0} mm · " : "") +
-                       $"extérieur {box.DimensionsText} mm";
-            }
-
             if (Selected is not { } p)
             {
                 return "";
@@ -467,31 +306,9 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
         }
     }
 
-    public string SolutionText
-    {
-        get
-        {
-            if (!ShowColisages)
-            {
-                return Selected == null ? "" : Summary(Selected);
-            }
+    public string SolutionText => Selected == null ? "" : Summary(Selected);
 
-            if (SelectedBox is not { } box)
-            {
-                return "";
-            }
-
-            var sheet = CaseEngine.Rebuild(box, id => _main.Db.FindArticle(id), _main.Db.Cases);
-            return sheet == null
-                ? $"{box.CaseQuantity?.ToString("#,0", Fr)} produit(s) par caisse · {box.Weight.ToString(Formats.TotalWeight, Fr)} kg brut"
-                : $"{sheet.Solution.ItemsPerUnit.ToString("#,0", Fr)} produits · {sheet.Solution.ItemsPerLayer.ToString("#,0", Fr)} par couche × {sheet.Solution.LayerCount} · " +
-                  $"{box.Weight.ToString(Formats.TotalWeight, Fr)} kg brut";
-        }
-    }
-
-    public string DatesText => ShowColisages
-        ? SelectedBox == null ? "" : $"Créé le {SelectedBox.CreatedAt:dd/MM/yyyy} · modifié le {SelectedBox.ModifiedAt:dd/MM/yyyy HH:mm}"
-        : Selected == null ? "" : $"Créé le {Selected.CreatedAt:dd/MM/yyyy} · modifié le {Selected.ModifiedAt:dd/MM/yyyy HH:mm}";
+    public string DatesText => Selected == null ? "" : $"Créé le {Selected.CreatedAt:dd/MM/yyyy} · modifié le {Selected.ModifiedAt:dd/MM/yyyy HH:mm}";
 
     private static string Summary(Packaging p)
     {
@@ -572,3 +389,6 @@ public sealed partial class PackagingLibraryViewModel : ObservableObject
         _main.ShowToast($"Conditionnement {p.Code} supprimé.", "Ok");
     }
 }
+
+/// <summary>Colisage accessible depuis une palette : article caisse et libellé (code, quantité × produit).</summary>
+public sealed record ColisageLink(Article Box, string Label);

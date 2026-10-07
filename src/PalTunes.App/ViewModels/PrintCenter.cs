@@ -19,7 +19,9 @@ namespace PalTunes.App.ViewModels;
 /// conditionnements), produit à mettre en caisse (Colisage) ; dans les autres espaces, le dernier article affiché.
 /// Fiche palette : un conditionnement existe (affiché, sélectionné ou enregistré). Fiche de colisage : un colisage existe
 /// (affiché, caisse créée au colisage, ou au moins une quantité par caisse : fiche résumée). Fiche de conditionnement :
-/// les deux (palette de la caisse, puis colisage).
+/// les deux (palette de la caisse, puis colisage). Palette hétérogène affichée ou sélectionnée : les fiches de colisage
+/// sont celles de ses caisses (« Imprimer les fiches de colisage » dès qu'il y en a plusieurs), et la fiche de
+/// conditionnement les imprime toutes après la fiche palette.
 /// </remarks>
 public sealed partial class PrintCenter : ObservableObject
 {
@@ -37,6 +39,9 @@ public sealed partial class PrintCenter : ObservableObject
     [ObservableProperty] private string _palletTip = "";
     [ObservableProperty] private string _caseTip = "";
     [ObservableProperty] private string _packagingTip = "";
+
+    /// <summary>« Imprimer la fiche de colisage », ou « … les fiches … » dès que plusieurs colisages sont disponibles.</summary>
+    [ObservableProperty] private string _caseSheetLabel = "Imprimer la fiche de colisage";
 
     /// <summary>Vérification en cours (tâche de fond) : boutons grisés le temps du calcul.</summary>
     [ObservableProperty] private bool _isChecking;
@@ -61,7 +66,27 @@ public sealed partial class PrintCenter : ObservableObject
         public string PackagingWhy = "";
 
         public bool HasCase => Case != null || CaseSummary != null;
+
+        /// <summary>Palette hétérogène : colisages de ses caisses (complet ou résumé), dans l'ordre des lignes.</summary>
+        public List<(Article Box, CaseEngine.CaseSheet? Sheet)> Mixed = [];
     }
+
+    /// <summary>Caisse dont un colisage est imprimable : créée au colisage, ou quantité par caisse renseignée.</summary>
+    private static bool IsColisageBox(Article? a) => a is { Kind: ArticleKind.Caisse } && (a.CaseContent != null || a.CaseQuantity != null);
+
+    /// <summary>Caisses de la palette hétérogène affichée (Conditionnements) ou sélectionnée (Gestion) ; null hors de ce contexte.</summary>
+    private List<Article>? MixedBoxes()
+    {
+        IEnumerable<Article?>? articles = _main.SelectedSection switch
+        {
+            "Packagings" when !_main.Packagings.IsHomogeneous => _main.Packagings.Lines.Select(l => l.Article),
+            "PackagingLibrary" when _main.PackagingLibrary.Selected is { Kind: PackagingKind.Heterogene } p => p.Lines.Select(l => _main.Db.FindArticle(l.ArticleId)),
+            _ => null
+        };
+        return articles?.Where(IsColisageBox).Select(a => a!).DistinctBy(a => a.Id).ToList();
+    }
+
+    private List<Article>? _mixed;
 
     private Plan _plan = new();
     private string? _key;
@@ -140,8 +165,73 @@ public sealed partial class PrintCenter : ObservableObject
             Article = article;
         }
 
-        ArticleText = Article is { } a ? $"Fiches de {a.DisplayName}" : "Aucun article affiché";
-        var key = Article is { } current ? Key(current) : "";
+        _mixed = hasContext && article == null ? MixedBoxes() : null;
+        var mixedPackaging = _main.SelectedSection == "PackagingLibrary" ? _main.PackagingLibrary.Selected?.Code : _main.Packagings.Draft.Code;
+        ArticleText = _mixed != null ? $"Fiches de la palette {mixedPackaging}".TrimEnd()
+            : _main.SelectedSection == "Cases" && _main.Cases.IsMixed ? "Fiches du colisage de plusieurs articles"
+            : Article is { } a ? $"Fiches de {a.DisplayName}" : "Aucun article affiché";
+        var key = _mixed != null
+            ? "M|" + string.Join(",", _mixed.Select(b => $"{b.Id}:{b.ModifiedAt.Ticks}:{(b.CaseContent is { } l ? _main.Db.FindArticle(l.ArticleId)?.ModifiedAt.Ticks ?? -1 : 0)}")) + $"|{_main.Db.Cases.Count}"
+            : Article is { } current ? Key(current) : "";
+        if (_mixed is { } boxes && key != _key)
+        {
+            _key = key;
+            _plan = new Plan();
+            var version = ++_version;
+            if (boxes.Count == 0)
+            {
+                IsChecking = false;
+                _plan.CaseWhy = "Aucune caisse de colisage dans cette palette (caisse créée au colisage ou quantité par caisse).";
+                _plan.PackagingWhy = _plan.CaseWhy;
+            }
+            else
+            {
+                IsChecking = true;
+                var cases = _main.Db.Cases.ToList();
+                var db = _main.Db;
+                Task.Run(() =>
+                {
+                    var plan = new Plan();
+                    foreach (var box in boxes)
+                    {
+                        CaseEngine.CaseSheet? sheet = null;
+                        try
+                        {
+                            sheet = box.CaseContent != null ? CaseEngine.Rebuild(box, id => db.FindArticle(id), cases) : null;
+                        }
+                        catch (Exception)
+                        {
+                            // Colisage non recalculable : fiche résumée si la quantité par caisse est connue.
+                        }
+
+                        if (sheet != null || box.CaseQuantity != null)
+                        {
+                            plan.Mixed.Add((box, sheet));
+                        }
+                    }
+
+                    plan.CaseWhy = plan.Mixed.Count == 0 ? "Colisages des caisses impossibles à recalculer (produit contenu supprimé ou modifié)." : "";
+                    plan.PackagingWhy = plan.CaseWhy;
+                    return plan;
+                }).ContinueWith(t =>
+                {
+                    if (version != _version)
+                    {
+                        return;
+                    }
+
+                    _plan = t.IsFaulted ? new Plan { CaseWhy = t.Exception?.InnerException?.Message ?? "", PackagingWhy = t.Exception?.InnerException?.Message ?? "" } : t.Result;
+                    IsChecking = false;
+                    UpdateCommands();
+                }, TaskScheduler.FromCurrentSynchronizationContext());
+            }
+        }
+
+        if (_mixed != null)
+        {
+            UpdateCommands();
+            return;
+        }
         if (key != _key)
         {
             _key = key;
@@ -189,6 +279,23 @@ public sealed partial class PrintCenter : ObservableObject
         CaseSheetCommand.NotifyCanExecuteChanged();
         PackagingSheetCommand.NotifyCanExecuteChanged();
         const string checking = "Vérification en cours…";
+        CaseSheetLabel = Mixed && _plan.Mixed.Count > 1 ? "Imprimer les fiches de colisage" : "Imprimer la fiche de colisage";
+        if (Mixed)
+        {
+            var palletReady = ShownPackaging || LibraryPackaging != null;
+            PalletTip = "Ctrl+P · " + (CanPalletSheet() ? "Fiche palette du conditionnement (spécification, schémas, plan de palettisation)."
+                : "Calculez ou enregistrez d'abord le conditionnement.");
+            CaseTip = CanCaseSheet()
+                ? _plan.Mixed.Count > 1
+                    ? $"Fiches de colisage des {_plan.Mixed.Count} caisses de la palette ({string.Join(", ", _plan.Mixed.Select(m => m.Box.Code))}), chacune sur une nouvelle page."
+                    : $"Fiche de colisage de la caisse {_plan.Mixed[0].Box.Code}."
+                : IsChecking ? checking : _plan.CaseWhy;
+            PackagingTip = CanPackagingSheet()
+                ? _plan.Mixed.Count > 1 ? $"Fiche palette puis les {_plan.Mixed.Count} fiches de colisage, en un seul document." : "Fiche palette puis fiche de colisage, en un seul document."
+                : IsChecking ? checking : !palletReady ? "Calculez ou enregistrez d'abord le conditionnement." : _plan.PackagingWhy;
+            return;
+        }
+
         var none = Article == null && !ShownPackaging && LibraryPackaging == null ? "Aucun article affiché." : null;
         PalletTip = "Ctrl+P · " + (CanPalletSheet() ? "Fiche palette du conditionnement (spécification, schémas, plan de palettisation)."
             : none ?? (IsChecking ? checking : _plan.PalletWhy));
@@ -198,6 +305,7 @@ public sealed partial class PrintCenter : ObservableObject
                 : "Fiche de colisage : le produit dans sa caisse (quantité par caisse, poids brut, schémas, vue 3D)."
             : none ?? (IsChecking ? checking : _plan.CaseWhy);
         PackagingTip = CanPackagingSheet() ? "Fiche palette puis fiche de colisage, en un seul document."
+            : _main.SelectedSection == "Cases" && _main.Cases.IsMixed ? "Caisse mixte : créez l'article caisse puis palettisez-le (fiche de conditionnement depuis son conditionnement)."
             : none ?? (IsChecking ? checking : _plan.PackagingWhy);
     }
 
@@ -211,18 +319,26 @@ public sealed partial class PrintCenter : ObservableObject
     private Packaging? LibraryPackaging => _main.SelectedSection == "PackagingLibrary" && _main.PackagingLibrary.Selected is { Solution.FirstUnit: not null } p ? p : null;
 
     /// <summary>Colisage affiché pour cet article (écran Colisage).</summary>
-    private bool ShownColisage => _main.SelectedSection == "Cases" && ReferenceEquals(_main.Cases.Article, Article) && _main.Cases.CanPrintCaseSheet;
+    private bool ShownColisage => _main.SelectedSection == "Cases" && (_main.Cases.IsMixed || ReferenceEquals(_main.Cases.Article, Article)) && _main.Cases.CanPrintCaseSheet;
 
     // ------------------------------------------------------------------ Commandes
+
+    /// <summary>Contexte palette hétérogène (Conditionnements ou Gestion) : fiches de colisage de ses caisses.</summary>
+    private bool Mixed => _mixed != null;
+
+    private List<PrintService.ColisageDoc> MixedDocs() =>
+        [.. _plan.Mixed.Select(m => new PrintService.ColisageDoc(m.Box, m.Sheet, (m.Sheet is { } ms ? _main.ColorsFor(ms) : _main.ColorsFor(m.Box))))];
 
     /// <summary>Fiche palette : un conditionnement existe (affiché, sélectionné ou enregistré pour l'article).</summary>
     private bool CanPalletSheet() => ShownPackaging || LibraryPackaging != null || (!IsChecking && _plan.Pallet != null);
 
     /// <summary>Fiche de colisage : un colisage existe (affiché, caisse créée au colisage, ou quantité par caisse).</summary>
-    private bool CanCaseSheet() => ShownColisage || (!IsChecking && _plan.HasCase);
+    private bool CanCaseSheet() => Mixed ? !IsChecking && _plan.Mixed.Count > 0 : ShownColisage || (!IsChecking && _plan.HasCase);
 
     /// <summary>Fiche de conditionnement : fiche de colisage possible et conditionnement de la caisse (ou caisses palettisées du colisage affiché).</summary>
-    private bool CanPackagingSheet() => ShownColisage
+    private bool CanPackagingSheet() => Mixed
+        ? !IsChecking && _plan.Mixed.Count > 0 && (ShownPackaging || LibraryPackaging != null)
+        : ShownColisage
         ? _main.Cases.CanPrintPackagingSheet
         : !IsChecking && _plan.HasCase && (_plan.Pallet != null || ShownPackaging || LibraryPackaging != null);
 
@@ -246,13 +362,20 @@ public sealed partial class PrintCenter : ObservableObject
     [RelayCommand(CanExecute = nameof(CanCaseSheet))]
     private void CaseSheet()
     {
+        if (Mixed)
+        {
+            var title = _main.SelectedSection == "PackagingLibrary" ? _main.PackagingLibrary.Selected?.Code : _main.Packagings.Draft.Code;
+            PrintService.PrintCaseSheets(title ?? "", MixedDocs(), _main.Db);
+            return;
+        }
+
         if (ShownColisage)
         {
             _main.Cases.PrintCaseSheet();
         }
         else if (_plan.Case is { } sheet)
         {
-            PrintService.PrintCaseSheet(sheet, Article?.Code, _main.Db, _main.ColorsFor(sheet.Content));
+            PrintService.PrintCaseSheet(sheet, Article?.Code, _main.Db, _main.ColorsFor(sheet));
         }
         else if (_plan.CaseSummary is { } box)
         {
@@ -263,6 +386,25 @@ public sealed partial class PrintCenter : ObservableObject
     [RelayCommand(CanExecute = nameof(CanPackagingSheet))]
     private void PackagingSheet()
     {
+        if (Mixed)
+        {
+            Packaging? mixed = LibraryPackaging;
+            if (ShownPackaging && _main.Packagings.CurrentSolution is { } current)
+            {
+                mixed = _main.Packagings.CurrentPackaging();
+                mixed.Solution = current;
+            }
+
+            if (mixed?.Solution is { } ms)
+            {
+                var colors = ShownPackaging ? _main.Packagings.ColorMap : _main.PackagingLibrary.ColorsOf(mixed);
+                var unit = ShownPackaging ? _main.Packagings.CurrentUnit ?? ms.FirstUnit! : ms.FirstUnit!;
+                PrintService.PrintPackagingSheets(mixed, ms, unit, _main.Db, colors, MixedDocs());
+            }
+
+            return;
+        }
+
         if (ShownColisage)
         {
             _main.Cases.PrintPackagingSheet();
@@ -290,7 +432,7 @@ public sealed partial class PrintCenter : ObservableObject
 
         if (_plan.Case is { } sheet)
         {
-            PrintService.PrintPackagingSheet(sheet, a, packaging, s, s.FirstUnit!, _main.Db, _main.ColorsFor(sheet.Content), _main.ColorsFor(a));
+            PrintService.PrintPackagingSheet(sheet, a, packaging, s, s.FirstUnit!, _main.Db, _main.ColorsFor(sheet), _main.ColorsFor(a));
         }
         else if (_plan.CaseSummary is { } box)
         {

@@ -21,6 +21,11 @@ public sealed partial class LineViewModel : ObservableObject
     /// <summary>Couleur de l'article dans les vues (légende de la ligne).</summary>
     [ObservableProperty] private Brush? _viewBrush;
 
+    /// <summary>Caisse créée au colisage : son colisage peut être rouvert depuis la ligne.</summary>
+    public bool HasColisage => Article is { Kind: ArticleKind.Caisse, CaseContent: not null };
+
+    partial void OnArticleChanged(Article? value) => OnPropertyChanged(nameof(HasColisage));
+
     public double Subtotal => (Article?.Weight ?? 0) * Math.Max(0, Quantity);
 
     public string SubtotalText => Article == null ? "" : $"{Subtotal.ToString(Formats.TotalWeight, Fr)} kg";
@@ -439,10 +444,40 @@ public sealed partial class PackagingsViewModel : ObservableObject
     [ObservableProperty] private Packaging _draft = new();
     [ObservableProperty] private bool _isEditingNew;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsHomogeneous), nameof(IsHeterogeneous))] private PackagingKind _kind;
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText), nameof(ShowAxis), nameof(ArticleWarning))] private Article? _article;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText), nameof(ShowAxis), nameof(ArticleWarning), nameof(ArticleHasColisage))] private Article? _article;
 
     /// <summary>Poids unitaire impossible pour les dimensions (erreur de saisie ou d'unité).</summary>
     public string? ArticleWarning => Article == null ? null : ArticleSchema.Warnings(Article);
+
+    /// <summary>Article caisse créé au colisage (produit connu) : « Voir le colisage ».</summary>
+    public bool ArticleHasColisage => _main.HasColisage(Article);
+
+    [RelayCommand]
+    private void OpenArticleColisage()
+    {
+        if (Article is { } a && _main.HasColisage(a))
+        {
+            _main.OpenColisage(a);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenLineColisage(LineViewModel? line)
+    {
+        if (line?.Article is { } a && _main.HasColisage(a))
+        {
+            _main.OpenColisage(a);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenArticleSheet()
+    {
+        if (Article is { } a)
+        {
+            _main.ShowArticle(a);
+        }
+    }
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private PalletType? _pallet;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private bool _palletRotated;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(BaseText))] private int _countAlongLength = 1;
@@ -909,7 +944,7 @@ public sealed partial class PackagingsViewModel : ObservableObject
 
     /// <summary>Onglet « Détails du calcul » : étapes et chiffres de la solution et de l'unité affichées.</summary>
     public IReadOnlyList<DetailSection> CalculationSections => CurrentSolution is { } s && CurrentUnit is { } u
-        ? CalculationDetails.Pallet(s, u, Constraints, IsHomogeneous ? Article : null, id => _main.Db.FindArticle(id))
+        ? CalculationDetails.Pallet(s, u, Constraints, IsHomogeneous ? Article : null, id => _main.Db.FindArticle(id), _main.ColisageSheet)
         : [];
     public bool HasMultipleUnits => Units.Count > 1;
     public string? Recommendation => SelectedSolution?.Solution.Recommendation ?? (SelectedSolution != null ? "Alternative : " + SelectedSolution.Solution.Description : null);

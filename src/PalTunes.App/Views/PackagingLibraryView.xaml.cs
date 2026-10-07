@@ -44,6 +44,27 @@ public partial class PackagingLibraryView : UserControl
 
     private void Tree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e) => Vm?.SelectNode(e.NewValue as TreeNode);
 
+    /// <summary>Un seul colisage : ouvert directement ; plusieurs : menu de choix sous le bouton.</summary>
+    private void ColisageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm is not { } vm)
+        {
+            return;
+        }
+
+        if (vm.Colisages.Count == 1)
+        {
+            vm.OpenColisageCommand.Execute(vm.Colisages[0]);
+        }
+        else if (ColisageButton.ContextMenu is { } menu)
+        {
+            menu.DataContext = vm;
+            menu.PlacementTarget = ColisageButton;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
+        }
+    }
+
     private void Tree_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if ((sender as TreeView)?.SelectedItem is TreeNode { Packaging: not null })

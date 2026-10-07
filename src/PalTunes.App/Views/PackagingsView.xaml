@@ -494,7 +494,24 @@
                             <TextBlock Style="{StaticResource SectionTitle}" Text="ARTICLE" />
                             <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Picker.Articles, Converter={StaticResource OwnView}}" SelectedItem="{Binding Article}"
                                       ItemTemplate="{StaticResource ArticleItem}" b:ComboFilter.MinItems="0" AutomationProperties.Name="Article du conditionnement" />
-                            <TextBlock Style="{StaticResource Muted}" Text="{Binding Article.Designation}" Margin="2,3,0,0" />
+                            <TextBlock Style="{StaticResource Muted}" Text="{Binding Article.Designation}" Margin="2,3,0,0" TextWrapping="Wrap" />
+                            <WrapPanel Margin="0,2,0,0">
+                                <Button Style="{StaticResource GhostButton}" Command="{Binding OpenArticleColisageCommand}" Padding="4,2" Margin="0,0,6,0"
+                                        Visibility="{Binding ArticleHasColisage, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTip="Ouvrir l'espace Colisage réglé sur le colisage de cette caisse">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,5,0" FontSize="11" />
+                                        <TextBlock Text="Voir le colisage" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource GhostButton}" Command="{Binding OpenArticleSheetCommand}" Padding="4,2"
+                                        Visibility="{Binding Article, Converter={StaticResource NotNullToVisibility}}" ToolTip="Fiche de l'article (espace Articles)">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71B;" Margin="0,2,5,0" FontSize="11" />
+                                        <TextBlock Text="Fiche article" />
+                                    </StackPanel>
+                                </Button>
+                            </WrapPanel>
                             <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,3,0,0" FontSize="11.5"
                                        Visibility="{Binding ArticleWarning, Converter={StaticResource NotNullToVisibility}}" />
                             <TextBlock Style="{StaticResource FormLabel}" Text="Quantité imposée par conditionnement (vide = maximum)" />
@@ -511,6 +528,11 @@
                                             <Button DockPanel.Dock="Right" Style="{StaticResource LightButton}" Margin="5,0,0,0" ToolTip="Retirer la ligne"
                                                     Command="{Binding DataContext.RemoveLineCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
                                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" />
+                                            </Button>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource LightButton}" Margin="5,0,0,0" ToolTip="Voir le colisage de cette caisse"
+                                                    Visibility="{Binding HasColisage, Converter={StaticResource BoolToVisibility}}"
+                                                    Command="{Binding DataContext.OpenLineColisageCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}">
+                                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" FontSize="10" />
                                             </Button>
                                             <Border DockPanel.Dock="Left" Width="6" CornerRadius="3" Margin="0,2,6,14" Background="{Binding ViewBrush}"
                                                     ToolTip="Couleur de l'article dans les vues" />

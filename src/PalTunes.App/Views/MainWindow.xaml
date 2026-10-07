@@ -197,7 +197,7 @@
                                 ToolTip="{Binding Print.CaseTip}">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE749;" Margin="0,2,10,0" />
-                                <TextBlock Text="Imprimer la fiche de colisage" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Print.CaseSheetLabel}" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource NavButton}" Command="{Binding Print.PackagingSheetCommand}" ToolTipService.ShowOnDisabled="True"

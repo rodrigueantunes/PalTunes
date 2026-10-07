@@ -122,6 +122,49 @@ public sealed partial class MainViewModel : ObservableObject
         Print.Refresh();
     }
 
+    // ------------------------------------------------------------------ Navigation entre les espaces
+
+    /// <summary>Espace Colisage réglé sur le colisage d'un article caisse (produit, caisse, quantité par caisse), calculé.</summary>
+    public void OpenColisage(Article box) => Cases.OpenColisage(box);
+
+    /// <summary>Fiche d'un article (espace Articles).</summary>
+    public void ShowArticle(Article a)
+    {
+        SelectedSection = "Articles";
+        Articles.SelectedArticle = Db.FindArticle(a.Id) ?? a;
+        Articles.RebuildTree();
+    }
+
+    /// <summary>Gestion des conditionnements filtrée sur un code (article, caisse, produit contenu).</summary>
+    public void ShowPackagingsFor(string search)
+    {
+        SelectedSection = "PackagingLibrary";
+        PackagingLibrary.SearchText = search;
+    }
+
+    /// <summary>Caisse créée au colisage dont le produit est connu : son colisage peut être rouvert.</summary>
+    public bool HasColisage(Article? a) => CaseEngine.CanRebuild(a, id => Db.FindArticle(id));
+
+    private readonly Dictionary<(Guid, CaseContent?, int?, DateTime, int), CaseEngine.CaseSheet?> _sheets = [];
+
+    /// <summary>Colisage recalculé d'un article caisse (mis en cache tant que l'article n'est pas modifié).</summary>
+    public CaseEngine.CaseSheet? ColisageSheet(Article box)
+    {
+        if (!HasColisage(box))
+        {
+            return null;
+        }
+
+        var key = (box.Id, box.CaseContent, box.QuantityPerCase, box.ModifiedAt, Db.Cases.Count);
+        if (!_sheets.TryGetValue(key, out var sheet))
+        {
+            sheet = CaseEngine.Rebuild(box, id => Db.FindArticle(id), Db.Cases);
+            _sheets[key] = sheet;
+        }
+
+        return sheet;
+    }
+
     // ------------------------------------------------------------------ Impression
 
     /// <summary>Fiches imprimées de l'article affiché (palette, colisage, conditionnement), quel que soit l'espace.</summary>
@@ -132,6 +175,26 @@ public sealed partial class MainViewModel : ObservableObject
     {
         [a.Id] = Settings.Current.UseArticleColors ? ArticleColors.Parse(a.Color, ArticleColors.DistinctByIndex(0)) : ArticleColors.DistinctByIndex(0)
     };
+
+    /// <summary>Couleurs distinctes des articles d'un colisage (caisse mixte : une par article).</summary>
+    public IReadOnlyDictionary<Guid, System.Windows.Media.Color> ColorsFor(CaseEngine.CaseSheet sheet)
+    {
+        if (!sheet.IsMixed)
+        {
+            return ColorsFor(sheet.Content);
+        }
+
+        var colors = new Dictionary<Guid, System.Windows.Media.Color>();
+        var k = 0;
+        foreach (var id in sheet.ShownUnit.Items.GroupBy(p => p.ArticleId).OrderByDescending(g => g.Count()).Select(g => g.Key))
+        {
+            colors[id] = Settings.Current.UseArticleColors
+                ? ArticleColors.Parse(Db.FindArticle(id)?.Color, ArticleColors.DistinctByIndex(k++))
+                : ArticleColors.DistinctByIndex(k++);
+        }
+
+        return colors;
+    }
 
     public int ClientCount => Db.Clients.Count;
     public int ArticleCount => Db.Articles.Count;

@@ -107,7 +107,22 @@
                                     <TextBlock Style="{StaticResource Muted}" Margin="2,3,0,0">
                                         <Run Text="{Binding Article.KindLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Article.Weight, Mode=OneWay, StringFormat={}{0:0.#####} kg}" />
                                     </TextBlock>
-                                    <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,4,0,0" FontSize="11.5"
+                                    <WrapPanel Margin="0,2,0,0" Visibility="{Binding Article, Converter={StaticResource NotNullToVisibility}}">
+                                    <Button Style="{StaticResource GhostButton}" Command="{Binding OpenArticleCommand}" Padding="4,2" Margin="0,0,6,0" ToolTip="Fiche du produit (espace Articles)">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71B;" Margin="0,2,5,0" FontSize="11" />
+                                            <TextBlock Text="Fiche article" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource GhostButton}" Command="{Binding ShowProductPackagingsCommand}" Padding="4,2"
+                                            ToolTip="Gestion des conditionnements filtrée sur ce produit (caisses déjà créées et leurs palettes)">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71B;" Margin="0,2,5,0" FontSize="11" />
+                                            <TextBlock Text="Ses conditionnements" />
+                                        </StackPanel>
+                                    </Button>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding ArticleWarning}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="2,4,0,0" FontSize="11.5"
                                                Visibility="{Binding ArticleWarning, Converter={StaticResource NotNullToVisibility}}" />
                                 </StackPanel>
                                 <StackPanel Visibility="{Binding IsMixed, Converter={StaticResource BoolToVisibility}}">

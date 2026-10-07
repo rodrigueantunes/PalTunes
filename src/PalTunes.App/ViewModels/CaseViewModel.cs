@@ -727,7 +727,7 @@ public sealed partial class CaseViewModel : ObservableObject
                 mixedCode = $"{mixedBase}-{i}";
             }
 
-            var mixed = CaseEngine.CreateMixedCaseArticle(unit, CurrentSpec, CurrentCase, mixedCode, id => _main.Db.FindArticle(id)?.Code ?? "?");
+            var mixed = CaseEngine.CreateMixedCaseArticle(unit, CurrentSpec, CurrentCase, mixedCode, id => _main.Db.FindArticle(id)?.Code ?? "?", Axis);
             mixed.Client = MixedLines().Select(l => l.Article.Client).Distinct().Count() == 1 ? MixedLines()[0].Article.Client : null;
             _main.Db.Articles.Add(mixed);
             _main.SaveDatabase();
@@ -770,26 +770,29 @@ public sealed partial class CaseViewModel : ObservableObject
     // ------------------------------------------------------------------ Impression
 
     /// <summary>Colisage affiché, prêt pour la fiche.</summary>
-    private CaseEngine.CaseSheet? CurrentSheet =>
-        Article != null && CurrentSolution is { FirstUnit: not null } s ? new CaseEngine.CaseSheet(Article, CurrentCase, CurrentSpec, s, Axis) : null;
+    private CaseEngine.CaseSheet? CurrentSheet => IsMixed
+        ? CurrentSolution is { Kind: PackagingKind.Heterogene, FirstUnit: not null } ms && MixedLines() is { Count: > 0 } lines
+            ? new CaseEngine.CaseSheet(lines.MaxBy(l => l.Quantity).Article, CurrentCase, CurrentSpec, ms, Axis, lines, CurrentUnit)
+            : null
+        : Article != null && CurrentSolution is { FirstUnit: not null } s ? new CaseEngine.CaseSheet(Article, CurrentCase, CurrentSpec, s, Axis) : null;
 
     public bool CanPrintCaseSheet => !IsBusy && CurrentSheet != null;
 
     /// <summary>Fiche de conditionnement du colisage affiché : palette de destination choisie et caisse palettisable.</summary>
-    public bool CanPrintPackagingSheet => CanPrintCaseSheet && CurrentSolution is { CasesPerPallet: > 0 } && ActivePallet != null;
+    public bool CanPrintPackagingSheet => !IsMixed && CanPrintCaseSheet && CurrentSolution is { CasesPerPallet: > 0 } && ActivePallet != null;
 
     public void PrintCaseSheet()
     {
         if (CurrentSheet is { } sheet)
         {
-            PrintService.PrintCaseSheet(sheet, null, _main.Db, _main.ColorsFor(sheet.Content));
+            PrintService.PrintCaseSheet(sheet, null, _main.Db, IsMixed ? ColorMap : _main.ColorsFor(sheet.Content));
         }
     }
 
     /// <summary>Caisse du colisage affiché (article non enregistré) palettisée sur la palette de destination.</summary>
     private (Article Box, Packaging Packaging, Solution Solution)? PalletOfCases()
     {
-        if (Article == null || CurrentSolution is not { CasesPerPallet: > 0 } s || ActivePallet is not { } pallet)
+        if (IsMixed || Article == null || CurrentSolution is not { CasesPerPallet: > 0 } s || ActivePallet is not { } pallet)
         {
             return null;
         }
@@ -817,6 +820,32 @@ public sealed partial class CaseViewModel : ObservableObject
         }
     }
 
+    /// <summary>Espace Colisage sur un produit (depuis la fiche article) : un article, meilleure caisse, calcul.</summary>
+    public void OpenForProduct(Article product)
+    {
+        _main.SelectedSection = "Cases";
+        _loading = true;
+        IsMixed = false;
+        RefreshArticles();
+        _loading = true;
+        Picker.Sync(product);
+        Article = Articles.FirstOrDefault(a => a.Id == product.Id) ?? product;
+        TargetQuantity = null;
+        _loading = false;
+        BuildColorMap();
+        RefreshPossibleCases();
+        Compute();
+    }
+
+    [RelayCommand]
+    private void ShowProductPackagings()
+    {
+        if (Article is { } a)
+        {
+            _main.ShowPackagingsFor(a.Code);
+        }
+    }
+
     /// <summary>
     /// Ouvre l'espace Colisage réglé sur le colisage d'un article caisse (depuis la gestion des conditionnements) :
     /// produit contenu, caisse du catalogue (imposée si besoin) ou caisse spécifique, quantité par caisse, axe, puis calcul.
@@ -831,13 +860,33 @@ public sealed partial class CaseViewModel : ObservableObject
         _main.SelectedSection = "Cases";
         var type = link.CaseTypeCode is { } code ? _main.Db.Cases.FirstOrDefault(c => string.Equals(c.Code, code, StringComparison.OrdinalIgnoreCase)) : null;
         _loading = true;
-        IsMixed = false;
         RefreshArticles();
         _loading = true;
+        if (link.IsMixed)
+        {
+            // Caisse mixte : « Plusieurs articles », mêmes articles × quantités, même caisse.
+            Lines.Clear();
+            foreach (var l in link.Lines!)
+            {
+                if (_main.Db.FindArticle(l.ArticleId) is { } a)
+                {
+                    Lines.Add(new LineViewModel { Article = a, Quantity = l.Quantity });
+                }
+            }
+
+            IsMixed = true;
+            _loading = true;
+        }
+        else
+        {
+            IsMixed = false;
+            _loading = true;
+        }
+
         Picker.Sync(content);
         Article = Articles.FirstOrDefault(a => a.Id == content.Id) ?? content;
         Gap = link.Gap;
-        TargetQuantity = box.CaseQuantity;
+        TargetQuantity = link.IsMixed ? null : box.CaseQuantity;
         AxisChoice = AxisChoices.FirstOrDefault(a => a.Value == (link.Axis ?? CoilAxis.Indifferent)) ?? AxisChoices[0];
         if (type != null)
         {

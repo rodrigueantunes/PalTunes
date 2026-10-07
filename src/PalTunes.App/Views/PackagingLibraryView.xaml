@@ -109,6 +109,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock Style="{StaticResource FormLabel}" Text="Client" />
                             <TextBlock Grid.Column="1" Text="{Binding ClientText}" Margin="0,6,0,2" />
@@ -118,8 +119,12 @@
                             <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PalletText}" Margin="0,6,0,2" />
                             <TextBlock Grid.Row="3" Style="{StaticResource FormLabel}" Text="Solution enregistrée" />
                             <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SolutionText}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,6,0,2" />
-                            <TextBlock Grid.Row="4" Style="{StaticResource FormLabel}" Text="Dates" />
-                            <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Muted}" Text="{Binding DatesText}" Margin="0,6,0,2" />
+                            <TextBlock Grid.Row="4" Style="{StaticResource FormLabel}" Text="Colisage"
+                                       Visibility="{Binding HasColisageLink, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ColisageText}" TextWrapping="Wrap" Margin="0,6,0,2"
+                                       Visibility="{Binding HasColisageLink, Converter={StaticResource BoolToVisibility}}" />
+                            <TextBlock Grid.Row="5" Style="{StaticResource FormLabel}" Text="Dates" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Style="{StaticResource Muted}" Text="{Binding DatesText}" Margin="0,6,0,2" />
                         </Grid>
                     </StackPanel>
                 </StackPanel>
@@ -140,6 +145,33 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE8E5;" Margin="0,2,6,0" />
                             <TextBlock Text="Ouvrir" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ColisageButton" Style="{StaticResource OutlineButton}" Margin="0,0,8,0" Click="ColisageButton_Click"
+                            Visibility="{Binding HasColisageLink, Converter={StaticResource BoolToVisibility}}"
+                            ToolTip="Ouvrir l'espace Colisage réglé sur le colisage de la caisse (produit, caisse, quantité par caisse)">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,6,0" />
+                            <TextBlock Text="{Binding ColisageButtonText}" />
+                        </StackPanel>
+                        <Button.ContextMenu>
+                            <ContextMenu ItemsSource="{Binding Colisages}">
+                                <ContextMenu.ItemContainerStyle>
+                                    <Style TargetType="MenuItem">
+                                        <Setter Property="Header" Value="{Binding Label}" />
+                                        <Setter Property="Command" Value="{Binding DataContext.OpenColisageCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <Setter Property="CommandParameter" Value="{Binding}" />
+                                        <Setter Property="Padding" Value="8,5" />
+                                    </Style>
+                                </ContextMenu.ItemContainerStyle>
+                            </ContextMenu>
+                        </Button.ContextMenu>
+                    </Button>
+                    <Button Style="{StaticResource OutlineButton}" Command="{Binding OpenArticleCommand}" Margin="0,0,8,0"
+                            Visibility="{Binding IsHomogeneousSelection, Converter={StaticResource BoolToVisibility}}" ToolTip="Fiche de l'article (espace Articles)">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71B;" Margin="0,2,6,0" />
+                            <TextBlock Text="Voir l'article" />
                         </StackPanel>
                     </Button>
                     <Button Style="{StaticResource OutlineButton}" Command="{Binding DuplicateCommand}" Margin="0,0,8,0">

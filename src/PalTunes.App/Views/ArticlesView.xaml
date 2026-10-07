@@ -131,6 +131,28 @@
                                 <TextBlock Text="Palettiser cet article" />
                             </StackPanel>
                         </Button>
+                        <Button Style="{StaticResource OutlineButton}" Command="{Binding PackInCaseCommand}" Margin="8,0,0,0"
+                                ToolTip="Espace Colisage : combien de produits dans une caisse">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,6,0" />
+                                <TextBlock Text="Mettre en caisse" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource OutlineButton}" Command="{Binding OpenColisageCommand}" Margin="8,0,0,0"
+                                Visibility="{Binding SelectedHasColisage, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Ouvrir l'espace Colisage réglé sur le colisage de cette caisse">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,6,0" />
+                                <TextBlock Text="Voir le colisage" />
+                            </StackPanel>
+                        </Button>
+                        <Button Style="{StaticResource GhostButton}" Command="{Binding ShowPackagingsCommand}" Margin="8,0,0,0" Padding="8,6"
+                                ToolTip="Gestion des conditionnements filtrée sur cet article">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71B;" Margin="0,2,6,0" />
+                                <TextBlock Text="Ses conditionnements" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
