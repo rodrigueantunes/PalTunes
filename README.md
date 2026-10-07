@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.2.2` · Windows · .NET 10 · WPF
+`v0.2.3` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -824,6 +824,10 @@ Ctrl+6  COLISAGE           meilleure caisse, caisse ouverte / fermée, création
 Ctrl+7  GESTION DES        tous les conditionnements rangés par client, famille, type ;
         CONDITIONNEMENTS   recherche, fiche résumée, aperçu 3D, ouvrir / dupliquer / supprimer
 ```
+
+**Mode sombre** : « Mode sombre » en bas de la navigation ou Ctrl+Maj+D, mémorisé ; la bascule garde l'écran et la
+saisie en cours. **Colonnes redimensionnables** : glisser le séparateur entre deux colonnes (largeur mémorisée par
+écran, double-clic : largeur d'origine).
 
 **Recherche globale** : Ctrl+K (ou « Rechercher… » en haut de la navigation) trouve articles, colisages,
 conditionnements, clients, palettes, caisses et espaces en une saisie, accents ignorés ; Entrée ouvre le résultat.
