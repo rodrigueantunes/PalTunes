@@ -1,6 +1,7 @@
 <UserControl x:Class="PalTunes.App.Views.ArticlesView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:rc="clr-namespace:PalTunes.App.Views.Controls"
              xmlns:b="clr-namespace:PalTunes.App.Views.Controls"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -9,7 +10,7 @@
              xmlns:m="clr-namespace:PalTunes.Core.Models;assembly=PalTunes.Core"
              mc:Ignorable="d" d:DataContext="{d:DesignInstance vm:ArticlesViewModel}"
              d:DesignWidth="1300" d:DesignHeight="850">
-    <Grid>
+    <Grid rc:ResizableColumns.Key="Articles">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="400" />
             <ColumnDefinition Width="*" />
@@ -69,7 +70,7 @@
                     <TreeView.Resources>
                         <HierarchicalDataTemplate DataType="{x:Type vm:TreeNode}" ItemsSource="{Binding Children}">
                             <DockPanel Margin="0,1" ToolTip="{Binding Detail}">
-                                <Border DockPanel.Dock="Right" Background="#EEF2F5" CornerRadius="8" Padding="6,0" Margin="8,0,0,0"
+                                <Border DockPanel.Dock="Right" Background="{StaticResource SoftPanelBrush}" CornerRadius="8" Padding="6,0" Margin="8,0,0,0"
                                         Visibility="{Binding IsGroup, Converter={StaticResource BoolToVisibility}}">
                                     <TextBlock Text="{Binding Count}" FontSize="11" Foreground="{StaticResource MutedBrush}" />
                                 </Border>
@@ -108,7 +109,7 @@
 
         <!-- ===================== Fiche article ===================== -->
         <Border Grid.Column="1" Style="{StaticResource CardStyle}" Margin="6" Padding="0">
-            <Grid>
+            <Grid rc:ResizableColumns.Key="Articles.Fiche">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="360" />
@@ -116,8 +117,8 @@
 
                 <DockPanel Margin="20,16,10,14">
                     <!-- Barre d'actions -->
-                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource SuccessButton}" Command="{Binding SaveCommand}" Padding="18,8" Margin="0,0,8,0" ToolTip="Ctrl+S">
+                    <WrapPanel DockPanel.Dock="Bottom" Margin="0,12,0,-6">
+                        <Button Style="{StaticResource SuccessButton}" Command="{Binding SaveCommand}" Padding="18,8" Margin="0,0,8,6" ToolTip="Ctrl+S">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74E;" Margin="0,2,8,0" />
                                 <TextBlock Text="Enregistrer" />
@@ -131,36 +132,62 @@
                                 <TextBlock Text="Palettiser cet article" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource OutlineButton}" Command="{Binding PackInCaseCommand}" Margin="8,0,0,0"
+                        <Button Style="{StaticResource OutlineButton}" Command="{Binding PackInCaseCommand}" Margin="8,0,0,6"
                                 ToolTip="Espace Colisage : combien de produits dans une caisse">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,6,0" />
                                 <TextBlock Text="Mettre en caisse" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource OutlineButton}" Command="{Binding OpenColisageCommand}" Margin="8,0,0,0"
-                                Visibility="{Binding SelectedHasColisage, Converter={StaticResource BoolToVisibility}}"
-                                ToolTip="Ouvrir l'espace Colisage réglé sur le colisage de cette caisse">
+                        <Button x:Name="ColisageButton" Style="{StaticResource OutlineButton}" Command="{Binding OpenColisageCommand}" Margin="8,0,0,6"
+                                Visibility="{Binding HasColisages, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Colisages de cet article : ouvert directement s'il n'y en a qu'un, sinon liste à filtrer">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,6,0" />
-                                <TextBlock Text="Voir le colisage" />
+                                <TextBlock Text="{Binding ColisageButtonText}" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource GhostButton}" Command="{Binding ShowPackagingsCommand}" Margin="8,0,0,0" Padding="8,6"
-                                ToolTip="Gestion des conditionnements filtrée sur cet article">
+                        <Popup IsOpen="{Binding IsColisagePickerOpen, Mode=TwoWay}" PlacementTarget="{Binding ElementName=ColisageButton}" Placement="Top"
+                               StaysOpen="False" AllowsTransparency="True" Opened="ColisagePopup_Opened">
+                            <Border Style="{StaticResource CardStyle}" Width="460" Padding="10" Margin="8">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Top" Text="{Binding ColisagePickerTitle}" FontWeight="SemiBold" Margin="2,0,0,6"
+                                               Foreground="{StaticResource TextBrush}" />
+                                    <TextBox x:Name="ColisageFilterBox" DockPanel.Dock="Top" Style="{StaticResource SearchBox}"
+                                             Text="{Binding ColisageFilter, UpdateSourceTrigger=PropertyChanged}" PreviewKeyDown="ColisageFilter_PreviewKeyDown"
+                                             AutomationProperties.Name="Filtrer les colisages" ToolTip="Filtrer : code de la caisse, produit, caisse du catalogue" />
+                                    <ListBox x:Name="ColisageList" ItemsSource="{Binding FilteredColisages}" MaxHeight="320" Margin="0,6,0,0"
+                                             BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             MouseLeftButtonUp="ColisageList_MouseLeftButtonUp" KeyDown="ColisageList_KeyDown">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="2,3">
+                                                    <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE7B8;" Margin="0,2,8,0"
+                                                               Foreground="{StaticResource PrimaryBrush}" />
+                                                    <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource TextBrush}" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </DockPanel>
+                            </Border>
+                        </Popup>
+                        <Button Style="{StaticResource OutlineButton}" Command="{Binding ShowPackagingsCommand}" Margin="8,0,0,6"
+                                Visibility="{Binding HasPackagings, Converter={StaticResource BoolToVisibility}}"
+                                ToolTip="Gestion des conditionnements filtrée sur cet article (palettes de l'article et des caisses qui le contiennent)">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71B;" Margin="0,2,6,0" />
-                                <TextBlock Text="Ses conditionnements" />
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE81E;" Margin="0,2,6,0" />
+                                <TextBlock Text="{Binding PackagingsButtonText}" />
                             </StackPanel>
                         </Button>
-                    </StackPanel>
+                    </WrapPanel>
 
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,10,0">
                         <StackPanel DataContext="{Binding Editor}">
                             <DockPanel>
-                                <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="#FDEBD0"
+                                <Border DockPanel.Dock="Right" Style="{StaticResource Badge}" Background="{StaticResource WarningSoftBrush}"
                                         Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibility}}">
-                                    <TextBlock Text="Modifié – non enregistré" FontSize="11" Foreground="#B9770E" />
+                                    <TextBlock Text="Modifié – non enregistré" FontSize="11" Foreground="{StaticResource WarningTextBrush}" />
                                 </Border>
                                 <TextBlock Text="{Binding Title}" FontSize="19" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
                             </DockPanel>
@@ -303,7 +330,192 @@
                                           Content="Fragile (rien dessus)" />
                             </Grid>
 
-                            <Border Background="#F4F7F9" CornerRadius="8" Padding="10,7" Margin="0,8,0,0"
+                            <!-- Forme du dessus et poignée : bidon, seau, bouteille, fût -->
+                            <StackPanel Visibility="{Binding ShowTopShape, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Style="{StaticResource SectionTitle}" Text="FORME DU DESSUS ET POIGNÉE (gerbage)" />
+
+                                <!-- Dessus -->
+                                <DockPanel Visibility="{Binding HasTopShape, Converter={StaticResource InverseBoolToVisibility}}">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource OutlineButton}" Command="{Binding DefineTopShapeCommand}" Margin="8,0,0,0"
+                                            ToolTip="Décrire le dessus (droit ou arrondi, angle) : le calcul décide s'il est gerbable directement, sur intercalaire ou pas du tout">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE70F;" Margin="0,2,6,0" />
+                                            <TextBlock Text="Décrire le dessus" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" VerticalAlignment="Center" Text="Dessus non décrit." />
+                                </DockPanel>
+                                <Grid Visibility="{Binding HasTopShape, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="14" />
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="Dessus" ToolTip="Droit : un plan (plat ou incliné). Arrondi : bombé, seule la partie haute porte." />
+                                        <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding TopShapes}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                  SelectedValue="{Binding TopShape}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <TextBlock Style="{StaticResource FormLabel}" Text="{Binding TopAngleText}"
+                                                   ToolTip="Angle du dessus par rapport à l'horizontale. 0° = plat. Au-delà de 14° (frottement plastique sur plastique), un produit posé dessus glisse." />
+                                        <DockPanel>
+                                            <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="54" Margin="8,0,0,0" Text="{Binding TopAngle, TargetNullValue=''}" />
+                                            <Slider Minimum="0" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                                                    Value="{Binding TopAngleValue}" AutomationProperties.Name="Angle du dessus" />
+                                        </DockPanel>
+                                    </StackPanel>
+                                    <Button Grid.Column="3" Style="{StaticResource GhostButton}" Command="{Binding ClearTopShapeCommand}" Padding="6,2" Margin="8,0,0,4"
+                                            VerticalAlignment="Bottom" ToolTip="Ne plus décrire le dessus">
+                                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" />
+                                    </Button>
+                                </Grid>
+
+                                <!-- Poignée -->
+                                <DockPanel Margin="0,10,0,0" Visibility="{Binding HasHandle, Converter={StaticResource InverseBoolToVisibility}}">
+                                    <Button DockPanel.Dock="Right" Style="{StaticResource OutlineButton}" Command="{Binding AddHandleCommand}" Margin="8,0,0,0"
+                                            ToolTip="Ajouter une poignée ou une anse : type, forme et dimensions">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE710;" Margin="0,2,6,0" />
+                                            <TextBlock Text="Ajouter une poignée" />
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding NoHandleText}" />
+                                </DockPanel>
+                                <StackPanel Margin="0,10,0,0" Visibility="{Binding HasHandle, Converter={StaticResource BoolToVisibility}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="Poignée / anse"
+                                                       ToolTip="Encastrée : ne dépasse pas le plan du dessus. Saillante : dépasse (rien ne repose dessus sans intercalaire rigide). Rabattable : anse couchée à plat." />
+                                            <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding Handles}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                      SelectedValue="{Binding Handle}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="Forme de la poignée"
+                                                       ToolTip="Arrondie : section ronde, un intercalaire ne la touche que sur une ligne. Droite : dessus plat." />
+                                            <ComboBox Style="{StaticResource FormCombo}" ItemsSource="{Binding HandleShapes}" DisplayMemberPath="Label" SelectedValuePath="Value"
+                                                      SelectedValue="{Binding HandleRoundedChoice}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="3" Style="{StaticResource GhostButton}" Command="{Binding RemoveHandleCommand}" Padding="6,2" Margin="8,0,0,4"
+                                                VerticalAlignment="Bottom" ToolTip="Retirer la poignée (produit sans poignée)">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" FontSize="11" Margin="0,2,5,0" />
+                                                <TextBlock Text="Retirer" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="{Binding HandleLengthLabel}" ToolTip="Longueur de la poignée en mm, au plus la longueur du produit (le diamètre pour un fût, un seau, une bouteille). Vide : proportion usuelle." />
+                                            <TextBox Style="{StaticResource NumBox}" Text="{Binding HandleLength, TargetNullValue=''}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="{Binding HandleWidthLabel}" ToolTip="Largeur de la poignée en mm, au plus la largeur du produit. Vide : proportion usuelle." />
+                                            <TextBox Style="{StaticResource NumBox}" Text="{Binding HandleWidth, TargetNullValue=''}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="4">
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="{Binding HandleHeightLabel}" ToolTip="Hauteur de la poignée en mm, au plus la hauteur du produit : saillie au-dessus du corps, ou profondeur du puits si elle est encastrée." />
+                                            <TextBox Style="{StaticResource NumBox}" Text="{Binding HandleHeight, TargetNullValue=''}" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Grid Margin="0,6,0,0" Visibility="{Binding HandleRoundedChoice, Converter={StaticResource BoolToVisibility}}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="18" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="{Binding HandleAngleLeftText}"
+                                                       ToolTip="Inclinaison du côté gauche de la poignée par rapport à la verticale : 0° = côté vertical, jusqu'à 80°." />
+                                            <DockPanel>
+                                                <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="54" Margin="8,0,0,0" Text="{Binding HandleAngleLeft, TargetNullValue=''}" />
+                                                <Slider Minimum="0" Maximum="80" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                                                        Value="{Binding HandleAngleLeftValue}" AutomationProperties.Name="Angle du côté gauche de la poignée" />
+                                            </DockPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <TextBlock Style="{StaticResource FormLabel}" Text="{Binding HandleAngleRightText}"
+                                                       ToolTip="Inclinaison du côté droit de la poignée par rapport à la verticale : 0° = côté vertical, jusqu'à 80°." />
+                                            <DockPanel>
+                                                <TextBox DockPanel.Dock="Right" Style="{StaticResource NumBox}" Width="54" Margin="8,0,0,0" Text="{Binding HandleAngleRight, TargetNullValue=''}" />
+                                                <Slider Minimum="0" Maximum="80" TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                                                        Value="{Binding HandleAngleRightValue}" AutomationProperties.Name="Angle du côté droit de la poignée" />
+                                            </DockPanel>
+                                        </StackPanel>
+                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Style="{StaticResource Muted}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                   Text="Angle de chaque côté par rapport à la verticale (0° = côté vertical) : plus les côtés sont inclinés, plus le dessus de la poignée raccourcit (appui sur intercalaire réduit)." />
+                                    </Grid>
+                                    <CheckBox Style="{StaticResource FormCheck}" IsChecked="{Binding HandleSolid}" Margin="0,8,0,0"
+                                              Content="Poignée pleine (moulée d'un seul tenant avec le corps)"
+                                              ToolTip="Poignée sans ouverture, liée au corps : dessinée pleine dans l'aperçu et les vues 3D. Décochée : poignée ouverte." />
+                                    <TextBlock Style="{StaticResource Muted}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0"
+                                               Text="Dimensions en mm, jamais plus grandes que celles du produit. Vide : proportions usuelles, calcul comme avant." />
+                                </StackPanel>
+
+                                <!-- Verdict -->
+                                <Border CornerRadius="8" Padding="10,8" Margin="0,10,0,0" Background="{StaticResource SoftPanelBrush}" BorderThickness="3,0,0,0"
+                                        BorderBrush="{Binding TopVerdictColor, Converter={StaticResource HexToBrush}}"
+                                        Visibility="{Binding TopRule, Converter={StaticResource NotNullToVisibility}}">
+                                    <StackPanel>
+                                        <DockPanel>
+                                            <Button DockPanel.Dock="Right" Style="{StaticResource GhostButton}" Command="{Binding ClearAllTopCommand}" Padding="4,1"
+                                                    ToolTip="Tout effacer (dessus et poignée) : retour au calcul par défaut">
+                                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE711;" FontSize="10" />
+                                            </Button>
+                                            <TextBlock Text="{Binding TopVerdict}" FontWeight="SemiBold" TextWrapping="Wrap"
+                                                       Foreground="{Binding TopVerdictColor, Converter={StaticResource HexToBrush}}" />
+                                        </DockPanel>
+                                        <Expander Header="Pourquoi ? (raisonnement pas à pas)" Margin="0,4,0,0" FontSize="12">
+                                            <ItemsControl ItemsSource="{Binding TopSteps}" Margin="4,4,0,0">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <DockPanel Margin="0,2">
+                                                            <TextBlock DockPanel.Dock="Left" Text="•" Foreground="{StaticResource MutedBrush}" Margin="0,0,6,0" />
+                                                            <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="12" />
+                                                        </DockPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Expander>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <!-- Sac : tassement à la mise en caisse -->
+                            <StackPanel Visibility="{Binding ShowCompression, Converter={StaticResource BoolToVisibility}}">
+                                <TextBlock Style="{StaticResource SectionTitle}" Text="TASSEMENT À LA MISE EN CAISSE" />
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox Style="{StaticResource FormCheck}" IsChecked="{Binding Compressible}" VerticalAlignment="Center"
+                                              Content="Tassable en caisse"
+                                              ToolTip="On peut appuyer pour en mettre plus en caisse : l'air est chassé, l'épaisseur diminue, l'empreinte ne change pas. Décoché : épaisseur saisie conservée." />
+                                    <StackPanel Orientation="Horizontal" Margin="16,0,0,0" IsEnabled="{Binding Compressible}">
+                                        <TextBox Style="{StaticResource NumBox}" Width="64" Text="{Binding CompressionPercent, TargetNullValue=''}"
+                                                 ToolTip="Tassement maxi de l'épaisseur (%). Vide : 10 %. Au plus 25 % ; pour des sacs pleins, rester sous 15 %." />
+                                        <TextBlock Text="% de l'épaisseur" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource Muted}" FontSize="11.5" TextWrapping="Wrap" Margin="0,4,0,0" Text="{Binding CompressionText}" />
+                            </StackPanel>
+
+                            <Border Background="{StaticResource SoftPanelBrush}" CornerRadius="8" Padding="10,7" Margin="0,8,0,0"
                                     ToolTip="Déduit automatiquement (aucune donnée supplémentaire à saisir) ; renseignez « Charge maxi sur le dessus » ou « Fragile » pour l'affiner.">
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE81E;" Margin="0,2,8,0" Foreground="{StaticResource PrimaryBrush}" />
@@ -397,7 +609,7 @@
                 </DockPanel>
 
                 <!-- Aperçu 3D -->
-                <Border Grid.Column="1" Background="#F4F7F9" CornerRadius="0,10,10,0">
+                <Border Grid.Column="1" Background="{StaticResource SoftPanelBrush}" CornerRadius="0,10,10,0">
                     <DockPanel Margin="14">
                         <TextBlock DockPanel.Dock="Top" Style="{StaticResource SectionTitle}" Text="APERÇU" Margin="0,0,0,6" />
                         <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" DataContext="{Binding SelectedArticle}" Visibility="{Binding Converter={StaticResource NotNullToVisibility}}">
@@ -406,9 +618,9 @@
                                 <Run Text=" · modifié le " /><Run Text="{Binding ModifiedAt, StringFormat=dd/MM/yyyy HH:mm, Mode=OneWay}" />
                             </TextBlock>
                         </StackPanel>
-                        <Border CornerRadius="10" Background="White" ClipToBounds="True">
+                        <Border CornerRadius="10" Background="{StaticResource CardBrush}" ClipToBounds="True">
                             <h:HelixViewport3D x:Name="Preview" Background="{StaticResource Viewport3DBrush}" ZoomAroundMouseDownPoint="True" ShowViewCube="False"
-                                               IsHeadLightEnabled="True" ModelUpDirection="0,0,1" ShowCoordinateSystem="True" CoordinateSystemLabelForeground="#7F8C8D">
+                                               IsHeadLightEnabled="True" ModelUpDirection="0,0,1" ShowCoordinateSystem="True" CoordinateSystemLabelForeground="{StaticResource MutedBrush}">
                                 <h:DefaultLights />
                                 <ModelVisual3D Content="{Binding Preview}" />
                             </h:HelixViewport3D>

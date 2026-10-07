@@ -6,7 +6,7 @@
     <!-- Compléments PalTunes au thème OptiTunes : formulaires, tuiles de type, cartes de solution. -->
 
     <Style x:Key="SectionTitle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="#5D6D7E" />
+        <Setter Property="Foreground" Value="{StaticResource SectionTextBrush}" />
         <Setter Property="FontSize" Value="11" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Margin" Value="0,14,0,6" />
@@ -21,8 +21,10 @@
 
     <Style x:Key="FormBox" TargetType="TextBox">
         <Setter Property="Padding" Value="8,5" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
             <Setter.Value>
@@ -33,14 +35,14 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="#B6C3CD" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BorderHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
-                            <Setter TargetName="Bd" Property="Background" Value="#FBFDFF" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsReadOnly" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#F6F8FA" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource SoftPanelBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Bd" Property="Opacity" Value="0.55" />
@@ -77,7 +79,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Bd" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                    <Border x:Name="Bd" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                             CornerRadius="9" Padding="10,7" MinWidth="92">
                         <ContentPresenter x:Name="Cp" HorizontalAlignment="Center" TextElement.Foreground="{StaticResource TextBrush}" />
                     </Border>
@@ -144,12 +146,14 @@
             <Setter.Value>
                 <Style TargetType="ListBoxItem">
                     <Setter Property="Cursor" Value="Hand" />
+                    <Setter Property="ctl:Motion.Appear" Value="Rise" />
+                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
                                 <Grid Margin="0,0,0,6">
-                                    <Border x:Name="Bd" Background="White" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
+                                    <Border x:Name="Bd" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1"
                                             CornerRadius="9" Padding="10,8">
                                         <ContentPresenter />
                                     </Border>
@@ -168,7 +172,7 @@
                                             <Condition Property="IsSelected" Value="False" />
                                         </MultiTrigger.Conditions>
                                         <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}" />
-                                        <Setter TargetName="Bd" Property="BorderBrush" Value="#C9D6E0" />
+                                        <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BorderHoverBrush}" />
                                     </MultiTrigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -240,7 +244,7 @@
 
     <!-- Détails du calcul : une carte par étape, une ligne par calcul ou règle -->
     <DataTemplate DataType="{x:Type ex:DetailSection}">
-        <Border Background="White" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="9" Padding="12,9" Margin="0,0,0,8">
+        <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource CardBorderBrush}" BorderThickness="1" CornerRadius="9" Padding="12,9" Margin="0,0,0,8">
             <StackPanel>
                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13.5" Foreground="{StaticResource PrimaryDarkBrush}" Margin="0,0,0,4" />
                 <ItemsControl ItemsSource="{Binding Lines}">
@@ -256,6 +260,69 @@
             </StackPanel>
         </Border>
     </DataTemplate>
+
+    <!-- Navigation : recherche, précédent / suivant, lien discret -->
+    <Style x:Key="NavSearchButton" TargetType="Button">
+        <Setter Property="Foreground" Value="#D5DBDF" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="#26FFFFFF" CornerRadius="8" Padding="10,6" BorderBrush="#33FFFFFF" BorderThickness="1">
+                        <ContentPresenter HorizontalAlignment="Stretch" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#40FFFFFF" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="NavMiniButton" TargetType="Button">
+        <Setter Property="Foreground" Value="#D5DBDF" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Bd" Background="#1AFFFFFF" CornerRadius="8">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bd" Property="Background" Value="#40FFFFFF" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.35" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="NavLinkButton" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource NavMutedBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <ContentPresenter x:Name="Cp" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="White" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 
     <!-- Arborescence -->
     <Style TargetType="TreeViewItem">

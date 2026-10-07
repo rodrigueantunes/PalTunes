@@ -24,6 +24,11 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         DispatcherUnhandledException += OnUnhandledException;
+        // Thème mémorisé (clair, sombre, système) appliqué avant la création de la fenêtre.
+        var settings = new Services.SettingsService(Environment.GetEnvironmentVariable("PALTUNES_SETTINGS"));
+        Services.ThemeService.Apply(Services.ThemeService.Resolve(settings.Current.Theme));
+        Views.Controls.Motion.UserEnabled = settings.Current.Animations;
+        Views.Controls.Motion.BuildSpeed = settings.Current.BuildSpeed;
         base.OnStartup(e);
     }
 

@@ -48,7 +48,10 @@ public sealed partial class MainViewModel : ObservableObject
         Packagings = new PackagingsViewModel(this);
         PackagingLibrary = new PackagingLibraryViewModel(this);
         Cases = new CaseViewModel(this);
+        Search = new GlobalSearchViewModel(this);
+        ConnectColumnWidths();
         Scene3DBuilder.KindOf = id => Db.FindArticle(id)?.Kind;
+        Scene3DBuilder.TopOf = id => Db.FindArticle(id) is { } a && TopStacking.IsDefined(a) ? TopStacking.FormOf(a) : null;
         Print = new PrintCenter(this);
         Print.Attach(Articles, Packagings, PackagingLibrary, Cases);
         _selectedSection = settings.Current.Section is "Clients" or "Articles" or "Pallets" or "CaseTypes" or "Packagings" or "PackagingLibrary" or "Cases"
@@ -93,6 +96,9 @@ public sealed partial class MainViewModel : ObservableObject
     public PackagingLibraryViewModel PackagingLibrary { get; }
     public CaseViewModel Cases { get; }
 
+    /// <summary>Recherche globale (Ctrl+K).</summary>
+    public GlobalSearchViewModel Search { get; }
+
     public string DatabasePath => _store.Path;
     public string DatabaseName => Path.GetFileName(_store.Path);
 
@@ -103,12 +109,211 @@ public sealed partial class MainViewModel : ObservableObject
     public string VersionNumber => AppVersion.TrimStart('v');
     public IReadOnlyList<ReleaseNote> ReleaseNotesList => ReleaseNotes.All;
 
-    [ObservableProperty] private string _selectedSection;
+    [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(GoBackCommand), nameof(GoForwardCommand))] private string _selectedSection;
+
+    // ------------------------------------------------------------------ Historique de navigation (Précédent / Suivant)
+
+    private readonly List<string> _back = [];
+    private readonly List<string> _forward = [];
+    private bool _historyMove;
+
+    partial void OnSelectedSectionChanged(string? oldValue, string newValue)
+    {
+        if (_historyMove || oldValue == null || oldValue == newValue)
+        {
+            return;
+        }
+
+        _back.Add(oldValue);
+        if (_back.Count > 50)
+        {
+            _back.RemoveAt(0);
+        }
+
+        _forward.Clear();
+    }
+
+    private bool CanGoBack() => _back.Count > 0;
+    private bool CanGoForward() => _forward.Count > 0;
+
+    /// <summary>Alt+← ou bouton « précédent » de la souris : écran précédent.</summary>
+    [RelayCommand(CanExecute = nameof(CanGoBack))]
+    private void GoBack() => MoveInHistory(_back, _forward);
+
+    /// <summary>Alt+→ ou bouton « suivant » de la souris.</summary>
+    [RelayCommand(CanExecute = nameof(CanGoForward))]
+    private void GoForward() => MoveInHistory(_forward, _back);
+
+    private void MoveInHistory(List<string> from, List<string> to)
+    {
+        if (from.Count == 0)
+        {
+            return;
+        }
+
+        var target = from[^1];
+        from.RemoveAt(from.Count - 1);
+        to.Add(SelectedSection);
+        _historyMove = true;
+        try
+        {
+            SelectedSection = target;
+        }
+        finally
+        {
+            _historyMove = false;
+        }
+
+        GoBackCommand.NotifyCanExecuteChanged();
+        GoForwardCommand.NotifyCanExecuteChanged();
+    }
+
+    public string BackTip => _back.Count > 0 ? $"Précédent : {SectionLabel(_back[^1])} (Alt+←)" : "Précédent (Alt+←)";
+    public string ForwardTip => _forward.Count > 0 ? $"Suivant : {SectionLabel(_forward[^1])} (Alt+→)" : "Suivant (Alt+→)";
+
+    public static string SectionLabel(string section) => section switch
+    {
+        "Clients" => "Clients",
+        "Articles" => "Articles",
+        "Pallets" => "Palettes",
+        "CaseTypes" => "Caisses",
+        "Packagings" => "Conditionnements",
+        "Cases" => "Colisage",
+        "PackagingLibrary" => "Gestion des conditionnements",
+        _ => section
+    };
+
+    // ------------------------------------------------------------------ Recherche globale et raccourcis
+
+    [RelayCommand]
+    private void OpenSearch() => Search.Open();
+
+    [ObservableProperty] private bool _isShortcutsOpen;
+
+    /// <summary>Colonnes redimensionnables : largeurs mémorisées dans les réglages de ce modèle (appelé par la fenêtre active).</summary>
+    public void ConnectColumnWidths()
+    {
+        Views.Controls.ResizableColumns.LoadWidths = key => Settings.Current.ColumnWidths.TryGetValue(key, out var w) ? w : null;
+        Views.Controls.ResizableColumns.SaveWidths = (key, widths) =>
+        {
+            if (widths == null)
+            {
+                Settings.Current.ColumnWidths.Remove(key);
+            }
+            else
+            {
+                Settings.Current.ColumnWidths[key] = widths;
+            }
+
+            Settings.Save();
+        };
+    }
+
+    // ------------------------------------------------------------------ Mode sombre
+
+    /// <summary>La fenêtre se reconstruit sur ce modèle avec le nouveau thème (rien n'est perdu).</summary>
+    public event Action? ThemeChangeRequested;
+
+    public bool IsDarkTheme => ThemeService.IsDark;
+    public string ThemeLabel => ThemeService.IsDark ? "Mode clair" : "Mode sombre";
+    public string ThemeGlyph => ThemeService.IsDark ? "\uE706" : "\uE708";
+
+    // ------------------------------------------------------------------ Animations
+
+    public sealed record SpeedChoice(double Value, string Label);
+
+    /// <summary>Vitesses de la construction 3D proposées à côté de « Construction » / « Mise en caisse ».</summary>
+    public IReadOnlyList<SpeedChoice> BuildSpeeds { get; } =
+    [
+        new(0.5, "Lente"),
+        new(1, "Normale"),
+        new(2, "Rapide"),
+        new(4, "Très rapide")
+    ];
+
+    public double BuildSpeed
+    {
+        get => Settings.Current.BuildSpeed;
+        set
+        {
+            var v = Math.Clamp(value, 0.25, 4);
+            if (Math.Abs(v - Settings.Current.BuildSpeed) < 1e-9)
+            {
+                return;
+            }
+
+            Settings.Current.BuildSpeed = v;
+            Views.Controls.Motion.BuildSpeed = v;
+            Settings.Save();
+            OnPropertyChanged();
+        }
+    }
+
+    public string AnimationsLabel => Settings.Current.Animations ? "Animations : activées" : "Animations : désactivées";
+
+    /// <summary>Active ou coupe les animations (construction 3D, transitions), mémorisé.</summary>
+    [RelayCommand]
+    private void ToggleAnimations()
+    {
+        Settings.Current.Animations = !Settings.Current.Animations;
+        Views.Controls.Motion.UserEnabled = Settings.Current.Animations;
+        Settings.Save();
+        OnPropertyChanged(nameof(AnimationsLabel));
+        ShowToast(Settings.Current.Animations
+            ? System.Windows.SystemParameters.ClientAreaAnimation ? "Animations activées." : "Animations activées dans PalTunes, mais Windows n'affiche pas les animations (Paramètres › Accessibilité › Effets visuels)."
+            : "Animations désactivées : tout s'affiche directement.", "Ok");
+    }
+
+    public void NotifyThemeChanged()
+    {
+        OnPropertyChanged(nameof(IsDarkTheme));
+        OnPropertyChanged(nameof(ThemeLabel));
+        OnPropertyChanged(nameof(ThemeGlyph));
+    }
+
+    /// <summary>Ctrl+Maj+D ou bouton de la navigation : bascule clair / sombre, mémorisé.</summary>
+    [RelayCommand]
+    private void ToggleTheme()
+    {
+        Settings.Current.Theme = ThemeService.IsDark ? ThemeService.Light : ThemeService.Dark;
+        Settings.Save();
+        ThemeChangeRequested?.Invoke();
+    }
+
+    [RelayCommand]
+    private void ToggleShortcuts() => IsShortcutsOpen = !IsShortcutsOpen;
+
+    public sealed record Shortcut(string Keys, string Action);
+
+    public IReadOnlyList<Shortcut> Shortcuts { get; } =
+    [
+        new("Ctrl + K", "Rechercher partout : articles, conditionnements, colisages, clients, palettes, caisses, espaces"),
+        new("Alt + ← / Alt + →", "Écran précédent / suivant (aussi : boutons latéraux de la souris)"),
+        new("Ctrl + 1 … 7", "Clients · Articles · Palettes · Caisses · Conditionnements · Colisage · Gestion des conditionnements"),
+        new("Ctrl + S", "Enregistrer la fiche de l'écran affiché"),
+        new("F5", "Calculer le conditionnement"),
+        new("Ctrl + P", "Imprimer la fiche palette"),
+        new("Ctrl + E", "Exporter les conditionnements (mono-article)"),
+        new("Ctrl + I", "Importer des articles (CSV)"),
+        new("F1", "Format du fichier d'import des articles"),
+        new("Ctrl + F1", "Cette liste des raccourcis"),
+        new("Ctrl + Maj + D", "Mode sombre / mode clair"),
+        new("Clic dans la vue 3D", "Termine aussitôt l'animation de construction ; « Construction » / « Mise en caisse » la rejoue"),
+        new("Séparateurs", "Glisser entre deux colonnes pour élargir ou réduire (double-clic : largeur d'origine)"),
+        new("Échap", "Fermer la fenêtre ouverte (recherche, aide, rapport, notification)"),
+        new("Double-clic", "Ouvrir l'élément (arborescences, gestion des conditionnements)")
+    ];
 
     partial void OnSelectedSectionChanged(string value)
     {
         Settings.Current.Section = value;
         Settings.Save();
+        if (value == "Articles")
+        {
+            Articles.RefreshLinks();
+        }
+        OnPropertyChanged(nameof(BackTip));
+        OnPropertyChanged(nameof(ForwardTip));
         if (value == "Cases")
         {
             Cases.EnsureComputed();
@@ -133,9 +338,37 @@ public sealed partial class MainViewModel : ObservableObject
         SelectedSection = "Articles";
         Articles.SelectedArticle = Db.FindArticle(a.Id) ?? a;
         Articles.RebuildTree();
+        Articles.RefreshLinks();
     }
 
     /// <summary>Gestion des conditionnements filtrée sur un code (article, caisse, produit contenu).</summary>
+    /// <summary>Conditionnement sélectionné dans la gestion des conditionnements.</summary>
+    public void ShowPackaging(Packaging p)
+    {
+        SelectedSection = "PackagingLibrary";
+        PackagingLibrary.SearchText = "";
+        PackagingLibrary.Selected = Db.Packagings.FirstOrDefault(x => x.Id == p.Id) ?? p;
+    }
+
+    public void ShowClient(Client c)
+    {
+        SelectedSection = "Clients";
+        Clients.Filter = "";
+        Clients.SelectedRow = Clients.Rows.FirstOrDefault(r => r.Client.Id == c.Id) ?? Clients.SelectedRow;
+    }
+
+    public void ShowPallet(PalletType p)
+    {
+        SelectedSection = "Pallets";
+        Pallets.SelectedPallet = Db.Pallets.FirstOrDefault(x => x.Id == p.Id) ?? p;
+    }
+
+    public void ShowCaseType(CaseType c)
+    {
+        SelectedSection = "CaseTypes";
+        Cases.CatalogSelected = Cases.CatalogCases.FirstOrDefault(x => x.Id == c.Id) ?? c;
+    }
+
     public void ShowPackagingsFor(string search)
     {
         SelectedSection = "PackagingLibrary";
@@ -231,6 +464,7 @@ public sealed partial class MainViewModel : ObservableObject
         Packagings.Refresh();
         Cases?.RefreshArticles();
         Clients?.Refresh();
+        Articles?.RefreshLinks();
         OnPropertyChanged(nameof(ArticleCount));
     }
 
@@ -572,7 +806,15 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void Escape()
     {
-        if (IsReleaseNotesOpen)
+        if (Search.IsOpen)
+        {
+            Search.IsOpen = false;
+        }
+        else if (IsShortcutsOpen)
+        {
+            IsShortcutsOpen = false;
+        }
+        else if (IsReleaseNotesOpen)
         {
             CloseReleaseNotes();
         }

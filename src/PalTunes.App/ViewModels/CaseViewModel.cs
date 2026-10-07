@@ -168,6 +168,10 @@ public sealed partial class CaseViewModel : ObservableObject
         OnPropertyChanged(nameof(Summary));
         OnPropertyChanged(nameof(CalculationSections));
         RebuildScene();
+        if (!_loading)
+        {
+            BuildAnimationRequested?.Invoke(true);
+        }
     }
 
     // ------------------------------------------------------------------ Couleurs des articles
@@ -311,6 +315,26 @@ public sealed partial class CaseViewModel : ObservableObject
         ? PalTunes.Core.Export.CalculationDetails.Case(s, u, CurrentSpec, CurrentCase, IsMixed ? null : Article, ManualLimit, id => _main.Db.FindArticle(id))
         : [];
 
+    /// <summary>Copie le détail du calcul affiché dans le presse-papiers (texte brut).</summary>
+    [RelayCommand]
+    private void CopyCalculation()
+    {
+        if (CalculationSections.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(PalTunes.Core.Export.CalculationDetails.ToText(CalculationSections, "Détail du colisage"));
+            _main.ShowToast("Détail du calcul copié : collez-le dans un courriel ou un document.", "Ok");
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            _main.ShowToast("Presse-papiers occupé : réessayez.", "Warning");
+        }
+    }
+
     private CaseSpec WithGap(CaseSpec s)
     {
         s.Gap = Gap;
@@ -413,7 +437,14 @@ public sealed partial class CaseViewModel : ObservableObject
         }
     }
 
-    partial void OnIsOpenChanged(bool value) => RebuildScene();
+    partial void OnIsOpenChanged(bool value)
+    {
+        RebuildScene();
+        if (value)
+        {
+            BuildAnimationRequested?.Invoke(false); // ouverture : les rabats s'ouvrent
+        }
+    }
 
     partial void OnDestinationPalletChanged(PalletType? value)
     {
@@ -549,7 +580,14 @@ public sealed partial class CaseViewModel : ObservableObject
         OnPropertyChanged(nameof(ColorMap));
         OnPropertyChanged(nameof(CalculationSections));
         RebuildScene();
+        BuildAnimationRequested?.Invoke(true);
     }
+
+    /// <summary>
+    /// Animation demandée à la vue : vrai = nouvelle caisse (rabats qui s'ouvrent puis produits déposés), faux = seulement
+    /// l'ouverture des rabats.
+    /// </summary>
+    public event Action<bool>? BuildAnimationRequested;
 
     private void RebuildScene()
     {

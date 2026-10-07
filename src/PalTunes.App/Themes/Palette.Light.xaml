@@ -1,0 +1,83 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Palette claire (0.1.1 : bleu plus soutenu et lisible, fond plus clair, cartes blanches à liseré) -->
+    <Color x:Key="ColorBg">#EEF2F5</Color>
+    <Color x:Key="ColorPanelDark">#34495E</Color>
+    <Color x:Key="ColorPanelDarker">#2C3E50</Color>
+    <Color x:Key="ColorCard">#FFFFFF</Color>
+    <Color x:Key="ColorPrimary">#3E9BDC</Color>
+    <Color x:Key="ColorPrimaryDark">#2471B3</Color>
+    <Color x:Key="ColorPrimarySoft">#EAF4FC</Color>
+    <Color x:Key="ColorSuccess">#27AE60</Color>
+    <Color x:Key="ColorWarning">#F39C12</Color>
+    <Color x:Key="ColorDanger">#E74C3C</Color>
+    <Color x:Key="ColorText">#2C3E50</Color>
+    <Color x:Key="ColorMuted">#71808C</Color>
+    <Color x:Key="ColorLine">#D6DEE4</Color>
+    <Color x:Key="ColorCardBorder">#E2E8ED</Color>
+
+    <SolidColorBrush x:Key="BgBrush" Color="{StaticResource ColorBg}" />
+    <SolidColorBrush x:Key="PanelDarkBrush" Color="{StaticResource ColorPanelDark}" />
+    <SolidColorBrush x:Key="PanelDarkerBrush" Color="{StaticResource ColorPanelDarker}" />
+    <SolidColorBrush x:Key="CardBrush" Color="{StaticResource ColorCard}" />
+    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource ColorPrimary}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource ColorSuccess}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource ColorWarning}" />
+    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource ColorDanger}" />
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource ColorText}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource ColorMuted}" />
+    <SolidColorBrush x:Key="LineBrush" Color="{StaticResource ColorLine}" />
+    <SolidColorBrush x:Key="PrimaryDarkBrush" Color="{StaticResource ColorPrimaryDark}" />
+    <SolidColorBrush x:Key="PrimarySoftBrush" Color="{StaticResource ColorPrimarySoft}" />
+    <SolidColorBrush x:Key="CardBorderBrush" Color="{StaticResource ColorCardBorder}" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#F3F8FC" />
+
+    <!-- Colonne de navigation : léger dégradé, survol, élément actif, pastilles de compteur -->
+    <LinearGradientBrush x:Key="NavPanelBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#35506A" Offset="0" />
+        <GradientStop Color="#2C3E50" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="NavHoverBrush" Color="#16FFFFFF" />
+    <SolidColorBrush x:Key="NavActiveBrush" Color="#26FFFFFF" />
+    <SolidColorBrush x:Key="NavBadgeBrush" Color="#33000000" />
+    <SolidColorBrush x:Key="NavMutedBrush" Color="#9DB0BF" />
+
+    <!-- Fond des vues 3D : dégradé clair, sol légèrement plus soutenu -->
+    <LinearGradientBrush x:Key="Viewport3DBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FCFDFE" Offset="0" />
+        <GradientStop Color="#F1F5F8" Offset="0.55" />
+        <GradientStop Color="#DFE7EE" Offset="1" />
+    </LinearGradientBrush>
+
+
+    <!-- Surfaces et textes secondaires (0.2.3 : clés communes aux modes clair et sombre) -->
+    <SolidColorBrush x:Key="SoftPanelBrush" Color="#F4F7F9" />
+    <SolidColorBrush x:Key="WarningSoftBrush" Color="#FDEBD0" />
+    <SolidColorBrush x:Key="SuccessSoftBrush" Color="#E9F7EF" />
+    <SolidColorBrush x:Key="WarningTextBrush" Color="#B9770E" />
+    <SolidColorBrush x:Key="SuccessTextBrush" Color="#1E8449" />
+    <SolidColorBrush x:Key="OverlayBrush" Color="#F2FFFFFF" />
+    <SolidColorBrush x:Key="SectionTextBrush" Color="#5D6D7E" />
+    <SolidColorBrush x:Key="GridHeaderBrush" Color="#F5F8FA" />
+    <SolidColorBrush x:Key="AltRowBrush" Color="#FAFCFD" />
+    <SolidColorBrush x:Key="GridLineBrush" Color="#EDF1F4" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#E4EAEF" />
+    <SolidColorBrush x:Key="PressedBrush" Color="#E2EAF0" />
+    <SolidColorBrush x:Key="BorderHoverBrush" Color="#B6C3CD" />
+    <SolidColorBrush x:Key="SplitterHoverBrush" Color="#663E9BDC" />
+    <SolidColorBrush x:Key="PurpleSoftBrush" Color="#F4ECF7" />
+
+    <!-- Couleurs système (modèles WPF classiques, menus, sélection) alignées sur la palette -->
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#2C3E50" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#2C3E50" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#2C3E50" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#F4F7F9" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#3E9BDC" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#EAF4FC" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#2C3E50" />
+    <SolidColorBrush x:Key="{x:Static SystemColors.GrayTextBrushKey}" Color="#71808C" />
+</ResourceDictionary>

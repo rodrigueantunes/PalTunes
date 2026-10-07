@@ -96,6 +96,8 @@ public sealed partial class ArticlesViewModel : ObservableObject
         {
             Editor.Load(value, isNew: false);
         }
+
+        RefreshLinks();
     }
 
     public void SelectNode(TreeNode? node)
@@ -341,6 +343,7 @@ public sealed partial class ArticlesViewModel : ObservableObject
         SelectedArticle = draft;
         RebuildTree();
         _main.NotifyArticlesChanged();
+        RefreshLinks();
         if (newClients > 0)
         {
             _main.NotifyClientsChanged();
@@ -386,15 +389,111 @@ public sealed partial class ArticlesViewModel : ObservableObject
         }
     }
 
-    /// <summary>Caisse créée au colisage (produit connu) : « Voir le colisage ».</summary>
-    public bool SelectedHasColisage => _main.HasColisage(SelectedArticle);
+    // ------------------------------------------------------------------ Colisages et conditionnements de l'article
 
+    /// <summary>
+    /// Colisages de l'article affiché : la caisse elle-même (article caisse créé au colisage), ou les caisses créées pour
+    /// ce produit, seul ou dans une caisse mixte.
+    /// </summary>
+    public ObservableCollection<ColisageLink> Colisages { get; } = [];
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(FilteredColisages))] private string _colisageFilter = "";
+    [ObservableProperty] private bool _isColisagePickerOpen;
+    [ObservableProperty] private int _packagingCount;
+
+    public bool HasColisages => Colisages.Count > 0;
+    public string ColisageButtonText => Colisages.Count > 1 ? $"Voir les colisages ({Colisages.Count})" : "Voir le colisage";
+    public string ColisagePickerTitle => SelectedArticle is { } a ? $"Colisages de {a.Code}" : "Colisages";
+
+    public IReadOnlyList<ColisageLink> FilteredColisages
+    {
+        get
+        {
+            var q = ColisageFilter.Trim();
+            return q.Length == 0 ? Colisages : Colisages.Where(c => c.Label.Contains(q, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        }
+    }
+
+    public bool HasPackagings => PackagingCount > 0;
+    public string PackagingsButtonText => PackagingCount > 1 ? $"Ses conditionnements ({PackagingCount})" : "Son conditionnement";
+
+    partial void OnPackagingCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasPackagings));
+        OnPropertyChanged(nameof(PackagingsButtonText));
+    }
+
+    /// <summary>Recalcule les colisages et le nombre de conditionnements de l'article affiché (boutons visibles seulement s'il y en a).</summary>
+    public void RefreshLinks()
+    {
+        Colisages.Clear();
+        IsColisagePickerOpen = false;
+        var db = _main.Db;
+        if (SelectedArticle is { } a && db.FindArticle(a.Id) != null)
+        {
+            Article? Find(Guid id) => db.FindArticle(id);
+            string Describe(Article box)
+            {
+                var link = box.CaseContent!;
+                var content = link.IsMixed
+                    ? "caisse mixte : " + string.Join(" + ", link.Lines!.Select(l => $"{l.Quantity} × {Find(l.ArticleId)?.Code}"))
+                    : $"{box.CaseQuantity} × {Find(link.ArticleId)?.Code}";
+                return $"{box.Code} · {content}{(link.CaseTypeCode is { } c ? " · " + c : "")}";
+            }
+
+            var boxes = new List<Article>();
+            if (CaseEngine.CanRebuild(a, Find))
+            {
+                boxes.Add(a);
+            }
+
+            boxes.AddRange(db.Articles.Where(b => b.Id != a.Id && b is { Kind: ArticleKind.Caisse, CaseContent: { } link } &&
+                                                  (link.ArticleId == a.Id || link.Lines?.Any(l => l.ArticleId == a.Id) == true) &&
+                                                  CaseEngine.CanRebuild(b, Find))
+                .OrderBy(b => b.Code));
+            foreach (var box in boxes)
+            {
+                Colisages.Add(new ColisageLink(box, Describe(box)));
+            }
+
+            // Conditionnements de l'article et des caisses qui le contiennent (comme le filtre de la gestion).
+            var ids = boxes.Select(b => b.Id).Append(a.Id).ToHashSet();
+            PackagingCount = db.Packagings.Count(p => (p.ArticleId is { } id && ids.Contains(id)) || p.Lines.Any(l => ids.Contains(l.ArticleId)));
+        }
+        else
+        {
+            PackagingCount = 0;
+        }
+
+        ColisageFilter = "";
+        OnPropertyChanged(nameof(HasColisages));
+        OnPropertyChanged(nameof(ColisageButtonText));
+        OnPropertyChanged(nameof(ColisagePickerTitle));
+        OnPropertyChanged(nameof(FilteredColisages));
+    }
+
+    /// <summary>Un seul colisage : ouvert directement ; plusieurs : petite liste filtrable.</summary>
     [RelayCommand]
     private void OpenColisage()
     {
-        if (SelectedArticle is { } a && _main.HasColisage(a))
+        if (Colisages.Count == 1)
         {
-            _main.OpenColisage(a);
+            _main.OpenColisage(Colisages[0].Box);
+        }
+        else if (Colisages.Count > 1)
+        {
+            ColisageFilter = "";
+            IsColisagePickerOpen = true;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenColisageLink(ColisageLink? link)
+    {
+        if ((link ?? FilteredColisages.FirstOrDefault()) is { } target)
+        {
+            IsColisagePickerOpen = false;
+            _main.OpenColisage(target.Box);
         }
     }
 
@@ -430,14 +529,14 @@ public sealed partial class ArticleEditor : ObservableObject
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Fields), nameof(KindDescription), nameof(UsesOrientation), nameof(UsesCoilAxis),
         nameof(ShowLength), nameof(ShowWidth), nameof(ShowHeight), nameof(ShowDiameter), nameof(ShowInnerDiameter), nameof(ShowFoldedLength), nameof(ShowFoldedWidth), nameof(ShowFoldedHeight),
-        nameof(LengthLabel), nameof(WidthLabel), nameof(HeightLabel), nameof(DiameterLabel), nameof(InnerDiameterLabel), nameof(FoldedLengthLabel), nameof(FoldedWidthLabel), nameof(FoldedHeightLabel), nameof(Title), nameof(ShowQuantityPerCase))]
+        nameof(LengthLabel), nameof(WidthLabel), nameof(HeightLabel), nameof(DiameterLabel), nameof(InnerDiameterLabel), nameof(FoldedLengthLabel), nameof(FoldedWidthLabel), nameof(FoldedHeightLabel), nameof(Title), nameof(ShowQuantityPerCase), nameof(ShowTopShape), nameof(ShowCompression), nameof(NoHandleText))]
     private ArticleKind _kind;
 
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(Title))] private string _code = "";
     [ObservableProperty] private string? _designation;
     [ObservableProperty] private double _length;
     [ObservableProperty] private double _width;
-    [ObservableProperty] private double _height;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CompressionText))] private double _height;
     [ObservableProperty] private double _diameter;
     [ObservableProperty] private double _innerDiameter;
     [ObservableProperty] private double _foldedLength;
@@ -453,6 +552,59 @@ public sealed partial class ArticleEditor : ObservableObject
     [ObservableProperty] private double? _maxLoadOnTop;
     [ObservableProperty] private int? _maxLayers;
     [ObservableProperty] private bool _fragile;
+
+    /// <summary>Bidon, seau, bouteille : forme du dessus (null = non renseignée).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasTopShape), nameof(TopAngleText))] private TopShape? _topShape;
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(TopAngleValue), nameof(TopAngleText))] private double? _topAngle;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasHandle))] private HandleKind? _handle;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HandleRoundedChoice))] private bool? _handleRounded;
+    /// <summary>Dimensions de la poignée (mm), au plus celles du produit.</summary>
+    [ObservableProperty] private double? _handleLength;
+
+    [ObservableProperty] private double? _handleWidth;
+    [ObservableProperty] private double? _handleHeight;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HandleAngleLeftValue), nameof(HandleAngleLeftText))] private double? _handleAngleLeft;
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HandleAngleRightValue), nameof(HandleAngleRightText))] private double? _handleAngleRight;
+
+    /// <summary>Curseurs des côtés de la poignée arrondie (0 à 80°), comme l'angle au bord du dessus.</summary>
+    public double HandleAngleLeftValue
+    {
+        get => HandleAngleLeft ?? 0;
+        set => HandleAngleLeft = Math.Round(Math.Clamp(value, 0, ArticleSchema.MaxHandleSideAngle), 0);
+    }
+
+    public double HandleAngleRightValue
+    {
+        get => HandleAngleRight ?? 0;
+        set => HandleAngleRight = Math.Round(Math.Clamp(value, 0, ArticleSchema.MaxHandleSideAngle), 0);
+    }
+
+    public string HandleAngleLeftText => $"Angle au bord gauche : {HandleAngleLeftValue:0}°";
+    public string HandleAngleRightText => $"Angle au bord droit : {HandleAngleRightValue:0}°";
+
+    /// <summary>Dimensions maxi de la poignée : celles du produit (diamètre pour un fût, un seau, une bouteille).</summary>
+    private (double L, double W, double H) HandleMax
+    {
+        get
+        {
+            var a = new Article { Kind = Kind, Length = Length, Width = Width, Height = Height, Diameter = Diameter };
+            return a.HandleReference;
+        }
+    }
+
+    private static string Max(double v) => v > 0 ? $" ≤ {v:0.#}" : "";
+    public string HandleLengthLabel => $"Longueur (mm{Max(HandleMax.L)})";
+    public string HandleWidthLabel => $"Largeur (mm{Max(HandleMax.W)})";
+    public string HandleHeightLabel => $"Hauteur (mm{Max(HandleMax.H)})";
+
+    /// <summary>Poignée pleine, liée au corps (décochée par défaut).</summary>
+    [ObservableProperty] private bool _handleSolid;
+
+    /// <summary>Sac : tassement accepté à la mise en caisse (décoché par défaut).</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CompressionText))] private bool _compressible;
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CompressionText))] private double? _compressionPercent;
     [ObservableProperty] private string? _client;
     [ObservableProperty] private string? _family;
     [ObservableProperty] private string? _subFamily;
@@ -470,6 +622,151 @@ public sealed partial class ArticleEditor : ObservableObject
     [ObservableProperty] private string? _caseContentText;
 
     public bool ShowQuantityPerCase => Kind == ArticleKind.Caisse;
+
+    // ------------------------------------------------------------------ Forme du dessus (bidon, seau, bouteille)
+
+    public bool ShowTopShape => TopStacking.Applies(Kind);
+    public bool HasTopShape => TopShape != null;
+
+    public sealed record Choice<T>(T Value, string Label) where T : struct;
+
+    public IReadOnlyList<Choice<TopShape>> TopShapes { get; } =
+    [
+        new(Core.Models.TopShape.Droit, "Droit"),
+        new(Core.Models.TopShape.Arrondi, "Arrondi (bombé)")
+    ];
+
+    public IReadOnlyList<Choice<HandleKind>> Handles { get; } =
+    [
+        new(HandleKind.Encastree, "Encastrée"),
+        new(HandleKind.Saillante, "Saillante"),
+        new(HandleKind.Rabattable, "Anse rabattable")
+    ];
+
+    public IReadOnlyList<Choice<bool>> HandleShapes { get; } = [new(false, "Droite (dessus plat)"), new(true, "Arrondie")];
+
+    public bool HandleRoundedChoice
+    {
+        get => HandleRounded == true;
+        set => HandleRounded = value;
+    }
+
+    /// <summary>Poignée présente (encastrée, saillante ou anse).</summary>
+    public bool HasHandle => Handle is { } h && h != HandleKind.Aucune;
+
+    public string NoHandleText => Handle == HandleKind.Aucune ? "Sans poignée." : "Poignée non décrite : proportions usuelles du type.";
+
+    [RelayCommand]
+    private void AddHandle()
+    {
+        Handle = Kind switch
+        {
+            ArticleKind.Seau => HandleKind.Rabattable,
+            ArticleKind.Bidon => HandleKind.Encastree,
+            _ => HandleKind.Saillante
+        };
+    }
+
+    [RelayCommand]
+    private void RemoveHandle()
+    {
+        Handle = HandleKind.Aucune;
+        HandleRounded = null;
+        HandleLength = null;
+        HandleWidth = null;
+        HandleHeight = null;
+        HandleAngleLeft = null;
+        HandleAngleRight = null;
+        HandleSolid = false;
+        OnPropertyChanged(nameof(NoHandleText));
+    }
+
+    [RelayCommand]
+    private void ClearAllTop()
+    {
+        ClearTopShape();
+        Handle = null;
+        HandleRounded = null;
+        HandleLength = null;
+        HandleWidth = null;
+        HandleHeight = null;
+        HandleAngleLeft = null;
+        HandleAngleRight = null;
+        HandleSolid = false;
+        OnPropertyChanged(nameof(NoHandleText));
+    }
+
+    // ------------------------------------------------------------------ Sac : tassement à la mise en caisse
+
+    public bool ShowCompression => Kind == ArticleKind.Sac;
+
+    partial void OnCompressibleChanged(bool value)
+    {
+        if (value && CompressionPercent == null && !_loading)
+        {
+            CompressionPercent = ArticleSchema.DefaultCompressionPercent;
+        }
+    }
+
+    public string CompressionText
+    {
+        get
+        {
+            if (!Compressible)
+            {
+                return "Décoché : l'épaisseur saisie est conservée en caisse.";
+            }
+
+            var pct = Math.Clamp(CompressionPercent ?? ArticleSchema.DefaultCompressionPercent, 0, ArticleSchema.MaxCompressionPercent);
+            return Height > 0
+                ? $"En caisse : épaisseur {Height:0.#} → {Height * (1 - pct / 100):0.#} mm (−{pct:0.#} %), empreinte inchangée. Palettes : épaisseur saisie."
+                : $"En caisse : épaisseur réduite de {pct:0.#} %, empreinte inchangée.";
+        }
+    }
+
+    /// <summary>Curseur de l'angle (0 à 60°).</summary>
+    public double TopAngleValue
+    {
+        get => TopAngle ?? 0;
+        set => TopAngle = Math.Round(Math.Clamp(value, 0, 90), 0);
+    }
+
+    public string TopAngleText => TopShape == Core.Models.TopShape.Arrondi ? $"Angle au bord : {TopAngleValue:0}°" : $"Pente : {TopAngleValue:0}°";
+
+    [RelayCommand]
+    private void DefineTopShape()
+    {
+        var form = TopStacking.FormOf(new Article { Kind = Kind });
+        TopShape = form.Shape;
+        TopAngle = form.Angle;
+    }
+
+    [RelayCommand]
+    private void ClearTopShape()
+    {
+        TopShape = null;
+        TopAngle = null;
+    }
+
+    /// <summary>Verdict de gerbage selon la forme du dessus, et le raisonnement.</summary>
+    public TopStackRule? TopRule
+    {
+        get
+        {
+            if (!ShowTopShape)
+            {
+                return null;
+            }
+
+            var a = new Article();
+            ApplyTo(a);
+            return TopStacking.For(a);
+        }
+    }
+
+    public string TopVerdict => TopRule is { } r ? $"{char.ToUpper(r.ModeLabel[0])}{r.ModeLabel[1..]} — {r.Summary}" : "";
+    public IReadOnlyList<string> TopSteps => TopRule?.Steps ?? [];
+    public string TopVerdictColor => TopRule?.Mode switch { TopStackMode.Direct => "#1E8449", TopStackMode.Intercalaire => "#B9770E", TopStackMode.NonGerbable => "#C0392B", _ => "#7F8C8D" };
     public IReadOnlyList<OrientationRule> Orientations { get; } = Enum.GetValues<OrientationRule>();
     public IReadOnlyList<CoilAxis> Axes { get; } = Enum.GetValues<CoilAxis>();
 
@@ -530,12 +827,26 @@ public sealed partial class ArticleEditor : ObservableObject
     protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);
-        if (e.PropertyName is not (nameof(ProfileText) or nameof(IsDirty) or nameof(Errors) or nameof(IsNew) or nameof(Title)))
+        if (e.PropertyName is nameof(Length) or nameof(Width) or nameof(Height) or nameof(Diameter) or nameof(Kind))
         {
-            OnPropertyChanged(nameof(ProfileText));
+            OnPropertyChanged(nameof(HandleLengthLabel));
+            OnPropertyChanged(nameof(HandleWidthLabel));
+            OnPropertyChanged(nameof(HandleHeightLabel));
         }
 
-        if (!_loading && e.PropertyName is not (nameof(IsDirty) or nameof(Errors) or nameof(IsNew) or nameof(ProfileText)))
+        if (e.PropertyName is not (nameof(ProfileText) or nameof(IsDirty) or nameof(Errors) or nameof(IsNew) or nameof(Title) or
+            nameof(TopVerdict) or nameof(TopSteps) or nameof(TopVerdictColor) or nameof(TopRule) or
+            nameof(HandleLengthLabel) or nameof(HandleWidthLabel) or nameof(HandleHeightLabel)))
+        {
+            OnPropertyChanged(nameof(ProfileText));
+            OnPropertyChanged(nameof(TopRule));
+            OnPropertyChanged(nameof(TopVerdict));
+            OnPropertyChanged(nameof(TopSteps));
+            OnPropertyChanged(nameof(TopVerdictColor));
+        }
+
+        if (!_loading && e.PropertyName is not (nameof(IsDirty) or nameof(Errors) or nameof(IsNew) or nameof(ProfileText) or
+            nameof(TopVerdict) or nameof(TopSteps) or nameof(TopVerdictColor) or nameof(TopRule)))
         {
             // Modifié = différent de l'article d'origine (les listes éditables réécrivent leur texte sans rien changer).
             var current = Original?.Clone() ?? new Article();
@@ -576,6 +887,18 @@ public sealed partial class ArticleEditor : ObservableObject
         MaxLoadOnTop = a.MaxLoadOnTop;
         MaxLayers = a.MaxLayers;
         Fragile = a.Fragile;
+        TopShape = a.TopShape;
+        TopAngle = a.TopAngle;
+        Handle = a.Handle;
+        HandleRounded = a.HandleRounded;
+        HandleLength = a.HandleLength;
+        HandleWidth = a.HandleWidth;
+        HandleHeight = a.HandleHeight;
+        HandleAngleLeft = a.HandleAngleLeft;
+        HandleAngleRight = a.HandleAngleRight;
+        HandleSolid = a.HandleSolid;
+        Compressible = a.Compressible;
+        CompressionPercent = a.CompressionPercent;
         Client = a.Client ?? "";
         Family = a.Family;
         SubFamily = a.SubFamily;
@@ -628,6 +951,20 @@ public sealed partial class ArticleEditor : ObservableObject
         a.MaxLoadOnTop = MaxLoadOnTop;
         a.MaxLayers = MaxLayers;
         a.Fragile = Fragile;
+        var top = ShowTopShape && TopShape != null;
+        a.TopShape = top ? TopShape : null;
+        a.TopAngle = top ? TopAngle : null;
+        a.Handle = ShowTopShape ? Handle : null;
+        var handle = ShowTopShape && HasHandle;
+        a.HandleRounded = handle ? HandleRounded : null;
+        a.HandleLength = handle ? HandleLength : null;
+        a.HandleWidth = handle ? HandleWidth : null;
+        a.HandleHeight = handle ? HandleHeight : null;
+        a.HandleAngleLeft = handle && HandleRounded == true ? HandleAngleLeft : null;
+        a.HandleAngleRight = handle && HandleRounded == true ? HandleAngleRight : null;
+        a.HandleSolid = handle && HandleSolid;
+        a.Compressible = ShowCompression && Compressible;
+        a.CompressionPercent = ShowCompression && Compressible ? CompressionPercent : null;
         a.Client = Clean(Client);
         a.Family = Clean(Family);
         a.SubFamily = Clean(SubFamily);

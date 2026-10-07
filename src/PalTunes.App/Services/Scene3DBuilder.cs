@@ -1,5 +1,7 @@
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using PalTunes.App.Views.Controls;
+using PalTunes.Core.Engine;
 using PalTunes.Core.Models;
 
 namespace PalTunes.App.Services;
@@ -79,6 +81,9 @@ public static class Scene3DBuilder
     /// <summary>Type de l'article d'un produit placé (forme dessinée : bidon, bouteille, seau, cuve) ; renseigné par la fenêtre principale.</summary>
     public static Func<Guid, ArticleKind?> KindOf { get; set; } = _ => null;
 
+    /// <summary>Forme du dessus d'un article (bidon, seau, bouteille) quand elle est renseignée ; null sinon.</summary>
+    public static Func<Guid, TopForm?> TopOf { get; set; } = _ => null;
+
     public static SceneResult Build(Solution solution, LoadUnit unit, PackagingConstraints c, Func<Guid, Color> colorOf, int visibleLayers,
         CaseRender? caseRender = null)
     {
@@ -112,13 +117,15 @@ public static class Scene3DBuilder
             {
                 var mesh = new MeshGeometry3D();
                 var kind = KindOf(group.Key.ArticleId) ?? ArticleKind.Caisse;
+                var top = TopOf(group.Key.ArticleId);
                 foreach (var p in group)
                 {
-                    AddItem(mesh, p, segments, kind);
+                    AddItem(mesh, p, segments, kind, top);
                 }
 
                 var color = colorOf(group.Key.ArticleId);
                 var model = Model(mesh, Solid(group.Key.Layer % 2 == 0 ? Shade(color, 0.9) : color));
+                Tag(model, Motion.Part.Layer, group.Key.Layer);
                 scene.Root.Children.Add(model);
                 scene.ByModel[model] = group.First();
             }
@@ -128,8 +135,9 @@ public static class Scene3DBuilder
             foreach (var p in visible)
             {
                 var mesh = new MeshGeometry3D();
-                AddItem(mesh, p, segments, KindOf(p.ArticleId) ?? ArticleKind.Caisse);
+                AddItem(mesh, p, segments, KindOf(p.ArticleId) ?? ArticleKind.Caisse, TopOf(p.ArticleId));
                 var model = Model(mesh, Solid(ItemColor(p, colorOf(p.ArticleId))));
+                Tag(model, Motion.Part.Layer, p.Layer);
                 scene.Root.Children.Add(model);
                 scene.ByModel[model] = p;
             }
@@ -189,7 +197,7 @@ public static class Scene3DBuilder
         return Math.Abs(ix + iy + p.Layer) % 2 == 0 ? Shade(color, 0.86) : color;
     }
 
-    private static void AddItem(MeshGeometry3D mesh, Placement p, int segments, ArticleKind kind = ArticleKind.Caisse)
+    private static void AddItem(MeshGeometry3D mesh, Placement p, int segments, ArticleKind kind = ArticleKind.Caisse, TopForm? top = null)
     {
         double x0 = p.X * Scale, y0 = p.Y * Scale, z0 = p.Z * Scale, x1 = p.MaxX * Scale, y1 = p.MaxY * Scale, z1 = p.MaxZ * Scale;
         var inner = p.InnerDiameter > 0 ? p.InnerDiameter / 2 * Scale : 0; // tube ou bobine creux
@@ -198,16 +206,19 @@ public static class Scene3DBuilder
         switch (kind)
         {
             case ArticleKind.Bidon when p.Shape == ShapeKind.Box:
-                AddJerrican(mesh, x0 + Gap, y0 + Gap, z0 + Gap, x1 - Gap, y1 - Gap, z1 - Gap, segments);
+                AddJerrican(mesh, x0 + Gap, y0 + Gap, z0 + Gap, x1 - Gap, y1 - Gap, z1 - Gap, segments, top);
                 return;
             case ArticleKind.Cuve when p.Shape == ShapeKind.Box:
                 AddIbc(mesh, x0 + Gap, y0 + Gap, z0 + Gap, x1 - Gap, y1 - Gap, z1 - Gap, segments);
                 return;
             case ArticleKind.Bouteille when p.Shape == ShapeKind.CylinderZ:
-                AddBottle(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments);
+                AddBottle(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments, top);
+                return;
+            case ArticleKind.Fut when p.Shape == ShapeKind.CylinderZ && top is { Handle: not HandleKind.Aucune }:
+                AddDrum(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments, top);
                 return;
             case ArticleKind.Seau when p.Shape == ShapeKind.CylinderZ:
-                AddPail(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments);
+                AddPail(mesh, (x0 + x1) / 2, (y0 + y1) / 2, Math.Min(x1 - x0, y1 - y0) / 2 - Gap, z0 + Gap, z1 - Gap, segments, top);
                 return;
         }
 
@@ -234,16 +245,13 @@ public static class Scene3DBuilder
         double x0 = m.MinX * Scale, y0 = m.MinY * Scale, x1 = m.MaxX * Scale, y1 = m.MaxY * Scale;
         if (c.SlipSheetThickness > 0)
         {
-            var sheets = new MeshGeometry3D();
+            var sheetMaterial = Solid(Color.FromRgb(0xE5, 0xD3, 0xA8));
             foreach (var layer in unit.Layers.Where(l => l.SlipSheetBelow && l.Index <= visibleLayers))
             {
+                var sheets = new MeshGeometry3D();
                 var z = layer.Z * Scale;
                 AddBox(sheets, x0, y0, z - c.SlipSheetThickness * Scale, x1, y1, z);
-            }
-
-            if (sheets.Positions.Count > 0)
-            {
-                root.Children.Add(Model(sheets, Solid(Color.FromRgb(0xE5, 0xD3, 0xA8))));
+                root.Children.Add(Tag(Model(sheets, sheetMaterial), Motion.Part.Layer, layer.Index));
             }
         }
 
@@ -253,7 +261,7 @@ public static class Scene3DBuilder
             var cap = new MeshGeometry3D();
             var z = m.LoadHeight * Scale;
             AddBox(cap, x0 - 0.003, y0 - 0.003, z, x1 + 0.003, y1 + 0.003, z + c.CapHeight * Scale);
-            root.Children.Add(Model(cap, Solid(Color.FromRgb(0xB9, 0x92, 0x5E))));
+            root.Children.Add(Tag(Model(cap, Solid(Color.FromRgb(0xB9, 0x92, 0x5E))), Motion.Part.Top));
         }
 
         if (c.Corners)
@@ -273,7 +281,7 @@ public static class Scene3DBuilder
                     Math.Max(cx - sx * t, cx), Math.Max(cy - sy * t, cy + sy * leg), h);
             }
 
-            root.Children.Add(Model(corners, Solid(Color.FromRgb(0x8D, 0x6E, 0x63))));
+            root.Children.Add(Tag(Model(corners, Solid(Color.FromRgb(0x8D, 0x6E, 0x63))), Motion.Part.Top));
         }
 
         var wrap = ((c.Corners ? c.CornerThickness : 0) + c.FilmThickness) * Scale;
@@ -296,7 +304,7 @@ public static class Scene3DBuilder
                 AddBox(straps, xa, y - sw, under - st, xb, y + sw, under);
             }
 
-            root.Children.Add(Model(straps, Solid(Color.FromRgb(0x1F, 0x61, 0x8D))));
+            root.Children.Add(Tag(Model(straps, Solid(Color.FromRgb(0x1F, 0x61, 0x8D))), Motion.Part.Wrap));
         }
 
         if (c.FilmThickness > 0 && allVisible)
@@ -316,8 +324,20 @@ public static class Scene3DBuilder
             film.Freeze();
             var material = new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(0x55, 0xA9, 0xDF, 0xD8)));
             material.Freeze();
-            root.Children.Add(new GeometryModel3D(film, material) { BackMaterial = material });
+            root.Children.Add(Tag(new GeometryModel3D(film, material) { BackMaterial = material }, Motion.Part.Wrap));
         }
+    }
+
+    /// <summary>Rôle d'un modèle pour l'animation de construction (couche, coiffe, film, rabat).</summary>
+    private static GeometryModel3D Tag(GeometryModel3D model, Motion.Part part, int layer = 0)
+    {
+        Motion.SetPart(model, part);
+        if (layer > 0)
+        {
+            Motion.SetLayer(model, layer);
+        }
+
+        return model;
     }
 
     /// <summary>Aperçu d'une caisse du catalogue, fermée (espace Caisses).</summary>
@@ -358,12 +378,36 @@ public static class Scene3DBuilder
 
         var opaque = new List<GeometryModel3D> { Slab(-t, -t, -t, l + t, w + t, 0, solid, inner) };
         var clear = new List<GeometryModel3D>();
+
+        // Paroi translucide animable (fermeture : devient opaque comme la caisse fermée) : même rendu que « solid ».
+        Material Fading(Color c, double opacity) => new MaterialGroup
+        {
+            Children =
+            {
+                new DiffuseMaterial(new SolidColorBrush(c) { Opacity = opacity }),
+                new SpecularMaterial(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)) { Opacity = opacity }, 25)
+            }
+        };
+
         void Wall(string key, GeometryModel3D model)
         {
             if (translucent.Contains(key))
             {
-                model.Material = glass;
-                model.BackMaterial = glass;
+                if (render.Open)
+                {
+                    model.Material = Fading(color, 0x48 / 255.0);
+                    model.BackMaterial = Fading(Shade(color, 0.82), 0x48 / 255.0);
+                    if (Motion.GetPart(model) == Motion.Part.Static)
+                    {
+                        Motion.SetPart(model, Motion.Part.Glass); // un rabat translucide reste un rabat
+                    }
+                }
+                else
+                {
+                    model.Material = glass;
+                    model.BackMaterial = glass;
+                }
+
                 clear.Add(model);
             }
             else
@@ -389,20 +433,38 @@ public static class Scene3DBuilder
         }
         else
         {
-            // Rabats ouverts : hauteur W/2 (caisse américaine), inclinés de 25° vers l'extérieur.
-            var flap = Math.Min(w / 2, Math.Max(h * 0.8, 0.05));
+            // Rabats ouverts : hauteur W/2 (caisse américaine), inclinés de 25° vers l'extérieur ; rabattus, les grands
+            // rabats couvrent exactement le couvercle de la caisse fermée.
+            var flap = w / 2;
             GeometryModel3D Flap(string key, double x0, double y0, double x1, double y1, Vector3D axis, double angle, Point3D hinge)
             {
                 var model = Slab(x0, y0, h, x1, y1, h + flap, solid, inner);
                 model.Transform = new RotateTransform3D(new AxisAngleRotation3D(axis, angle), hinge);
+                Motion.SetPart(model, Motion.Part.Flap);
+                Motion.SetOpenAngle(model, angle);
                 Wall(key, model);
                 return model;
             }
 
-            Flap("y1", 0, w, l, w + t, new Vector3D(1, 0, 0), -25, new Point3D(0, w, h));
-            Flap("y0", 0, -t, l, 0, new Vector3D(1, 0, 0), 25, new Point3D(0, 0, h));
+            Flap("y1", -t, w, l + t, w + t, new Vector3D(1, 0, 0), -25, new Point3D(0, w, h));
+            Flap("y0", -t, -t, l + t, 0, new Vector3D(1, 0, 0), 25, new Point3D(0, 0, h));
             Flap("x1", l, -t, l + t, w + t, new Vector3D(0, 1, 0), 25, new Point3D(l, 0, h));
             Flap("x0", -t, -t, 0, w + t, new Vector3D(0, 1, 0), -25, new Point3D(0, 0, h));
+
+            // Ruban adhésif de la caisse fermée, caché : déroulé par l'animation de fermeture (ordre : patte de départ,
+            // bande, patte d'arrivée).
+            var tape = Solid(Color.FromRgb(0xE8, 0xD5, 0xA8));
+            GeometryModel3D Hidden(GeometryModel3D model, int order)
+            {
+                model.Transform = new ScaleTransform3D(0, 0, 0);
+                Motion.SetPart(model, Motion.Part.Tape);
+                Motion.SetLayer(model, order);
+                return model;
+            }
+
+            opaque.Add(Hidden(Slab(-t - 0.0008, w / 2 - 0.025, h - 0.06, -t, w / 2 + 0.025, h + t, tape), 0));
+            opaque.Add(Hidden(Slab(-t - 0.001, w / 2 - 0.025, h + t, l + t + 0.001, w / 2 + 0.025, h + t + 0.0008, tape), 1));
+            opaque.Add(Hidden(Slab(l + t, w / 2 - 0.025, h - 0.06, l + t + 0.0008, w / 2 + 0.025, h + t, tape), 2));
         }
 
         foreach (var model in opaque.Concat(clear))
@@ -583,7 +645,7 @@ public static class Scene3DBuilder
         }
 
         var mesh = new MeshGeometry3D();
-        AddItem(mesh, p, 32, a.Kind);
+        AddItem(mesh, p, 32, a.Kind, TopStacking.IsDefined(a) ? TopStacking.FormOf(a) : null);
         scene.Root.Children.Add(Model(mesh, Solid(color)));
         if (a.Kind == ArticleKind.Bobine && a.InnerDiameter > 0 && a.InnerDiameter < a.Diameter)
         {
@@ -615,13 +677,12 @@ public static class Scene3DBuilder
     /// Bidon / jerrican : corps, poignée en arceau et bouchon sur le dessus, alignés sur le grand côté. Les proportions
     /// suivent l'enveloppe saisie (hauteur hors tout).
     /// </summary>
-    private static void AddJerrican(MeshGeometry3D mesh, double x0, double y0, double z0, double x1, double y1, double z1, int segments)
+    private static void AddJerrican(MeshGeometry3D mesh, double x0, double y0, double z0, double x1, double y1, double z1, int segments, TopForm? form = null)
     {
         var alongX = x1 - x0 >= y1 - y0;
         var lu = alongX ? x1 - x0 : y1 - y0;
         var lv = alongX ? y1 - y0 : x1 - x0;
         var h = z1 - z0;
-        var body = z0 + 0.80 * h;
 
         // Repère local : u le long du grand côté, v le long du petit.
         void Box(double u0, double u1, double v0, double v1, double za, double zb)
@@ -636,20 +697,174 @@ public static class Scene3DBuilder
             }
         }
 
-        Box(0, 1, 0, 1, z0, body);
-        Box(0.04, 0.70, 0.08, 0.92, body, body + 0.04 * h); // épaulement
-        Box(0.12, 0.20, 0.42, 0.58, body, z1 - 0.05 * h); // montants de la poignée
-        Box(0.50, 0.58, 0.42, 0.58, body, z1 - 0.05 * h);
-        Box(0.12, 0.58, 0.42, 0.58, z1 - 0.08 * h, z1); // poignée
-        var (cu, cv) = (0.82 * lu, 0.5 * lv); // bouchon
-        var r = Math.Min(0.16 * lv, 0.09 * lu);
-        AddCylinder(mesh, 2, body, z1 - 0.03 * h, alongX ? x0 + cu : x0 + cv, alongX ? y0 + cv : y0 + cu, r, Math.Max(8, segments / 2));
+        Point3D P(double u, double v, double z) => alongX ? new Point3D(x0 + u * lu, y0 + v * lv, z) : new Point3D(x0 + v * lv, y0 + u * lu, z);
+        void Cap(double u, double v, double za, double zb, double r) =>
+            AddCylinder(mesh, 2, za, zb, alongX ? x0 + u * lu : x0 + v * lv, alongX ? y0 + v * lv : y0 + u * lu, r, Math.Max(8, segments / 2));
+        var capR = Math.Min(0.16 * lv, 0.09 * lu);
+
+        if (form == null)
+        {
+            var body = z0 + 0.80 * h;
+            Box(0, 1, 0, 1, z0, body);
+            Box(0.04, 0.70, 0.08, 0.92, body, body + 0.04 * h); // épaulement
+            Box(0.12, 0.20, 0.42, 0.58, body, z1 - 0.05 * h); // montants de la poignée
+            Box(0.50, 0.58, 0.42, 0.58, body, z1 - 0.05 * h);
+            Box(0.12, 0.58, 0.42, 0.58, z1 - 0.08 * h, z1); // poignée
+            Cap(0.82, 0.5, body, z1 - 0.03 * h, capR);
+            return;
+        }
+
+        // Forme renseignée : dessus droit (pente en toit sur le petit côté) ou bombé (dôme en gradins), poignée encastrée ou
+        // saillante aux dimensions saisies (% du produit), arrondie (barre ronde) ou droite.
+        var saillante = form.Handle == HandleKind.Saillante;
+        var hasHandle = form.Handle is HandleKind.Encastree or HandleKind.Saillante;
+        var hl = Math.Clamp((form.HandleLength ?? 50) / 100, 0.05, 0.9); // le long du grand côté
+        var hw = Math.Clamp((form.HandleWidth ?? 16) / 100, 0.04, 0.9);
+        var hh = Math.Clamp((form.HandleHeight ?? (saillante ? 16 : 10)) / 100, 0.02, 0.6);
+        var gu0 = Math.Clamp(0.37 - hl / 2, 0.02, 1 - hl - 0.02);
+        var gu1 = gu0 + hl;
+        var gv0 = 0.5 - hw / 2;
+        var gv1 = 0.5 + hw / 2;
+        var bar = Math.Min(hw, 0.12); // épaisseur de la prise
+
+        // Prise de la poignée entre za et zb : barre ronde (arrondie) ou pavé (droite), sur deux montants ; arrondie ou
+        // pleine : profil continu (côtés inclinés, angles arrondis), ouvert en tube ou plein, lié au corps.
+        void Grip(double za, double zb, double postBottom)
+        {
+            if (form.HandleRounded || form.HandleSolid)
+            {
+                var du = alongX ? new Vector3D(1, 0, 0) : new Vector3D(0, 1, 0);
+                var dv = alongX ? new Vector3D(0, 1, 0) : new Vector3D(1, 0, 0);
+                AddHandleShape(mesh, P((gu0 + gu1) / 2, 0.5, postBottom), du, dv, (gu1 - gu0) * lu, (gv1 - gv0) * lv, zb - postBottom,
+                    form.HandleAngleLeft, form.HandleAngleRight, form.HandleRounded, form.HandleSolid, segments);
+                return;
+            }
+
+            var post = Math.Min(0.06, hl * 0.15);
+            Box(gu0, gu0 + post, gv0, gv1, postBottom, za);
+            Box(gu1 - post, gu1, gv0, gv1, postBottom, za);
+            if (form.HandleRounded)
+            {
+                var r = Math.Min((zb - za) / 2, hw * lv / 2);
+                var zc = (za + zb) / 2;
+                if (alongX)
+                {
+                    AddCylinder(mesh, 0, x0 + gu0 * lu, x0 + gu1 * lu, y0 + 0.5 * lv, zc, r, Math.Max(8, segments / 2));
+                }
+                else
+                {
+                    AddCylinder(mesh, 1, y0 + gu0 * lu, y0 + gu1 * lu, zc, x0 + 0.5 * lv, r, Math.Max(8, segments / 2));
+                }
+            }
+            else
+            {
+                Box(gu0, gu1, gv0, gv1, za, zb);
+            }
+        }
+
+        var roofTop = saillante ? z1 - hh * h : z1;
+        var rise = form.Angle <= 0.5 ? 0 : Math.Min(Math.Tan(form.Angle * Math.PI / 180) * lv / 2 * (form.Shape == TopShape.Arrondi ? 0.7 : 1), 0.22 * h);
+        var edge = roofTop - rise;
+        if (rise <= 0 && !saillante)
+        {
+            // Dessus plat : puits de poignée (empreinte et profondeur saisies), poignée affleurante.
+            if (!hasHandle)
+            {
+                Box(0, 1, 0, 1, z0, roofTop - 0.03 * h);
+                Cap(0.82, 0.5, roofTop - 0.04 * h, roofTop, capR);
+                return;
+            }
+
+            var well = roofTop - hh * h;
+            var wu0 = Math.Max(0.01, gu0 - 0.03);
+            var wu1 = Math.Min(0.99, gu1 + 0.03);
+            var wv0 = Math.Max(0.01, gv0 - 0.06);
+            var wv1 = Math.Min(0.99, gv1 + 0.06);
+            Box(0, 1, 0, 1, z0, well);
+            Box(0, wu0, 0, 1, well, roofTop);
+            Box(wu1, 1, 0, 1, well, roofTop);
+            Box(wu0, wu1, 0, wv0, well, roofTop);
+            Box(wu0, wu1, wv1, 1, well, roofTop);
+            Grip(roofTop - Math.Min(0.035 * h, hh * h * 0.4), roofTop - 0.005 * h, well);
+            Cap(0.82, 0.5, roofTop - 0.06 * h, roofTop, capR);
+            return;
+        }
+
+        Box(0, 1, 0, 1, z0, edge);
+        if (rise > 0 && form.Shape == TopShape.Droit)
+        {
+            // Toit à deux pentes sur le petit côté, faîtage au milieu.
+            AddQuad(mesh, P(0, 0, edge), P(1, 0, edge), P(1, 0.5, roofTop), P(0, 0.5, roofTop));
+            AddQuad(mesh, P(1, 1, edge), P(0, 1, edge), P(0, 0.5, roofTop), P(1, 0.5, roofTop));
+            AddQuad(mesh, P(0, 1, edge), P(0, 0, edge), P(0, 0.5, roofTop), P(0, 0.5, roofTop));
+            AddQuad(mesh, P(1, 0, edge), P(1, 1, edge), P(1, 0.5, roofTop), P(1, 0.5, roofTop));
+        }
+        else if (rise > 0)
+        {
+            // Dôme : gradins de plus en plus étroits.
+            const int steps = 5;
+            for (var i = 0; i < steps; i++)
+            {
+                var t = (i + 1) / (double)steps;
+                var inset = 0.5 * (1 - Math.Sqrt(1 - t * t * 0.96)) + 0.02 * i;
+                Box(inset * 0.6, 1 - inset * 0.6, inset, 1 - inset, edge + rise * i / steps, edge + rise * (i + 1) / steps);
+            }
+        }
+
+        if (saillante)
+        {
+            Grip(z1 - Math.Min(0.08 * h, hh * h * 0.5), z1, roofTop - 0.02 * h); // poignée au-dessus du dessus
+            Cap(0.82, 0.5, edge, Math.Max(edge + 0.02 * h, z1 - hh * h * 0.4), capR);
+        }
+        else if (hasHandle)
+        {
+            Grip(roofTop - 0.03 * h, roofTop, roofTop - 0.03 * h); // poignée affleurante au faîtage
+            Cap(0.82, 0.5, edge, roofTop, capR);
+        }
+        else
+        {
+            Cap(0.82, 0.5, edge, roofTop, capR);
+        }
+    }
+
+    /// <summary>Fût avec poignée(s) saisie(s) : corps cylindrique, poignée sur le couvercle (saillante) ou dans le rebord.</summary>
+    private static void AddDrum(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments, TopForm form)
+    {
+        var h = z1 - z0;
+        var saillante = form.Handle == HandleKind.Saillante;
+        var hh = Math.Clamp((form.HandleHeight ?? (saillante ? 8 : 4)) / 100, 0.01, 0.5);
+        var top = saillante ? z1 - hh * h : z1;
+        AddCylinder(mesh, 2, z0, top, cx, cy, r, segments);
+        if (form.Handle is HandleKind.Aucune)
+        {
+            return;
+        }
+
+        var len = Math.Clamp((form.HandleLength ?? 40) / 100, 0.05, 1) * 2 * r;
+        var wid = Math.Clamp((form.HandleWidth ?? 8) / 100, 0.02, 1) * 2 * r;
+        var za = saillante ? top : top - hh * h;
+        if (form.HandleRounded || form.HandleSolid)
+        {
+            var zBase = saillante ? top - 0.01 * h : top - hh * h;
+            AddHandleShape(mesh, new Point3D(cx, cy, zBase), new Vector3D(1, 0, 0), new Vector3D(0, 1, 0), len, wid, (saillante ? z1 : top) - zBase,
+                form.HandleAngleLeft, form.HandleAngleRight, form.HandleRounded, form.HandleSolid, segments);
+        }
+        else
+        {
+            AddBox(mesh, cx - len / 2, cy - wid / 2, za, cx + len / 2, cy + wid / 2, saillante ? z1 : top);
+        }
     }
 
     /// <summary>Bouteille / flacon : corps, épaule, col et bouchon.</summary>
-    private static void AddBottle(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments)
+    private static void AddBottle(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments, TopForm? form = null)
     {
         var h = z1 - z0;
+        if (form is { Handle: HandleKind.Saillante or HandleKind.Encastree })
+        {
+            // Bouteille à poignée (5 L) : anse moulée sur l'épaule.
+            AddBox(mesh, cx + r * 0.55, cy - r * 0.12, z0 + 0.45 * h, cx + r * 0.95, cy + r * 0.12, z0 + 0.70 * h);
+        }
+
         AddCylinder(mesh, 2, z0, z0 + 0.62 * h, cx, cy, r, segments);
         AddCylinder(mesh, 2, z0 + 0.62 * h, z0 + 0.68 * h, cx, cy, r * 0.82, segments);
         AddCylinder(mesh, 2, z0 + 0.68 * h, z0 + 0.74 * h, cx, cy, r * 0.58, segments);
@@ -658,12 +873,28 @@ public static class Scene3DBuilder
     }
 
     /// <summary>Seau / pot : corps légèrement évasé, rebord et couvercle.</summary>
-    private static void AddPail(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments)
+    private static void AddPail(MeshGeometry3D mesh, double cx, double cy, double r, double z0, double z1, int segments, TopForm? form = null)
     {
         var h = z1 - z0;
+        var lidTop = form is { Handle: HandleKind.Saillante } ? z0 + 0.88 * h : z1;
+        var bodyTop = Math.Min(z0 + 0.90 * h, lidTop - 0.04 * h);
         AddCylinder(mesh, 2, z0, z0 + 0.45 * h, cx, cy, r * 0.86, segments);
-        AddCylinder(mesh, 2, z0 + 0.45 * h, z0 + 0.90 * h, cx, cy, r * 0.93, segments);
-        AddCylinder(mesh, 2, z0 + 0.90 * h, z1, cx, cy, r, segments);
+        AddCylinder(mesh, 2, z0 + 0.45 * h, bodyTop, cx, cy, r * 0.93, segments);
+        AddCylinder(mesh, 2, bodyTop, lidTop, cx, cy, r, segments);
+        if (form is { Angle: > 0.5 })
+        {
+            // Couvercle bombé ou incliné : gradins.
+            var rise = Math.Min(Math.Tan(form.Angle * Math.PI / 180) * r * 0.6, 0.15 * h);
+            AddCylinder(mesh, 2, lidTop - rise, lidTop, cx, cy, r * 0.5, segments);
+        }
+
+        if (form is { Handle: HandleKind.Saillante })
+        {
+            // Anse relevée au-dessus du couvercle.
+            AddBox(mesh, cx - r * 0.95, cy - r * 0.04, lidTop, cx - r * 0.88, cy + r * 0.04, z1);
+            AddBox(mesh, cx + r * 0.88, cy - r * 0.04, lidTop, cx + r * 0.95, cy + r * 0.04, z1);
+            AddBox(mesh, cx - r * 0.95, cy - r * 0.04, z1 - 0.03 * h, cx + r * 0.95, cy + r * 0.04, z1);
+        }
     }
 
     /// <summary>Cuve IBC / GRV : palette intégrée, cuve en retrait, cage (montants et ceintures) et bouchon.</summary>
@@ -790,6 +1021,151 @@ public static class Scene3DBuilder
         AddQuad(mesh, new(x1, y1, z0), new(x0, y1, z0), new(x0, y1, z1), new(x1, y1, z1));
         AddQuad(mesh, new(x0, y1, z0), new(x0, y0, z0), new(x0, y0, z1), new(x0, y1, z1));
         AddQuad(mesh, new(x1, y0, z0), new(x1, y1, z0), new(x1, y1, z1), new(x1, y0, z1));
+    }
+
+    /// <summary>
+    /// Poignée dans le plan (du, vertical), base centrée en <paramref name="baseCenter"/> : côtés inclinés de
+    /// <paramref name="angleLeft"/> et <paramref name="angleRight"/> par rapport à la verticale, coins du haut arrondis
+    /// (poignée arrondie). Pleine : profil extrudé sur la largeur, d'un seul tenant avec le corps ; sinon tube rond qui
+    /// suit le profil (montants et prise liés).
+    /// </summary>
+    private static void AddHandleShape(MeshGeometry3D mesh, Point3D baseCenter, Vector3D du, Vector3D dv, double length, double width, double height,
+        double angleLeft, double angleRight, bool rounded, bool solid, int segments)
+    {
+        if (length <= 0 || width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var up = new Vector3D(0, 0, 1);
+        var r = solid ? 0 : Math.Min(width / 2, Math.Min(height * 0.22, length * 0.12)); // rayon du tube
+        var hTop = height - r;
+        double Tan(double a) => Math.Tan(Math.Clamp(a, 0, 80) * Math.PI / 180);
+        var left = -length / 2 + r;
+        var right = length / 2 - r;
+        var topLeft = left + Tan(angleLeft) * hTop;
+        var topRight = right - Tan(angleRight) * hTop;
+        if (topRight < topLeft)
+        {
+            var mid = (topLeft + topRight) / 2;
+            topLeft = mid;
+            topRight = mid;
+        }
+
+        // Profil (s le long de du, t vertical) : bas gauche, côté gauche, coin arrondi, dessus, coin arrondi, côté droit, bas droit.
+        var profile = new List<(double S, double T)> { (left, 0) };
+        void Corner((double S, double T) from, (double S, double T) corner, (double S, double T) to)
+        {
+            const int n = 8;
+            for (var i = 0; i <= n; i++)
+            {
+                var t = i / (double)n;
+                profile.Add(((1 - t) * (1 - t) * from.S + 2 * (1 - t) * t * corner.S + t * t * to.S,
+                             (1 - t) * (1 - t) * from.T + 2 * (1 - t) * t * corner.T + t * t * to.T));
+            }
+        }
+
+        if (rounded)
+        {
+            var sideL = Math.Sqrt(Math.Pow(topLeft - left, 2) + hTop * hTop);
+            var sideR = Math.Sqrt(Math.Pow(right - topRight, 2) + hTop * hTop);
+            var top = topRight - topLeft;
+            var d = Math.Min(Math.Min(sideL, sideR) * 0.55, Math.Max(top, 1e-6) * 0.5 + Math.Min(sideL, sideR) * 0.25);
+            (double, double) Along((double S, double T) a, (double S, double T) b, double dist)
+            {
+                var len = Math.Sqrt(Math.Pow(b.S - a.S, 2) + Math.Pow(b.T - a.T, 2));
+                var k = len > 0 ? Math.Min(1, dist / len) : 0;
+                return (a.S + (b.S - a.S) * k, a.T + (b.T - a.T) * k);
+            }
+
+            var tl = (topLeft, hTop);
+            var tr = (topRight, hTop);
+            Corner(Along(tl, (left, 0), d), tl, Along(tl, tr, Math.Min(d, top / 2)));
+            Corner(Along(tr, tl, Math.Min(d, top / 2)), tr, Along(tr, (right, 0), d));
+        }
+        else
+        {
+            profile.Add((topLeft, hTop));
+            profile.Add((topRight, hTop));
+        }
+
+        profile.Add((right, 0));
+        Point3D Q(double sCoord, double tCoord, double o) => baseCenter + du * sCoord + up * tCoord + dv * o;
+
+        if (solid)
+        {
+            // Profil plein extrudé sur la largeur : faces avant / arrière (éventail, profil convexe) et flancs.
+            var cs = profile.Average(p => p.S);
+            var ct = profile.Average(p => p.T);
+            foreach (var o in new[] { -width / 2, width / 2 })
+            {
+                for (var i = 0; i < profile.Count; i++)
+                {
+                    var a = profile[i];
+                    var b = profile[(i + 1) % profile.Count];
+                    AddTriangle(mesh, Q(cs, ct, o), Q(a.S, a.T, o), Q(b.S, b.T, o));
+                }
+            }
+
+            for (var i = 0; i < profile.Count; i++)
+            {
+                var a = profile[i];
+                var b = profile[(i + 1) % profile.Count];
+                AddQuad(mesh, Q(a.S, a.T, -width / 2), Q(b.S, b.T, -width / 2), Q(b.S, b.T, width / 2), Q(a.S, a.T, width / 2));
+            }
+
+            return;
+        }
+
+        // Tube rond le long du profil (montants et prise d'un seul trait).
+        for (var i = 0; i + 1 < profile.Count; i++)
+        {
+            AddTube(mesh, Q(profile[i].S, profile[i].T, 0), Q(profile[i + 1].S, profile[i + 1].T, 0), r, Math.Max(8, segments / 2));
+        }
+    }
+
+    /// <summary>Tube de rayon <paramref name="radius"/> entre deux points (sans fonds : les tronçons se suivent).</summary>
+    private static void AddTube(MeshGeometry3D mesh, Point3D a, Point3D b, double radius, int segments)
+    {
+        var axis = b - a;
+        if (axis.Length < 1e-9 || radius <= 0)
+        {
+            return;
+        }
+
+        axis.Normalize();
+        var n1 = Vector3D.CrossProduct(axis, Math.Abs(axis.Z) < 0.9 ? new Vector3D(0, 0, 1) : new Vector3D(1, 0, 0));
+        n1.Normalize();
+        var n2 = Vector3D.CrossProduct(axis, n1);
+        for (var i = 0; i < segments; i++)
+        {
+            var a0 = 2 * Math.PI * i / segments;
+            var a1 = 2 * Math.PI * (i + 1) / segments;
+            var o0 = (n1 * Math.Cos(a0) + n2 * Math.Sin(a0)) * radius;
+            var o1 = (n1 * Math.Cos(a1) + n2 * Math.Sin(a1)) * radius;
+            AddQuad(mesh, a + o0, a + o1, b + o1, b + o0);
+        }
+    }
+
+    private static void AddTriangle(MeshGeometry3D mesh, Point3D a, Point3D b, Point3D c)
+    {
+        var i = mesh.Positions.Count;
+        var n = Vector3D.CrossProduct(b - a, c - a);
+        if (n.Length < 1e-12)
+        {
+            return;
+        }
+
+        n.Normalize();
+        foreach (var p in new[] { a, b, c })
+        {
+            mesh.Positions.Add(p);
+            mesh.Normals.Add(n);
+        }
+
+        mesh.TriangleIndices.Add(i);
+        mesh.TriangleIndices.Add(i + 1);
+        mesh.TriangleIndices.Add(i + 2);
     }
 
     private static void AddQuad(MeshGeometry3D mesh, Point3D a, Point3D b, Point3D c, Point3D d)

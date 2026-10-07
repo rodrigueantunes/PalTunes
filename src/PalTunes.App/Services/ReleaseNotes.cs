@@ -7,6 +7,52 @@ public static class ReleaseNotes
 {
     public static IReadOnlyList<ReleaseNote> All { get; } =
     [
+        new("0.2.4", "Animations soignées : la palette se construit sous vos yeux",
+        [
+            "Construction de la palette : à chaque nouvelle solution, la palette apparaît, puis les couches sont déposées une à une du bas vers le haut (intercalaires avec leur couche), la coiffe et les cornières sont posées, et le film et le cerclage se déroulent du bas vers le haut. Bouton « Construction » pour la rejouer, et à côté le choix de la vitesse : Lente, Normale (≈ 2 s), Rapide, Très rapide — mémorisé ; la changer rejoue aussitôt la construction.",
+            "Colisage : la caisse s'ouvre (rabats qui se relèvent l'un après l'autre) puis les produits sont déposés couche par couche ; « Ouvrir la caisse » anime l'ouverture des rabats, « Fermer la caisse » rabat les petits puis les grands rabats sur les produits, les parois deviennent opaques et le ruban adhésif se déroule (patte, bande, patte) jusqu'à l'image exacte de la caisse fermée — aucun saut ; l'ouverture fait l'inverse (ruban retiré, rabats relevés), caméra recadrée en douceur ; bouton « Mise en caisse » pour rejouer, avec le même choix de vitesse.",
+            "Caméra : les vues 3/4, Dessus, Côté, Face et Ajuster passent de l'une à l'autre par une rotation fluide autour de la palette, au lieu d'un saut.",
+            "Interface : écrans qui glissent légèrement à l'apparition, fenêtres (recherche, raccourcis, nouveautés, aide, rapport) qui s'ouvrent en fondu avec un léger grossissement, cartes de liste qui montent en fondu, contenu des onglets en fondu, boutons qui s'enfoncent à l'appui, notification qui glisse.",
+            "Sans ralentir : seules des transformations et des opacités sont animées (rendu par la carte graphique), une seule transformation par couche quelle que soit la taille de la palette, construction complète en 2,2 s environ à vitesse normale. Un clic ou la molette dans la vue 3D termine aussitôt l'animation ; le curseur des couches et le survol ne la rejouent pas.",
+            "Vue 3D plus lisible : la barre de boutons passe à la ligne si la place manque (vitesse, « Couleur d'origine ») et l'aide (clic droit, molette, survol) est affichée en bas sur une pastille lisible, plus derrière les boutons.",
+            "Fiche article : « Voir le colisage » et « Ses conditionnements (n) » ne s'affichent que s'il en existe. « Voir le colisage » vaut aussi pour un produit : il retrouve les caisses créées pour lui (seul ou dans une caisse mixte) ; un seul colisage s'ouvre directement, plusieurs s'affichent dans une petite liste à filtrer (↑ ↓ Entrée). La rangée de boutons passe à la ligne si la fenêtre est étroite.",
+            "Mode sombre : le texte du contenu des onglets (caisse choisie au colisage, listes, tableaux) restait noir ; il suit désormais la couleur du thème. Tous les écrans et onglets ont été vérifiés.",
+            "« Animations : activées / désactivées » en bas de la navigation (mémorisé) ; elles sont aussi coupées si Windows n'affiche pas les animations (Accessibilité › Effets visuels)."
+        ]),
+        new("0.2.3", "Mode sombre, colonnes à la largeur voulue",
+        [
+            "Mode sombre : « Mode sombre » en bas de la navigation, ou Ctrl+Maj+D. Fonds anthracite, cartes un ton au-dessus, textes clairs, vues 3D sur fond sombre, listes, grilles, menus et champs adaptés. La bascule est immédiate : même écran, même sélection, saisie en cours conservée. Le choix est mémorisé pour les prochaines ouvertures.",
+            "Colonnes redimensionnables : un séparateur à glisser entre chaque colonne de chaque écran (navigation, arborescences, fiches, aperçus, vues 3D et 2D, spécification) pour élargir ce dont on a besoin et réduire le reste. Le curseur change au survol, la largeur choisie est mémorisée par écran ; double-clic sur le séparateur : largeur d'origine.",
+            "Fiches imprimées inchangées (toujours sur fond blanc), quel que soit le thème."
+        ]),
+        new("0.2.2", "Poignées en millimètres, angles au curseur",
+        [
+            "Poignée : longueur, largeur et hauteur se saisissent en mm. Chacune est limitée à la dimension du produit (longueur, largeur, hauteur ; diamètre pour un fût, un seau, une bouteille) : le maximum s'affiche dans le libellé (« Longueur (mm ≤ 290) ») et une valeur plus grande est refusée.",
+            "Poignée arrondie : angle au bord de chaque côté réglé au curseur (0 à 80°), comme l'angle au bord du dessus, avec la valeur exacte modifiable à côté.",
+            "Poignées saisies en % en 0.2.1 : converties en mm à l'ouverture de la base (copie de sauvegarde avant). Import CSV : POIGNEE_LONGUEUR, POIGNEE_LARGEUR, POIGNEE_HAUTEUR en mm ; « 40 % » reste accepté et converti."
+        ]),
+        new("0.2.1", "Sacs tassables en caisse, poignées dimensionnées",
+        [
+            "Sacs : nouvelle case « Tassable en caisse » (décochée par défaut). Cochée, on peut appuyer pour en mettre plus en caisse : l'épaisseur du sac diminue du taux saisi (10 % par défaut, 25 % au plus), l'empreinte ne change pas — c'est l'air qui est chassé (entre les plis d'une liasse de sacs vides, entre les grains d'une poudre). Exemple : sacs de 130 mm dans 500 mm de hauteur intérieure, 3 → 4 par caisse.",
+            "Le tassement ne vaut qu'à la mise en caisse (colisage d'un ou de plusieurs articles) : sur palette, l'épaisseur saisie est conservée. Un avertissement rappelle de fermer la caisse en appuyant ; les détails du calcul expliquent pourquoi c'est possible, la limite (au-delà, sac plein éclaté ou caisse bombée ; sacs pleins : rester sous 15 %) et le gain de couches.",
+            "Poignées (bidon, seau, bouteille et maintenant fût) : on ajoute ou on retire la poignée, on choisit son type (encastrée, saillante, anse rabattable), sa forme (droite ou arrondie) et ses dimensions en % du produit — longueur, largeur, hauteur, 100 % au plus chacune. L'aperçu 3D suit ces dimensions.",
+            "Prise en compte en palettisation et en colisage : poignée encastrée — le puits (longueur × largeur) est retiré de la surface d'appui du dessus ; poignée saillante — avec un intercalaire, l'appui se fait sur le dessus des poignées (arrondie : sur une ligne) ; sous 5 % de contact, appui quasi ponctuel et charge admissible × 0,3 au lieu de × 0,5. Dimensions non saisies : calcul identique à la 0.2.0.",
+            "Poignée arrondie : angle de chaque côté (inclinaison par rapport à la verticale, 0 à 80°) ; le dessus de la poignée raccourcit d'autant, ce qui réduit l'appui sur un intercalaire. L'aperçu 3D dessine une anse continue, côtés inclinés et coins arrondis.",
+            "Case « Poignée pleine » (décochée par défaut) : poignée moulée d'un seul tenant avec le corps, dessinée pleine et liée au bidon ou au fût dans l'aperçu et les vues 3D. Le calcul retient le même appui qu'une poignée ouverte de mêmes dimensions.",
+            "Import / export CSV : colonnes facultatives POIGNEE_FORME, POIGNEE_LONGUEUR, POIGNEE_LARGEUR, POIGNEE_HAUTEUR (%), POIGNEE_ANGLE_GAUCHE, POIGNEE_ANGLE_DROIT (°), POIGNEE_PLEINE et TASSEMENT (OUI, un pourcentage, ou NON)."
+        ]),
+        new("0.2.0", "Forme des bidons, quantités sans questions, navigation plus rapide",
+        [
+            "Bidons, seaux, bouteilles : on décrit la forme du dessus — droit ou arrondi (bombé), son angle, la poignée (encastrée, saillante, anse rabattable, aucune). Le calcul en déduit si l'on peut gerber directement, seulement sur un intercalaire sous chaque couche, ou pas du tout, et l'aperçu 3D suit la forme saisie.",
+            "Règles fondées sur la physique du gerbage : un produit posé sur une pente glisse dès que tan θ dépasse le frottement (14° plastique sur plastique, 21,8° sur intercalaire carton) ; l'appui réel du dessus diminue avec la pente (dessus bombé : seule la partie haute porte) ; une poignée saillante interdit la pose directe et la charge admissible est réduite quand l'appui est partiel. Le verdict et son raisonnement s'affichent sur la fiche article (« Pourquoi ? »).",
+            "Effet dans tous les calculs : nombre de couches limité par la forme (intercalaire obligatoire, non gerbable), charge admissible réduite, palettes gerbées seulement avec coiffe, rien posé sur ces produits dans un mélange ; un message indique quoi ajouter (intercalaire sous chaque couche) pour monter plus haut. Forme non renseignée : rien ne change.",
+            "Détails du calcul : nouvelle section « Forme du dessus et gerbage » (frottement, angle de glissement, appui, verdict et ce qu'il change pour ce conditionnement).",
+            "Détails du calcul, quantités : chaque contrainte donne son nombre maximal de couches (hauteur, poids, résistance, couches maxi, forme du dessus) avec son opération, et la plus petite est signalée ; nouvelle section « Pourquoi pas plus ? » : ce qu'une couche de plus dépasserait (hauteur de +110 mm, poids de 18 kg > 10 kg…), pourquoi pas un produit de plus par couche, pourquoi la dernière couche est incomplète ; contrôle final du poids et de la hauteur ; en hétérogène, pourquoi pas une palette de moins.",
+            "Recherche globale (Ctrl+K ou « Rechercher… » en haut de la navigation) : articles, colisages, conditionnements, clients, palettes, caisses et espaces en une seule saisie, sans se soucier des accents ; flèches et Entrée pour ouvrir le résultat dans son espace ; sans saisie, les éléments récemment modifiés.",
+            "Navigation Précédent / Suivant entre les écrans : flèches sous le logo, Alt+← / Alt+→, boutons latéraux de la souris.",
+            "Raccourcis clavier réunis dans un panneau (Ctrl+F1 ou « Raccourcis clavier » en bas de la navigation) ; « Copier le détail » sur l'onglet Détails du calcul pour coller l'explication dans un courriel.",
+            "Import / export CSV : colonnes facultatives FORME_DESSUS, ANGLE_DESSUS, POIGNEE."
+        ]),
         new("0.1.9", "Écrans reliés, quantités expliquées, fiches de colisage multiples",
         [
             "Gestion des conditionnements : « Voir le colisage » sur une palette de caisses créées au colisage ouvre l'espace Colisage réglé sur ce colisage (produit, caisse, quantité par caisse, position) ; palette à plusieurs caisses : « Voir les colisages (n) » propose le choix. La fiche résumée affiche le colisage de chaque caisse ; « Voir l'article » ouvre la fiche de l'article d'une palette homogène.",

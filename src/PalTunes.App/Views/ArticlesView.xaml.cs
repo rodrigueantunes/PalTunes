@@ -66,4 +66,59 @@ public partial class ArticlesView : UserControl
             menu.IsOpen = true;
         }
     }
+
+    // ------------------------------------------------------------------ Liste des colisages (plusieurs)
+
+    private void ColisagePopup_Opened(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(() =>
+        {
+            ColisageFilterBox.Focus();
+            ColisageList.SelectedIndex = ColisageList.Items.Count > 0 ? 0 : -1;
+        }, System.Windows.Threading.DispatcherPriority.Input);
+
+    private void ColisageFilter_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case System.Windows.Input.Key.Down when ColisageList.Items.Count > 0:
+                ColisageList.SelectedIndex = Math.Min(ColisageList.Items.Count - 1, ColisageList.SelectedIndex + 1);
+                ColisageList.ScrollIntoView(ColisageList.SelectedItem);
+                e.Handled = true;
+                break;
+            case System.Windows.Input.Key.Up when ColisageList.Items.Count > 0:
+                ColisageList.SelectedIndex = Math.Max(0, ColisageList.SelectedIndex - 1);
+                ColisageList.ScrollIntoView(ColisageList.SelectedItem);
+                e.Handled = true;
+                break;
+            case System.Windows.Input.Key.Enter:
+                OpenSelectedColisage();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void ColisageList_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter)
+        {
+            OpenSelectedColisage();
+            e.Handled = true;
+        }
+    }
+
+    private void ColisageList_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is FrameworkElement { DataContext: ViewModels.ColisageLink link } && DataContext is ViewModels.ArticlesViewModel vm)
+        {
+            vm.OpenColisageLinkCommand.Execute(link);
+        }
+    }
+
+    private void OpenSelectedColisage()
+    {
+        if (DataContext is ViewModels.ArticlesViewModel vm)
+        {
+            vm.OpenColisageLinkCommand.Execute(ColisageList.SelectedItem as ViewModels.ColisageLink);
+        }
+    }
 }

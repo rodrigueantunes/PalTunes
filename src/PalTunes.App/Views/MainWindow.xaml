@@ -5,13 +5,14 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:PalTunes.App.ViewModels"
         xmlns:views="clr-namespace:PalTunes.App.Views"
+        xmlns:ctl="clr-namespace:PalTunes.App.Views.Controls"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance vm:MainViewModel}"
         Title="{Binding AppVersion, StringFormat=PalTunes {0} – Palettisation et conditionnement}"
         Height="900" Width="1500" MinWidth="1200" MinHeight="720"
         WindowStartupLocation="CenterScreen" WindowState="Maximized"
         Icon="pack://application:,,,/PalTunes;component/Assets/PalTunes.ico"
-        Background="{StaticResource BgBrush}" FontFamily="Segoe UI" FontSize="13">
+        Background="{StaticResource BgBrush}" Foreground="{StaticResource TextBrush}" FontFamily="Segoe UI" FontSize="13">
 
     <Window.InputBindings>
         <KeyBinding Key="F5" Command="{Binding Packagings.ComputeCommand}" />
@@ -28,12 +29,18 @@
         <KeyBinding Key="D6" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="Cases" />
         <KeyBinding Key="D7" Modifiers="Control" Command="{Binding NavigateCommand}" CommandParameter="PackagingLibrary" />
         <KeyBinding Key="Escape" Command="{Binding EscapeCommand}" />
+        <KeyBinding Key="K" Modifiers="Control" Command="{Binding OpenSearchCommand}" />
+        <KeyBinding Key="F" Modifiers="Control+Shift" Command="{Binding OpenSearchCommand}" />
+        <KeyBinding Key="Left" Modifiers="Alt" Command="{Binding GoBackCommand}" />
+        <KeyBinding Key="Right" Modifiers="Alt" Command="{Binding GoForwardCommand}" />
+        <KeyBinding Key="F1" Modifiers="Control" Command="{Binding ToggleShortcutsCommand}" />
+        <KeyBinding Key="D" Modifiers="Control+Shift" Command="{Binding ToggleThemeCommand}" />
     </Window.InputBindings>
 
-    <Grid>
+    <Grid ctl:ResizableColumns.Key="Navigation">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="240" MinWidth="200" MaxWidth="420" />
+            <ColumnDefinition Width="*" MinWidth="700" />
         </Grid.ColumnDefinitions>
 
         <!-- ===================== Navigation ===================== -->
@@ -64,7 +71,47 @@
                     </StackPanel>
                 </DockPanel>
 
+                <DockPanel DockPanel.Dock="Top" Margin="2,0,2,12">
+                    <Button DockPanel.Dock="Right" Style="{StaticResource NavMiniButton}" Command="{Binding GoForwardCommand}" ToolTip="{Binding ForwardTip}"
+                            ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="Écran suivant">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72A;" FontSize="12" />
+                    </Button>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource NavMiniButton}" Command="{Binding GoBackCommand}" ToolTip="{Binding BackTip}"
+                            ToolTipService.ShowOnDisabled="True" Margin="0,0,4,0" AutomationProperties.Name="Écran précédent">
+                        <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72B;" FontSize="12" />
+                    </Button>
+                    <Button Style="{StaticResource NavSearchButton}" Command="{Binding OpenSearchCommand}" Margin="0,0,6,0"
+                            ToolTip="Rechercher partout : articles, conditionnements, colisages, clients, palettes, caisses (Ctrl+K)" AutomationProperties.Name="Rechercher">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE721;" FontSize="12" Margin="0,1,8,0" />
+                            <TextBlock DockPanel.Dock="Right" Text="Ctrl+K" FontSize="10.5" Opacity="0.7" VerticalAlignment="Center" />
+                            <TextBlock Text="Rechercher…" />
+                        </DockPanel>
+                    </Button>
+                </DockPanel>
+
                 <StackPanel DockPanel.Dock="Bottom" Margin="12,8,0,0">
+                    <Button Style="{StaticResource NavLinkButton}" Command="{Binding ToggleThemeCommand}" HorizontalAlignment="Left" Margin="0,0,0,6"
+                            ToolTip="Ctrl+Maj+D · mémorisé pour les prochaines ouvertures">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="{Binding ThemeGlyph}" FontSize="11" Margin="0,1,6,0" />
+                            <TextBlock Text="{Binding ThemeLabel}" FontSize="11" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource NavLinkButton}" Command="{Binding ToggleAnimationsCommand}" HorizontalAlignment="Left" Margin="0,0,0,6"
+                            ToolTip="Construction des palettes, ouverture des caisses, transitions ; mémorisé">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE945;" FontSize="11" Margin="0,1,6,0" />
+                            <TextBlock Text="{Binding AnimationsLabel}" FontSize="11" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource NavLinkButton}" Command="{Binding ToggleShortcutsCommand}" HorizontalAlignment="Left" Margin="0,0,0,6"
+                            ToolTip="Ctrl+F1">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE765;" FontSize="11" Margin="0,1,6,0" />
+                            <TextBlock Text="Raccourcis clavier" FontSize="11" />
+                        </StackPanel>
+                    </Button>
                     <TextBlock Foreground="{StaticResource NavMutedBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip="{Binding DatabasePath}">
                         <Run Text="Base : " /><Run Text="{Binding DatabaseName, Mode=OneWay}" />
                     </TextBlock>
@@ -245,19 +292,19 @@
 
         <!-- ===================== Espaces ===================== -->
         <Grid Grid.Column="1" Margin="4">
-            <views:ClientsView DataContext="{Binding Clients}"
+            <views:ClientsView ctl:Motion.Appear="Slide" DataContext="{Binding Clients}"
                                Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Clients}" />
-            <views:ArticlesView DataContext="{Binding Articles}"
+            <views:ArticlesView ctl:Motion.Appear="Slide" DataContext="{Binding Articles}"
                                 Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Articles}" />
-            <views:PalletsView DataContext="{Binding Pallets}"
+            <views:PalletsView ctl:Motion.Appear="Slide" DataContext="{Binding Pallets}"
                                Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Pallets}" />
-            <views:CaseTypesView DataContext="{Binding Cases}"
+            <views:CaseTypesView ctl:Motion.Appear="Slide" DataContext="{Binding Cases}"
                                  Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=CaseTypes}" />
-            <views:CaseView DataContext="{Binding Cases}"
+            <views:CaseView ctl:Motion.Appear="Slide" DataContext="{Binding Cases}"
                             Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Cases}" />
-            <views:PackagingLibraryView DataContext="{Binding PackagingLibrary}"
+            <views:PackagingLibraryView ctl:Motion.Appear="Slide" DataContext="{Binding PackagingLibrary}"
                                         Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=PackagingLibrary}" />
-            <views:PackagingsView DataContext="{Binding Packagings}"
+            <views:PackagingsView ctl:Motion.Appear="Slide" DataContext="{Binding Packagings}"
                                   Visibility="{Binding DataContext.SelectedSection, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource EqualsToVisibility}, ConverterParameter=Packagings}" />
         </Grid>
 
@@ -288,8 +335,8 @@
         </Border>
 
         <!-- Rapport d'import -->
-        <Border Grid.ColumnSpan="2" Background="#9922313F" Visibility="{Binding ImportReport, Converter={StaticResource NotNullToVisibility}}">
-            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="820" Padding="26,22" MaxHeight="760">
+        <Border Grid.ColumnSpan="2" Background="#9922313F" ctl:Motion.Appear="Fade" Visibility="{Binding ImportReport, Converter={StaticResource NotNullToVisibility}}">
+            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" ctl:Motion.Appear="Pop" Width="820" Padding="26,22" MaxHeight="760">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
                         <TextBlock FontSize="20" FontWeight="Bold" Text="Rapport d'import" />
@@ -337,8 +384,8 @@
         </Border>
 
         <!-- Aide : format du fichier articles -->
-        <Border Grid.ColumnSpan="2" Background="#9922313F" Visibility="{Binding IsFormatHelpOpen, Converter={StaticResource BoolToVisibility}}">
-            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="1040" Padding="28,22" MaxHeight="840">
+        <Border Grid.ColumnSpan="2" Background="#9922313F" ctl:Motion.Appear="Fade" Visibility="{Binding IsFormatHelpOpen, Converter={StaticResource BoolToVisibility}}">
+            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" ctl:Motion.Appear="Pop" Width="1040" Padding="28,22" MaxHeight="840">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                         <TextBlock FontSize="20" FontWeight="Bold" Text="Import CSV des articles" />
@@ -395,9 +442,70 @@
             </Border>
         </Border>
 
+        <!-- Recherche globale (Ctrl+K) -->
+        <Border Grid.ColumnSpan="2" Background="#9922313F" ctl:Motion.Appear="Fade" Visibility="{Binding Search.IsOpen, Converter={StaticResource BoolToVisibility}}"
+                MouseLeftButtonDown="SearchBackdrop_MouseLeftButtonDown">
+            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Top" ctl:Motion.Appear="Pop" Margin="0,90,0,0" Width="720" Padding="0"
+                    MouseLeftButtonDown="SearchCard_MouseLeftButtonDown" DataContext="{Binding Search}">
+                <DockPanel MaxHeight="620">
+                    <DockPanel DockPanel.Dock="Top" Margin="18,14,18,8">
+                        <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="&#xE721;" FontSize="18" Margin="0,4,12,0"
+                                   Foreground="{StaticResource PrimaryBrush}" />
+                        <TextBox x:Name="SearchBox" Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}" FontSize="17" BorderThickness="0" Background="Transparent"
+                                 PreviewKeyDown="SearchBox_PreviewKeyDown" AutomationProperties.Name="Rechercher dans toute la base" />
+                    </DockPanel>
+                    <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource CardBorderBrush}" />
+                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" Style="{StaticResource Muted}" FontSize="11.5" Margin="18,6,18,10" />
+                    <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Muted}" FontSize="11" Margin="18,6,18,0"
+                               Text="↑ ↓ pour choisir · Entrée pour ouvrir · Échap pour fermer" />
+                    <ListBox x:Name="SearchResults" ItemsSource="{Binding Results}" SelectedItem="{Binding Selected}" BorderThickness="0" Margin="6,6,6,0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" MouseLeftButtonUp="SearchResults_MouseLeftButtonUp">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="4,4">
+                                    <TextBlock DockPanel.Dock="Left" FontFamily="{StaticResource IconFont}" Text="{Binding Glyph}" FontSize="15" Width="26" Margin="0,3,6,0"
+                                               Foreground="{StaticResource PrimaryBrush}" />
+                                    <Border DockPanel.Dock="Right" Background="{StaticResource SoftPanelBrush}" CornerRadius="8" Padding="8,1" VerticalAlignment="Center" Margin="8,0,0,0">
+                                        <TextBlock Text="{Binding Kind}" FontSize="11" Foreground="{StaticResource MutedBrush}" />
+                                    </Border>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Muted}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </Border>
+        <!-- Raccourcis clavier -->
+        <Border Grid.ColumnSpan="2" Background="#9922313F" ctl:Motion.Appear="Fade" Visibility="{Binding IsShortcutsOpen, Converter={StaticResource BoolToVisibility}}">
+            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" ctl:Motion.Appear="Pop" Width="680" Padding="26,22">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" FontSize="20" FontWeight="Bold" Text="Raccourcis clavier" Margin="0,0,0,12" />
+                    <Button DockPanel.Dock="Bottom" Style="{StaticResource RoundedButton}" Command="{Binding ToggleShortcutsCommand}"
+                            HorizontalAlignment="Right" Padding="22,8" Margin="0,14,0,0" Content="Fermer" />
+                    <ItemsControl ItemsSource="{Binding Shortcuts}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="0,4">
+                                    <Border DockPanel.Dock="Left" Width="170" Margin="0,0,14,0">
+                                        <Border Background="{StaticResource SoftPanelBrush}" CornerRadius="6" Padding="8,2" HorizontalAlignment="Left">
+                                            <TextBlock Text="{Binding Keys}" FontFamily="Consolas" FontWeight="SemiBold" />
+                                        </Border>
+                                    </Border>
+                                    <TextBlock Text="{Binding Action}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DockPanel>
+            </Border>
+        </Border>
         <!-- Nouveautés de la version -->
-        <Border Grid.ColumnSpan="2" Background="#9922313F" Visibility="{Binding IsReleaseNotesOpen, Converter={StaticResource BoolToVisibility}}">
-            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="680" Padding="28,24" MaxHeight="780">
+        <Border Grid.ColumnSpan="2" Background="#9922313F" ctl:Motion.Appear="Fade" Visibility="{Binding IsReleaseNotesOpen, Converter={StaticResource BoolToVisibility}}">
+            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" ctl:Motion.Appear="Pop" Width="680" Padding="28,24" MaxHeight="780">
                 <DockPanel>
                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,16">
                         <Image DockPanel.Dock="Left" Source="{StaticResource LogoImage}" Width="60" Height="60" Margin="0,0,14,0" />
@@ -414,7 +522,7 @@
                         <ItemsControl ItemsSource="{Binding ReleaseNotesList}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="#F7F9FA" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
+                                    <Border Background="{StaticResource SoftPanelBrush}" CornerRadius="10" Padding="14,12" Margin="0,0,0,10">
                                         <StackPanel>
                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                                 <Border Background="{StaticResource PanelDarkBrush}" CornerRadius="8" Padding="8,2" Margin="0,0,10,0">

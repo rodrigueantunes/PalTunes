@@ -51,6 +51,18 @@ public sealed class AppSettings
 
     /// <summary>Vues des conditionnements : couleurs des fiches articles (sinon couleurs bien distinctes, par défaut).</summary>
     public bool UseArticleColors { get; set; }
+
+    /// <summary>Animations (construction 3D, transitions) ; coupées aussi si Windows n'affiche pas les animations.</summary>
+    public bool Animations { get; set; } = true;
+
+    /// <summary>Vitesse de la construction 3D (0,5 lente, 1 normale, 2 rapide, 4 très rapide).</summary>
+    public double BuildSpeed { get; set; } = 1;
+
+    /// <summary>Thème : Clair (défaut), Sombre, ou Système (suit Windows).</summary>
+    public string Theme { get; set; } = "Clair";
+
+    /// <summary>Largeurs des colonnes redimensionnées, par écran (clé de la grille).</summary>
+    public Dictionary<string, double[]> ColumnWidths { get; set; } = [];
 }
 
 /// <summary>Préférences locales (%APPDATA%\PalTunes\settings.json).</summary>

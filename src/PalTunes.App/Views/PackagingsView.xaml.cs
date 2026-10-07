@@ -24,6 +24,7 @@ public partial class PackagingsView : UserControl
         // Vue masquée au premier calcul (taille nulle) : recadrage dès qu'elle reçoit une taille.
         Viewport.SizeChanged += (_, e) =>
         {
+            Controls.Motion.Finish(Vm?.Scene3D);
             if (e.PreviousSize.Width < 1)
             {
                 Controls.CameraHelper.Iso(Viewport, SceneModel);
@@ -35,16 +36,50 @@ public partial class PackagingsView : UserControl
         };
         DataContextChanged += (_, e) =>
         {
-            if (e.OldValue is INotifyPropertyChanged old)
+            if (e.OldValue is PackagingsViewModel old)
             {
                 old.PropertyChanged -= OnViewModelPropertyChanged;
+                old.BuildAnimationRequested -= OnBuildRequested;
             }
 
-            if (e.NewValue is INotifyPropertyChanged vm)
+            if (e.NewValue is PackagingsViewModel vm)
             {
                 vm.PropertyChanged += OnViewModelPropertyChanged;
+                vm.BuildAnimationRequested += OnBuildRequested;
             }
         };
+
+        // Un geste dans la vue 3D termine aussitôt l'animation et la transition de caméra.
+        Viewport.PreviewMouseDown += (_, _) => StopMotion();
+        Viewport.PreviewMouseWheel += (_, _) => StopMotion();
+    }
+
+    private void StopMotion()
+    {
+        Controls.Motion.Finish(Vm?.Scene3D);
+        Controls.CameraHelper.Stop(Viewport);
+    }
+
+    /// <summary>Nouvelle solution : cadrage 3/4 puis construction (après le rendu de la scène, sans bloquer).</summary>
+    private void OnBuildRequested() => Dispatcher.BeginInvoke(() =>
+    {
+        Controls.CameraHelper.Iso(Viewport, SceneModel);
+        Controls.Motion.PlayBuild(Vm?.Scene3D);
+    }, DispatcherPriority.Background);
+
+    /// <summary>Vitesse changée par l'utilisateur : la construction est rejouée à la nouvelle vitesse.</summary>
+    private void BuildSpeed_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox { IsLoaded: true, IsKeyboardFocusWithin: true } || sender is ComboBox { IsDropDownOpen: true })
+        {
+            ReplayBuild_Click(sender, e);
+        }
+    }
+
+    private void ReplayBuild_Click(object sender, RoutedEventArgs e)
+    {
+        Controls.Motion.Finish(Vm?.Scene3D);
+        Controls.Motion.PlayBuild(Vm?.Scene3D);
     }
 
     private PackagingsViewModel? Vm => DataContext as PackagingsViewModel;
@@ -127,16 +162,16 @@ public partial class PackagingsView : UserControl
 
     private void SetIsoCamera() => Controls.CameraHelper.Iso(Viewport, SceneModel);
 
-    private void CameraIso_Click(object sender, RoutedEventArgs e) => SetIsoCamera();
+    private void CameraIso_Click(object sender, RoutedEventArgs e) => Controls.CameraHelper.IsoSmooth(Viewport, SceneModel);
 
     private void CameraTop_Click(object sender, RoutedEventArgs e) =>
-        Controls.CameraHelper.Look(Viewport, SceneModel, new Vector3D(0, 0, 1), new Vector3D(0, 1, 0));
+        Controls.CameraHelper.LookSmooth(Viewport, SceneModel, new Vector3D(0, 0, 1), new Vector3D(0, 1, 0));
 
     private void CameraSide_Click(object sender, RoutedEventArgs e) =>
-        Controls.CameraHelper.Look(Viewport, SceneModel, new Vector3D(0, -1, 0), new Vector3D(0, 0, 1));
+        Controls.CameraHelper.LookSmooth(Viewport, SceneModel, new Vector3D(0, -1, 0), new Vector3D(0, 0, 1));
 
     private void CameraFront_Click(object sender, RoutedEventArgs e) =>
-        Controls.CameraHelper.Look(Viewport, SceneModel, new Vector3D(-1, 0, 0), new Vector3D(0, 0, 1));
+        Controls.CameraHelper.LookSmooth(Viewport, SceneModel, new Vector3D(-1, 0, 0), new Vector3D(0, 0, 1));
 
-    private void ZoomExtents_Click(object sender, RoutedEventArgs e) => Controls.CameraHelper.Refit(Viewport, SceneModel);
+    private void ZoomExtents_Click(object sender, RoutedEventArgs e) => Controls.CameraHelper.RefitSmooth(Viewport, SceneModel);
 }

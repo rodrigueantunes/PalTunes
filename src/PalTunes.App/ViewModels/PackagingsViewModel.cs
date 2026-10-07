@@ -936,7 +936,11 @@ public sealed partial class PackagingsViewModel : ObservableObject
         OnPropertyChanged(nameof(Constraints));
         OnPropertyChanged(nameof(CalculationSections));
         RebuildScene();
+        BuildAnimationRequested?.Invoke();
     }
+
+    /// <summary>Nouvelle solution ou unité affichée : la vue rejoue la construction (couches déposées une à une).</summary>
+    public event Action? BuildAnimationRequested;
 
     public Solution? CurrentSolution => SelectedSolution?.Solution;
     public LoadUnit? CurrentUnit => SelectedUnit?.Unit;
@@ -946,6 +950,27 @@ public sealed partial class PackagingsViewModel : ObservableObject
     public IReadOnlyList<DetailSection> CalculationSections => CurrentSolution is { } s && CurrentUnit is { } u
         ? CalculationDetails.Pallet(s, u, Constraints, IsHomogeneous ? Article : null, id => _main.Db.FindArticle(id), _main.ColisageSheet)
         : [];
+
+    /// <summary>Copie le détail du calcul affiché dans le presse-papiers (texte brut).</summary>
+    [RelayCommand]
+    private void CopyCalculation()
+    {
+        if (CalculationSections.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(PalTunes.Core.Export.CalculationDetails.ToText(CalculationSections, $"Détail du calcul – {Draft.Code}"));
+            _main.ShowToast("Détail du calcul copié : collez-le dans un courriel ou un document.", "Ok");
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            _main.ShowToast("Presse-papiers occupé : réessayez.", "Warning");
+        }
+    }
+
     public bool HasMultipleUnits => Units.Count > 1;
     public string? Recommendation => SelectedSolution?.Solution.Recommendation ?? (SelectedSolution != null ? "Alternative : " + SelectedSolution.Solution.Description : null);
     public IReadOnlyList<string> Warnings => SelectedSolution?.Solution.Warnings ?? [];

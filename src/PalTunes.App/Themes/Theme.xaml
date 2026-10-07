@@ -1,54 +1,8 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ctl="clr-namespace:PalTunes.App.Views.Controls">
 
-    <!-- Palette (0.1.1 : bleu plus soutenu et lisible, fond plus clair, cartes blanches à liseré) -->
-    <Color x:Key="ColorBg">#EEF2F5</Color>
-    <Color x:Key="ColorPanelDark">#34495E</Color>
-    <Color x:Key="ColorPanelDarker">#2C3E50</Color>
-    <Color x:Key="ColorCard">#FFFFFF</Color>
-    <Color x:Key="ColorPrimary">#3E9BDC</Color>
-    <Color x:Key="ColorPrimaryDark">#2471B3</Color>
-    <Color x:Key="ColorPrimarySoft">#EAF4FC</Color>
-    <Color x:Key="ColorSuccess">#27AE60</Color>
-    <Color x:Key="ColorWarning">#F39C12</Color>
-    <Color x:Key="ColorDanger">#E74C3C</Color>
-    <Color x:Key="ColorText">#2C3E50</Color>
-    <Color x:Key="ColorMuted">#71808C</Color>
-    <Color x:Key="ColorLine">#D6DEE4</Color>
-    <Color x:Key="ColorCardBorder">#E2E8ED</Color>
-
-    <SolidColorBrush x:Key="BgBrush" Color="{StaticResource ColorBg}" />
-    <SolidColorBrush x:Key="PanelDarkBrush" Color="{StaticResource ColorPanelDark}" />
-    <SolidColorBrush x:Key="PanelDarkerBrush" Color="{StaticResource ColorPanelDarker}" />
-    <SolidColorBrush x:Key="CardBrush" Color="{StaticResource ColorCard}" />
-    <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource ColorPrimary}" />
-    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource ColorSuccess}" />
-    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource ColorWarning}" />
-    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource ColorDanger}" />
-    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource ColorText}" />
-    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource ColorMuted}" />
-    <SolidColorBrush x:Key="LineBrush" Color="{StaticResource ColorLine}" />
-    <SolidColorBrush x:Key="PrimaryDarkBrush" Color="{StaticResource ColorPrimaryDark}" />
-    <SolidColorBrush x:Key="PrimarySoftBrush" Color="{StaticResource ColorPrimarySoft}" />
-    <SolidColorBrush x:Key="CardBorderBrush" Color="{StaticResource ColorCardBorder}" />
-    <SolidColorBrush x:Key="HoverBrush" Color="#F3F8FC" />
-
-    <!-- Colonne de navigation : léger dégradé, survol, élément actif, pastilles de compteur -->
-    <LinearGradientBrush x:Key="NavPanelBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#35506A" Offset="0" />
-        <GradientStop Color="#2C3E50" Offset="1" />
-    </LinearGradientBrush>
-    <SolidColorBrush x:Key="NavHoverBrush" Color="#16FFFFFF" />
-    <SolidColorBrush x:Key="NavActiveBrush" Color="#26FFFFFF" />
-    <SolidColorBrush x:Key="NavBadgeBrush" Color="#33000000" />
-    <SolidColorBrush x:Key="NavMutedBrush" Color="#9DB0BF" />
-
-    <!-- Fond des vues 3D : dégradé clair, sol légèrement plus soutenu -->
-    <LinearGradientBrush x:Key="Viewport3DBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Color="#FCFDFE" Offset="0" />
-        <GradientStop Color="#F1F5F8" Offset="0.55" />
-        <GradientStop Color="#DFE7EE" Offset="1" />
-    </LinearGradientBrush>
+    <!-- Couleurs : Palette.Light.xaml ou Palette.Dark.xaml (mode sombre), chargée avant ce dictionnaire. -->
 
     <CornerRadius x:Key="RadiusCard">12</CornerRadius>
     <CornerRadius x:Key="RadiusButton">8</CornerRadius>
@@ -92,6 +46,7 @@
     <!-- Boutons -->
     <!-- Bouton principal : survol / appui assombris par un voile, ombre douce, état désactivé estompé. -->
     <Style x:Key="RoundedButton" TargetType="Button">
+        <Setter Property="ctl:Motion.Press" Value="True" />
         <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
         <Setter Property="Foreground" Value="White" />
         <Setter Property="BorderBrush" Value="Transparent" />
@@ -143,7 +98,7 @@
 
     <!-- Bouton secondaire : contour léger sur fond blanc. -->
     <Style x:Key="OutlineButton" TargetType="Button" BasedOn="{StaticResource RoundedButton}">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -170,7 +125,7 @@
     </Style>
 
     <Style x:Key="LightButton" TargetType="Button" BasedOn="{StaticResource RoundedButton}">
-        <Setter Property="Background" Value="#F4F8FB" />
+        <Setter Property="Background" Value="{StaticResource SoftPanelBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -181,6 +136,7 @@
 
     <!-- Navigation (colonne gauche) -->
     <Style x:Key="NavButton" TargetType="Button">
+        <Setter Property="ctl:Motion.Press" Value="True" />
         <Setter Property="Foreground" Value="#ECF0F1" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -225,14 +181,17 @@
 
     <!-- Onglets plats -->
     <Style TargetType="TabControl">
+        <Setter Property="ctl:Motion.TabFade" Value="True" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="0" />
     </Style>
 
-    <!-- Le Foreground n'est appliqué qu'à l'en-tête : le contenu de l'onglet hérite sinon du blanc. -->
+    <!-- Contenu de l'onglet : il hérite du Foreground de l'onglet (arbre logique) → couleur de texte de la palette
+         (sinon noir système, illisible en mode sombre). L'en-tête a ses propres couleurs (modèle ci-dessous). -->
     <Style TargetType="TabItem">
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TabItem">
@@ -249,7 +208,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="White" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource CardBrush}" />
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource CardBorderBrush}" />
                             <Setter TargetName="Hdr" Property="TextElement.Foreground" Value="{StaticResource PrimaryDarkBrush}" />
                             <Setter TargetName="Accent" Property="Visibility" Value="Visible" />
@@ -259,7 +218,7 @@
                                 <Condition Property="IsMouseOver" Value="True" />
                                 <Condition Property="IsSelected" Value="False" />
                             </MultiTrigger.Conditions>
-                            <Setter TargetName="Bd" Property="Background" Value="#E2EAF0" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource PressedBrush}" />
                             <Setter TargetName="Hdr" Property="TextElement.Foreground" Value="{StaticResource TextBrush}" />
                         </MultiTrigger>
                         <Trigger Property="IsEnabled" Value="False">
@@ -277,7 +236,7 @@
         <Setter Property="Minimum" Value="0" />
         <Setter Property="Maximum" Value="100" />
         <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
-        <Setter Property="Background" Value="#E4EAEF" />
+        <Setter Property="Background" Value="{StaticResource TrackBrush}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ProgressBar">
@@ -293,12 +252,12 @@
 
     <!-- Grilles : en-tête clair, lignes aérées, survol et sélection marquée (barre bleue). -->
     <Style TargetType="DataGrid">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="RowBackground" Value="White" />
-        <Setter Property="AlternatingRowBackground" Value="#FAFCFD" />
+        <Setter Property="RowBackground" Value="{StaticResource CardBrush}" />
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource AltRowBrush}" />
         <Setter Property="GridLinesVisibility" Value="Horizontal" />
-        <Setter Property="HorizontalGridLinesBrush" Value="#EDF1F4" />
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource GridLineBrush}" />
         <Setter Property="HeadersVisibility" Value="Column" />
         <Setter Property="AutoGenerateColumns" Value="False" />
         <Setter Property="ColumnWidth" Value="Auto" />
@@ -316,8 +275,8 @@
     </Style>
 
     <Style TargetType="DataGridColumnHeader">
-        <Setter Property="Background" Value="#F5F8FA" />
-        <Setter Property="Foreground" Value="#5D6D7E" />
+        <Setter Property="Background" Value="{StaticResource GridHeaderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource SectionTextBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="Padding" Value="10,9" />
@@ -331,7 +290,7 @@
                                 BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
                             <DockPanel>
                                 <Path x:Name="Sort" DockPanel.Dock="Right" Width="8" Height="5" Margin="6,0,0,0" Stretch="Fill"
-                                      Fill="#5D6D7E" Visibility="Collapsed" VerticalAlignment="Center" Data="M0,0 L1,0 0.5,1 Z" />
+                                      Fill="{StaticResource SectionTextBrush}" Visibility="Collapsed" VerticalAlignment="Center" Data="M0,0 L1,0 0.5,1 Z" />
                                 <ContentPresenter VerticalAlignment="Center" />
                             </DockPanel>
                         </Border>
@@ -386,7 +345,7 @@
                             <Setter TargetName="Bd" Property="BorderThickness" Value="3,0,0,0" />
                         </MultiDataTrigger>
                         <Trigger Property="IsEditing" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="White" />
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource CardBrush}" />
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
                             <Setter TargetName="Bd" Property="BorderThickness" Value="1" />
                         </Trigger>
@@ -405,7 +364,7 @@
     <Style x:Key="EditableGrid" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
         <Setter Property="IsReadOnly" Value="False" />
         <Setter Property="RowHeight" Value="36" />
-        <Setter Property="AlternatingRowBackground" Value="White" />
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource CardBrush}" />
     </Style>
 
     <Style x:Key="ContextMenuItemStyle" TargetType="MenuItem">
@@ -463,7 +422,7 @@
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
-                                <Border x:Name="Bd" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                <Border x:Name="Bd" Background="{StaticResource CardBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                                         CornerRadius="16" Padding="14,5" Margin="0,0,6,0">
                                     <ContentPresenter x:Name="Cp" TextElement.Foreground="{StaticResource TextBrush}" />
                                 </Border>
@@ -491,8 +450,10 @@
 
     <Style x:Key="SearchBox" TargetType="TextBox">
         <Setter Property="Padding" Value="8,5" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
             <Setter.Value>
@@ -507,7 +468,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="BorderBrush" Value="#B6C3CD" />
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BorderHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
@@ -594,6 +555,11 @@
     <!-- Notification (bas droite) -->
     <Style x:Key="Toast" TargetType="Border">
         <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="RenderTransform">
+            <Setter.Value>
+                <TranslateTransform Y="14" />
+            </Setter.Value>
+        </Setter>
         <Setter Property="Padding" Value="14,10" />
         <Setter Property="Background" Value="#2C3E50" />
         <Setter Property="MaxWidth" Value="520" />
@@ -611,6 +577,11 @@
                     <BeginStoryboard>
                         <Storyboard>
                             <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.2" />
+                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(TranslateTransform.Y)" To="0" Duration="0:0:0.25">
+                                <DoubleAnimation.EasingFunction>
+                                    <CubicEase EasingMode="EaseOut" />
+                                </DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
                         </Storyboard>
                     </BeginStoryboard>
                 </DataTrigger.EnterActions>
@@ -618,6 +589,7 @@
                     <BeginStoryboard>
                         <Storyboard>
                             <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.4" />
+                            <DoubleAnimation Storyboard.TargetProperty="RenderTransform.(TranslateTransform.Y)" To="14" Duration="0:0:0.4" />
                         </Storyboard>
                     </BeginStoryboard>
                 </DataTrigger.ExitActions>
