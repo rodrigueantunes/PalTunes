@@ -376,7 +376,7 @@ public class EnclosureNoteTests
             var store = new DatabaseStore(path);
             store.Save(db);
             var loaded = store.Load();
-            Assert.Equal(6, loaded.SchemaVersion);
+            Assert.Equal(7, loaded.SchemaVersion);
             Assert.All(loaded.Articles, a => Assert.Contains(loaded.Clients, c => c.Code == a.Client));
             var agro = loaded.FindClient("AGRO")!;
             var count = loaded.ArticleCountOf(agro);

@@ -235,6 +235,64 @@ public class CalculationDetailsTests
         Assert.Contains(layers.Lines, l => l.Contains("⌊1 656 / 250⌋ = 6"));
         Assert.Contains(layers.Lines, l => l.Contains($"= {s.ItemsPerUnit}"));
         Assert.Contains(d, x => x.Title == "Base et limites" && x.Lines.Any(l => l.Contains("1 656 mm")));
+        var qty = d.Single(x => x.Title == "Quantité par palette");
+        Assert.Contains(qty.Lines, l => l.Contains($"{s.ItemsPerLayer} × {s.LayerCount}") && l.Contains($"= {s.ItemsPerUnit}"));
+        Assert.DoesNotContain(d, x => x.Title == "Quantité par colisage");
+    }
+
+    private static List<PalTunes.Core.Export.DetailSection> Norm(IEnumerable<PalTunes.Core.Export.DetailSection> d) =>
+        d.Select(x => x with { Lines = x.Lines.Select(l => l.Replace(' ', ' ').Replace(' ', ' ')).ToList() }).ToList();
+
+    [Fact]
+    public void Pallet_LayerSteps_ExplainGridsBlocksAndOperations()
+    {
+        var a = new Article { Code = "C", Kind = ArticleKind.Caisse, Length = 400, Width = 300, Height = 250, Weight = 8 };
+        var c = new PackagingConstraints { MaxTotalHeight = 1800 };
+        var s = HomogeneousEngine.Solve(a, BaseInfo.From(Eur, false, 1, 1), c).Recommended!;
+        var d = Norm(PalTunes.Core.Export.CalculationDetails.Pallet(s, s.FirstUnit!, c, a, _ => a));
+        var steps = d.Single(x => x.Title == "Plan de couche pas à pas").Lines;
+        Assert.Contains(steps, l => l.Contains("en long") && l.Contains("⌊1 200 / 400⌋ × ⌊800 / 300⌋ = 3 × 2 = 6"));
+        Assert.Contains(steps, l => l.Contains("en travers") && l.Contains("⌊1 200 / 300⌋ × ⌊800 / 400⌋ = 4 × 2 = 8"));
+        Assert.Contains(steps, l => l.StartsWith("Plan retenu"));
+        Assert.Contains(steps, l => l.StartsWith("Borne simple") && l.Contains("au plus 8"));
+        var ops = d.Last();
+        Assert.Equal("Les opérations, en bref", ops.Title);
+        Assert.Contains(ops.Lines, l => l.Contains("1 656 ÷ 250 = 6,62 → 6"));
+        Assert.Contains(ops.Lines, l => l.Contains($"Produits par palette : 8 × 6 = {s.ItemsPerUnit}"));
+    }
+
+    [Fact]
+    public void Pallet_Cylinders_ExplainAlignedAndStaggeredRows()
+    {
+        var a = new Article { Code = "F", Kind = ArticleKind.Fut, Diameter = 250, Height = 400, Weight = 5 };
+        var c = new PackagingConstraints { MaxTotalHeight = 1800 };
+        var s = HomogeneousEngine.Solve(a, BaseInfo.From(Eur, false, 1, 1), c).Recommended!;
+        var d = Norm(PalTunes.Core.Export.CalculationDetails.Pallet(s, s.FirstUnit!, c, a, _ => a));
+        var steps = d.Single(x => x.Title == "Plan de couche pas à pas").Lines;
+        Assert.Contains(steps, l => l.StartsWith("Rangées alignées") && l.Contains("= 4 × 3 = 12"));
+        Assert.Contains(steps, l => l.StartsWith("En quinconce"));
+        Assert.Contains(steps, l => l.StartsWith("Plan retenu") && l.Contains($"= {s.ItemsPerLayer} produits par couche"));
+        Assert.Equal("Les opérations, en bref", d.Last().Title);
+    }
+
+    [Fact]
+    public void Pallet_CaseArticle_ExplainsQuantityPerColisage()
+    {
+        var product = new Article { Code = "P", Kind = ArticleKind.Caisse, Length = 100, Width = 100, Height = 120, Weight = 0.5 };
+        var spec = new CaseSpec { InnerLength = 400, InnerWidth = 300, InnerHeight = 250, WallThickness = 4, Tare = 0.4 };
+        var cs = CaseEngine.Solve(product, spec).Recommended!;
+        var box = CaseEngine.CreateCaseArticle(product, cs, spec, "CAI-P");
+        Article? Find(Guid id) => id == product.Id ? product : id == box.Id ? box : null;
+        var c = new PackagingConstraints { MaxTotalHeight = 1800 };
+        var s = HomogeneousEngine.Solve(box, BaseInfo.From(Eur, false, 1, 1), c).Recommended!;
+        var d = PalTunes.Core.Export.CalculationDetails.Pallet(s, s.FirstUnit!, c, box, Find, a => CaseEngine.Rebuild(a, Find, []))
+            .Select(x => x with { Lines = x.Lines.Select(l => l.Replace(' ', ' ').Replace(' ', ' ')).ToList() }).ToList();
+        var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+        string F(int v) => v.ToString("#,0", fr).Replace(' ', ' ').Replace(' ', ' ');
+        Assert.Contains(d.Single(x => x.Title == "Quantité par palette").Lines,
+            l => l.Contains($"{F(s.ItemsPerUnit)} × {F(cs.ItemsPerUnit)} = {F(s.ItemsPerUnit * cs.ItemsPerUnit)}"));
+        Assert.Contains(d.Single(x => x.Title == "Quantité par colisage").Lines,
+            l => l.Contains($"{cs.ItemsPerLayer} par couche × {cs.LayerCount}") && l.Contains($"= {cs.ItemsPerUnit} produit(s) par caisse"));
     }
 
     [Fact]
@@ -248,6 +306,8 @@ public class CalculationDetailsTests
         Assert.Contains(d, x => x.Title == "Bornes" && x.Lines.Any(l => l.StartsWith("Par le volume")));
         Assert.Contains(d, x => x.Title == "Stratégie");
         Assert.Equal(s.Units.Count, d.Single(x => x.Title == "Détail par palette").Lines.Count);
+        Assert.Contains(d.Single(x => x.Title == "Quantité par palette").Lines, l => l.Contains("A × "));
+        Assert.Contains(d.Single(x => x.Title == "Quantité par palette").Lines, l => l.Contains("B × "));
     }
 
     [Fact]
@@ -260,6 +320,10 @@ public class CalculationDetailsTests
             .Select(x => x with { Lines = x.Lines.Select(l => l.Replace(' ', ' ').Replace(' ', ' ')).ToList() }).ToList();
         Assert.Contains(d, x => x.Title == "Caisse et limites" && x.Lines.Any(l => l.Contains("408 × 308 × 258")));
         Assert.Contains(d, x => x.Title == "Poids de la caisse" && x.Lines.Any(l => l.Contains("Poids brut")));
+        Assert.Contains(d.Single(x => x.Title == "Quantité par colisage").Lines,
+            l => l.Contains($"{s.ItemsPerLayer} × {s.LayerCount}") && l.Contains($"= {s.ItemsPerUnit} produit(s) par caisse"));
+        Assert.Equal("Les opérations, en bref", d.Last().Title);
+        Assert.Contains(d.Last().Lines, l => l.Contains("Poids brut"));
         Assert.Contains(d, x => x.Title == "Palettisation des caisses" && x.Lines.Any(l => l.Contains($"= {s.ItemsPerPallet.ToString("#,0", System.Globalization.CultureInfo.GetCultureInfo("fr-FR")).Replace(' ', ' ').Replace(' ', ' ')}")));
     }
 }
