@@ -8,7 +8,7 @@ namespace PalTunes.Core.Storage;
 /// <summary>Base PalTunes : articles, palettes, conditionnements (un fichier JSON, partageable).</summary>
 public sealed class Database
 {
-    public int SchemaVersion { get; set; } = 6;
+    public int SchemaVersion { get; set; } = 7;
     public List<Client> Clients { get; set; } = [];
     public List<Article> Articles { get; set; } = [];
     public List<PalletType> Pallets { get; set; } = [];
@@ -217,24 +217,49 @@ public sealed class Database
     {
         var count = 0;
         var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
-        static double Num(string v, System.Globalization.CultureInfo fr) =>
-            double.TryParse(v.Replace('.', ','), System.Globalization.NumberStyles.Float, fr, out var d) ? d : 0;
         foreach (var box in Articles.Where(a => a.Kind == ArticleKind.Caisse && a.CaseContent == null && !string.IsNullOrWhiteSpace(a.Designation)).ToList())
         {
             var designation = box.Designation!.Trim();
-            var mixed = System.Text.RegularExpressions.Regex.Match(designation, @"\bmixte\s*:\s*(?<content>.+)$");
+            var mixed = System.Text.RegularExpressions.Regex.Match(designation, @"^(?<name>.*?)\s*\bmixte\s*:\s*(?<content>.+)$");
             if (mixed.Success)
             {
-                if (box.QuantityPerCase == null)
+                var parts = System.Text.RegularExpressions.Regex.Matches(mixed.Groups["content"].Value, @"(?<q>\d+)\s*×\s*(?<code>[^\s+]+)")
+                    .Select(m => (Quantity: int.Parse(m.Groups["q"].Value), Code: m.Groups["code"].Value)).ToList();
+                var total = parts.Sum(x => x.Quantity);
+                if (box.QuantityPerCase == null && total > 0)
                 {
-                    var total = System.Text.RegularExpressions.Regex.Matches(mixed.Groups["content"].Value, @"(?<q>\d+)\s*×").Sum(m => int.Parse(m.Groups["q"].Value));
-                    if (total > 0)
-                    {
-                        box.QuantityPerCase = total;
-                        count++;
-                    }
+                    box.QuantityPerCase = total;
+                    count++;
                 }
 
+                // Contenu détaillé (0.1.9) : articles retrouvés par leur code, caisse par le code « CAI-MIX-caisse » ou son nom.
+                var found = parts.Select(x =>
+                {
+                    var candidates = Articles.Where(a => a.Id != box.Id && string.Equals(a.Code, x.Code, StringComparison.OrdinalIgnoreCase)).ToList();
+                    return (x.Quantity, Article: candidates.FirstOrDefault(a => string.Equals(a.Client, box.Client, StringComparison.OrdinalIgnoreCase)) ?? candidates.FirstOrDefault());
+                }).ToList();
+                if (found.Count == 0 || found.Any(x => x.Article == null))
+                {
+                    continue;
+                }
+
+                const string mixPrefix = "CAI-MIX-";
+                var mixType = box.Code.StartsWith(mixPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? Cases.Where(c => box.Code.Substring(mixPrefix.Length).StartsWith(c.Code, StringComparison.OrdinalIgnoreCase) &&
+                                       (box.Code.Length == mixPrefix.Length + c.Code.Length || box.Code[mixPrefix.Length + c.Code.Length] == '-'))
+                        .MaxBy(c => c.Code.Length)
+                    : null;
+                mixType ??= Cases.FirstOrDefault(c => string.Equals(c.Name, mixed.Groups["name"].Value.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (InnerOf(box.Notes, mixType, fr) is not (var ml, var mw, var mh, var mt))
+                {
+                    continue;
+                }
+
+                var mixTare = mixType?.Tare ?? Math.Max(0, Math.Round(box.Weight - found.Sum(x => x.Quantity * x.Article!.Weight), 5));
+                var ordered = found.OrderByDescending(x => x.Quantity).ToList();
+                box.CaseContent = new CaseContent(ordered[0].Article!.Id, mixType?.Code, ml, mw, mh, mt, mixTare, 0, null,
+                    ordered.Select(x => new CaseContentLine(x.Article!.Id, x.Quantity)).ToList());
+                count++;
                 continue;
             }
 
@@ -264,17 +289,7 @@ public sealed class Database
             type ??= Cases.FirstOrDefault(c => string.Equals(c.Name, single.Groups["name"].Value.Trim(), StringComparison.OrdinalIgnoreCase));
 
             var notes = box.Notes ?? "";
-            var inner = System.Text.RegularExpressions.Regex.Match(notes, @"Intérieur\s+(?<l>[\d.,]+)\s*×\s*(?<w>[\d.,]+)\s*×\s*(?<h>[\d.,]+)\s*mm,\s*paroi\s+(?<t>[\d.,]+)\s*mm");
-            double l, w, h, t;
-            if (inner.Success)
-            {
-                (l, w, h, t) = (Num(inner.Groups["l"].Value, fr), Num(inner.Groups["w"].Value, fr), Num(inner.Groups["h"].Value, fr), Num(inner.Groups["t"].Value, fr));
-            }
-            else if (type != null)
-            {
-                (l, w, h, t) = (type.InnerLength, type.InnerWidth, type.InnerHeight, type.WallThickness);
-            }
-            else
+            if (InnerOf(notes, type, fr) is not (var l, var w, var h, var t))
             {
                 continue;
             }
@@ -289,6 +304,20 @@ public sealed class Database
         }
 
         return count;
+    }
+
+    /// <summary>Dimensions intérieures et paroi : notes « Intérieur 786 × 586 × 386 mm, paroi 7 mm », sinon la caisse du catalogue.</summary>
+    private static (double L, double W, double H, double T)? InnerOf(string? notes, CaseType? type, System.Globalization.CultureInfo fr)
+    {
+        static double Num(string v, System.Globalization.CultureInfo fr) =>
+            double.TryParse(v.Replace('.', ','), System.Globalization.NumberStyles.Float, fr, out var d) ? d : 0;
+        var inner = System.Text.RegularExpressions.Regex.Match(notes ?? "", @"Intérieur\s+(?<l>[\d.,]+)\s*×\s*(?<w>[\d.,]+)\s*×\s*(?<h>[\d.,]+)\s*mm,\s*paroi\s+(?<t>[\d.,]+)\s*mm");
+        if (inner.Success)
+        {
+            return (Num(inner.Groups["l"].Value, fr), Num(inner.Groups["w"].Value, fr), Num(inner.Groups["h"].Value, fr), Num(inner.Groups["t"].Value, fr));
+        }
+
+        return type == null ? null : (type.InnerLength, type.InnerWidth, type.InnerHeight, type.WallThickness);
     }
 
     /// <summary>
@@ -495,6 +524,14 @@ public sealed class DatabaseStore
             // Caisses créées au colisage avant la 0.1.3 : quantité par caisse et contenu repris de la fiche.
             loaded.CompleteLegacyCaseArticles();
             loaded.SchemaVersion = 6;
+            changed++;
+        }
+
+        if (loaded.SchemaVersion < 7)
+        {
+            // Caisses mixtes créées avant la 0.1.9 : articles × quantités et caisse repris de la fiche (fiche de colisage complète).
+            loaded.CompleteLegacyCaseArticles();
+            loaded.SchemaVersion = 7;
             changed++;
         }
 

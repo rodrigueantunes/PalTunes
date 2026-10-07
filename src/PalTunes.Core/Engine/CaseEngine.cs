@@ -131,11 +131,13 @@ public static class CaseEngine
 
     /// <summary>
     /// Article « caisse » d'une caisse mixte (colisage hétérogène) : dimensions extérieures, poids brut de cette caisse,
-    /// quantité totale de produits ; contenu détaillé dans la désignation et les notes (pas de fiche de colisage recalculable).
+    /// quantité totale de produits ; contenu détaillé (articles × quantités, caisse) enregistré pour recalculer et
+    /// réimprimer la fiche de colisage, et rappelé dans la désignation et les notes.
     /// </summary>
-    public static Article CreateMixedCaseArticle(LoadUnit unit, CaseSpec spec, CaseType? type, string code, Func<Guid, string> codeOf)
+    public static Article CreateMixedCaseArticle(LoadUnit unit, CaseSpec spec, CaseType? type, string code, Func<Guid, string> codeOf, CoilAxis? axis = null)
     {
-        var content = string.Join(" + ", unit.Items.GroupBy(p => p.ArticleId).OrderByDescending(g => g.Count()).Select(g => $"{g.Count()} × {codeOf(g.Key)}"));
+        var groups = unit.Items.GroupBy(p => p.ArticleId).OrderByDescending(g => g.Count()).ToList();
+        var content = string.Join(" + ", groups.Select(g => $"{g.Count()} × {codeOf(g.Key)}"));
         return new Article
         {
             Code = code,
@@ -148,19 +150,43 @@ public static class CaseEngine
             Weight = Math.Round(unit.Items.Sum(p => p.Weight) + spec.Tare, 5),
             Orientation = OrientationRule.HautImpose,
             Color = type?.Color,
-            Notes = $"Colisage mixte : {content}. Intérieur {spec.InnerLength:0} × {spec.InnerWidth:0} × {spec.InnerHeight:0} mm, paroi {spec.WallThickness:0.#} mm."
+            Notes = $"Colisage mixte : {content}. Intérieur {spec.InnerLength:0} × {spec.InnerWidth:0} × {spec.InnerHeight:0} mm, paroi {spec.WallThickness:0.#} mm.",
+            CaseContent = groups.Count == 0 ? null : new CaseContent(groups[0].Key, type?.Code, spec.InnerLength, spec.InnerWidth, spec.InnerHeight, spec.WallThickness,
+                spec.Tare, spec.Gap, axis, groups.Select(g => new CaseContentLine(g.Key, g.Count())).ToList())
         };
     }
 
-    /// <summary>Colisage d'un article caisse créé au colisage, recalculé pour la fiche (produit, caisse, solution).</summary>
-    public sealed record CaseSheet(Article Content, CaseType? Type, CaseSpec Spec, Solution Solution, CoilAxis? Axis);
+    /// <summary>
+    /// Colisage d'un article caisse créé au colisage, recalculé pour la fiche (produit, caisse, solution). Caisse mixte :
+    /// <see cref="Lines"/> (articles × quantités) et <see cref="Unit"/> (la caisse montrée, la première sinon) ;
+    /// <see cref="Content"/> est alors l'article le plus nombreux.
+    /// </summary>
+    public sealed record CaseSheet(Article Content, CaseType? Type, CaseSpec Spec, Solution Solution, CoilAxis? Axis,
+        IReadOnlyList<(Article Article, int Quantity)>? Lines = null, LoadUnit? Unit = null)
+    {
+        public bool IsMixed => Lines is { Count: > 1 } || Solution.Kind == PackagingKind.Heterogene;
+
+        /// <summary>Caisse montrée sur la fiche.</summary>
+        public LoadUnit ShownUnit => Unit ?? Solution.FirstUnit!;
+
+        /// <summary>Contenu de la caisse montrée : article × quantité (le plus nombreux d'abord).</summary>
+        public IReadOnlyList<(Article Article, int Quantity)> ContentLines(Func<Guid, Article?> find) => IsMixed
+            ? ShownUnit.Items.GroupBy(p => p.ArticleId).OrderByDescending(g => g.Count())
+                .Select(g => (find(g.Key) ?? Lines?.FirstOrDefault(l => l.Article.Id == g.Key).Article ?? Content, g.Count())).ToList()
+            : [(Content, ShownUnit.Items.Count)];
+
+        /// <summary>« 350 × BAG0000001 + 100 × BAG0000011 ».</summary>
+        public string ContentText(Func<Guid, Article?> find) =>
+            string.Join(" + ", ContentLines(find).Select(l => $"{l.Quantity.ToString("#,0", System.Globalization.CultureInfo.GetCultureInfo("fr-FR"))} × {l.Article.Code}"));
+    }
 
     /// <summary>
     /// Fiche de colisage possible pour cet article : caisse dont le contenu est connu (créée au colisage) et dont le
     /// produit existe toujours.
     /// </summary>
     public static bool CanRebuild(Article? box, Func<Guid, Article?> findArticle) =>
-        box is { Kind: ArticleKind.Caisse, CaseContent: { } link } && findArticle(link.ArticleId) != null;
+        box is { Kind: ArticleKind.Caisse, CaseContent: { } link } &&
+        (link.IsMixed ? link.Lines!.All(l => findArticle(l.ArticleId) != null) : findArticle(link.ArticleId) != null);
 
     /// <summary>
     /// Recalcule le colisage d'un article caisse : même produit, même caisse, quantité par caisse imposée si renseignée.
@@ -168,7 +194,7 @@ public static class CaseEngine
     /// </summary>
     public static CaseSheet? Rebuild(Article box, Func<Guid, Article?> findArticle, IEnumerable<CaseType> cases)
     {
-        if (box is not { Kind: ArticleKind.Caisse, CaseContent: { } link } || findArticle(link.ArticleId) is not { } content)
+        if (box is not { Kind: ArticleKind.Caisse, CaseContent: { } link } || !CanRebuild(box, findArticle) || findArticle(link.ArticleId) is not { } content)
         {
             return null;
         }
@@ -185,6 +211,16 @@ public static class CaseEngine
             Tare = link.Tare,
             Gap = link.Gap
         };
+        if (link.IsMixed)
+        {
+            // Caisse mixte : mêmes articles × quantités dans la même caisse, une seule caisse attendue.
+            var lines = link.Lines!.Select(l => (findArticle(l.ArticleId)!, l.Quantity)).ToList();
+            var mixed = SolveMixed(lines, spec, type, axis: link.Axis);
+            var best = mixed.Solutions.Where(s => s.Units.Count == 1 && s.UnplacedItems == 0).OrderByDescending(s => s.Recommended).FirstOrDefault()
+                       ?? mixed.Recommended ?? mixed.Solutions.FirstOrDefault();
+            return best is { FirstUnit: not null } ? new CaseSheet(content, type, spec, best, link.Axis, lines) : null;
+        }
+
         var result = Solve(content, spec, box.CaseQuantity, type, axis: link.Axis);
         var solution = result.Solutions.FirstOrDefault(s => box.CaseQuantity is { } q && s.ItemsPerUnit == q)
                        ?? result.Recommended

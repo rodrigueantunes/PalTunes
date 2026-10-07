@@ -185,7 +185,8 @@ public sealed class Article
 
 /// <summary>
 /// Contenu d'un article caisse créé au colisage : produit, caisse du catalogue (code, ou caisse spécifique) et
-/// caractéristiques utilisées, pour recalculer et réimprimer la fiche de colisage.
+/// caractéristiques utilisées, pour recalculer et réimprimer la fiche de colisage. Caisse mixte (plusieurs articles) :
+/// <see cref="Lines"/> donne chaque article et sa quantité, <see cref="ArticleId"/> l'article le plus nombreux.
 /// </summary>
 public sealed record CaseContent(
     Guid ArticleId,
@@ -196,4 +197,12 @@ public sealed record CaseContent(
     double WallThickness,
     double Tare,
     double Gap,
-    CoilAxis? Axis);
+    CoilAxis? Axis,
+    List<CaseContentLine>? Lines = null)
+{
+    /// <summary>Caisse mixte : plusieurs articles dans la même caisse.</summary>
+    public bool IsMixed => Lines is { Count: > 1 };
+}
+
+/// <summary>Article d'une caisse mixte et sa quantité dans la caisse.</summary>
+public sealed record CaseContentLine(Guid ArticleId, int Quantity);

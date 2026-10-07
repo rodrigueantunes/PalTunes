@@ -1,0 +1,11 @@
+C:\Application\PalTunes\src\PalTunes.Core\bin\Debug\net10.0\PalTunes.Core.deps.json
+C:\Application\PalTunes\src\PalTunes.Core\bin\Debug\net10.0\PalTunes.Core.dll
+C:\Application\PalTunes\src\PalTunes.Core\bin\Debug\net10.0\PalTunes.Core.pdb
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\PalTunes.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\PalTunes.Core.AssemblyInfoInputs.cache
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\PalTunes.Core.AssemblyInfo.cs
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\PalTunes.Core.csproj.CoreCompileInputs.cache
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\PalTunes.Core.dll
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\refint\PalTunes.Core.dll
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\PalTunes.Core.pdb
+C:\Application\PalTunes\src\PalTunes.Core\obj\Debug\net10.0\ref\PalTunes.Core.dll

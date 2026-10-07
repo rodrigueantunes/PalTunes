@@ -33,7 +33,10 @@ public static class PackagingSpec
         var m = u?.Metrics ?? new UnitMetrics();
         var b = s.Base;
 
-        rows.Add(new(GroupSpec, "Nombre de produits conditionnés par palette produit", s.ItemsPerUnit.ToString(Fr)));
+        // Hétérogène : les chiffres sont ceux de l'unité montrée (la première), comme les dimensions et les indicateurs.
+        var mixed = s.Kind != PackagingKind.Homogene && u != null;
+        var unitNote = mixed && s.UnitCount > 1 ? $"unité {u!.Index} / {s.UnitCount} · {s.Units.Sum(x => x.Items.Count).ToString("#,0", Fr)} au total" : "";
+        rows.Add(new(GroupSpec, "Nombre de produits conditionnés par palette produit", (mixed ? u!.Items.Count : s.ItemsPerUnit).ToString(Fr), unitNote));
         rows.Add(new(GroupSpec, "Nombre de palettes physiques par conditionnement", b.PhysicalCount.ToString(Fr),
             b.PhysicalCount > 1 ? $"{b.CountAlongLength} × {b.CountAlongWidth}" : ""));
         rows.Add(new(GroupSpec, "Nombre de gerbages", s.Stackings.ToString(Fr),
@@ -60,7 +63,7 @@ public static class PackagingSpec
             rows.Add(new(GroupSpec, "Unités de charge", s.UnitCount.ToString(Fr)));
         }
 
-        rows.Add(new(GroupSpec, "Nombre de couches", s.LayerCount.ToString(Fr), s.LayerLimitReason));
+        rows.Add(new(GroupSpec, "Nombre de couches", (mixed ? u!.Layers.Count : s.LayerCount).ToString(Fr), mixed && s.UnitCount > 1 ? $"unité {u!.Index} / {s.UnitCount}" : s.LayerLimitReason));
         rows.Add(new(GroupSpec, "Schéma", s.PatternLabel, s.OrientationText));
 
         rows.Add(new(GroupPallet, "Type de palette", b.PalletCode, b.PalletName));
