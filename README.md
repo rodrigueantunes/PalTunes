@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.1.8` · Windows · .NET 10 · WPF
+`v0.1.9` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -712,7 +712,7 @@ Trois fiches peuvent être imprimées ou enregistrées au format PDF via le syst
 ```text
 FICHE PALETTE            spécification, plans de couche, plan de palettisation      Ctrl + P
 FICHE DE COLISAGE        produit, caisse, quantité par caisse, poids brut, plans, vue 3D
-FICHE DE CONDITIONNEMENT fiche palette, puis fiche de colisage sur une nouvelle page
+FICHE DE CONDITIONNEMENT fiche palette, puis fiche(s) de colisage, chacune sur une nouvelle page
 ```
 
 Les fiches portent sur **l'article affiché**, quel que soit le menu : article sélectionné, article du conditionnement, produit du colisage (dans les autres espaces, le dernier article affiché, rappelé au-dessus des boutons). Chaque bouton est actif si la fiche est possible pour cet article, grisé sinon — le survol en donne la raison :
@@ -723,13 +723,31 @@ fiche de colisage          un colisage existe (affiché, caisse créée au colis
 fiche de conditionnement   les deux : le conditionnement de la caisse et son colisage
 ```
 
+Palette hétérogène avec des caisses (affichée aux Conditionnements ou sélectionnée dans la Gestion) : les fiches de colisage sont celles de ses caisses. Dès que plusieurs colisages sont disponibles, le bouton devient **« Imprimer les fiches de colisage »** (une fiche par caisse, chacune sur une nouvelle page) et la fiche de conditionnement imprime la fiche palette puis toutes les fiches de colisage.
+
+Une caisse mixte (plusieurs articles) a une fiche de colisage complète : composition (quantité et poids de chaque article), stratégie et règles de remplissage, caisse, poids brut, schémas (niveaux, côté, face) et vue 3D de la caisse ouverte avec la légende des couleurs.
+
 Rien n'est calculé à la place de l'utilisateur. Une caisse dont seule la quantité par caisse est connue donne une fiche de colisage résumée (quantité, caisse, palettisation enregistrée, sans plans).
+
+La première page tient toujours sur une seule page : si elle déborde, elle se resserre d'elle-même (images du cartouche réduites, texte et marges plus serrés, spécification sur deux colonnes), sans retirer d'information.
 
 Mise en page : première page avec un cartouche (informations, image de la palette choisie et de la caisse du catalogue) et la spécification ; schémas (couches, côté, face, vue 3D) sur une page à part ; plan de palettisation ensuite ; pied de page numéroté sur chaque page.
 
 ### Détails du calcul
 
 Les écrans Conditionnements et Colisage ont un onglet **Détails du calcul** : chaque étape avec ses chiffres et son explication — base et limites (surface et hauteur utiles, charge), produit retenu, plan de couche et sa borne théorique, nombre de couches par la hauteur, le poids, la résistance et le facteur limitant, poids et encombrement, gerbage ; en hétérogène, bornes de volume et de poids, règles de pose, stratégie retenue et détail par unité ; au colisage, caisse et limites de poids (charge maxi, manutention à la main), poids brut et palettisation des caisses.
+
+La section **Plan de couche pas à pas** montre comment le nombre de produits par couche est trouvé : surface utile et empreinte du produit, grilles simples comparées (tout en long, tout en travers ; pour les ronds, rangées alignées et en quinconce), plan retenu décomposé en blocs ou en rangées, gain sur la meilleure grille simple, borne par la surface et surface couverte. Tout en bas, **Les opérations, en bref** reprend le calcul en opérations simples numérotées (couches = 1 656 ÷ 250 = 6,62 → 6 ; produits = 8 × 6 = 48 ; poids ; hauteur).
+
+Deux sections expliquent les quantités :
+
+```text
+Quantité par palette    produits par couche × couches = quantité (dernière couche incomplète détaillée)
+                        palette de caisses : colis × quantité par caisse = produits contenus
+                        hétérogène : quantité de chaque article sur chaque palette
+Quantité par colisage   Colisage : produits par couche × couches, facteur limitant (ou composition de chaque caisse)
+                        Conditionnements : colisage recalculé de chaque caisse de la palette, ou quantité saisie
+```
 
 Un article caisse peut porter une **quantité par caisse** (facultative) : renseignée automatiquement à la création d'une caisse au colisage, ou importée (`QTE_PAR_CAISSE`). La fiche palette indique alors aussi les produits contenus par palette ; vide, rien ne change.
 
@@ -781,6 +799,17 @@ Ctrl+6  COLISAGE           meilleure caisse, caisse ouverte / fermée, création
 Ctrl+7  GESTION DES        tous les conditionnements rangés par client, famille, type ;
         CONDITIONNEMENTS   recherche, fiche résumée, aperçu 3D, ouvrir / dupliquer / supprimer
 ```
+
+Les écrans sont reliés entre eux :
+
+```text
+Gestion des conditionnements  Voir le colisage (choix si plusieurs caisses) · Voir l'article
+Conditionnements              Voir le colisage · Fiche article · icône colisage sur chaque ligne caisse
+Articles                      Palettiser · Mettre en caisse · Voir le colisage · Ses conditionnements
+Colisage                      Fiche article · Ses conditionnements
+```
+
+« Voir le colisage » ouvre l'espace Colisage réglé sur le colisage de la caisse (produit, caisse, quantité par caisse, position) ; « Ses conditionnements » ouvre la gestion filtrée sur l'article (palettes de ses caisses comprises).
 
 L'écran **Conditionnements** ne garde que les **10 derniers** conditionnements modifiés (liste « Récents », repliable) ; une recherche porte sur tous. Les autres se retrouvent dans **Gestion des conditionnements**, rangés comme les articles.
 
