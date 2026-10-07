@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.2.0` · Windows · .NET 10 · WPF
+`v0.2.1` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -102,6 +102,14 @@ non gerbable     dessus bombé à plus de 45°
 ```
 
 La fiche article affiche le verdict et son raisonnement ; l'aperçu 3D suit la forme.
+
+**Poignée** (bidon, seau, bouteille, fût) : ajoutée ou retirée, encastrée, saillante ou anse rabattable, droite ou
+arrondie (avec l'angle de chaque côté), pleine ou ouverte, et ses dimensions en % de celles du produit (100 % au plus). Encastrée : le puits est retiré de la surface
+d'appui ; saillante : avec un intercalaire, l'appui se fait sur le dessus des poignées (sous 5 % de contact, charge
+× 0,3). Sans dimensions : proportions usuelles.
+
+**Sac tassable en caisse** (case décochée par défaut) : à la mise en caisse, l'épaisseur diminue du taux saisi (10 %,
+25 % au plus), l'empreinte ne change pas (air chassé) ; sur palette, l'épaisseur saisie est conservée.
 
 Chaque famille conserve ses propres règles.
 
