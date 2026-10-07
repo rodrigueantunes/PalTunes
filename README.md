@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.1.9` · Windows · .NET 10 · WPF
+`v0.2.0` · Windows · .NET 10 · WPF
 
 </div>
 
@@ -91,6 +91,17 @@ PalTunes calcule plusieurs configurations possibles, contrôle leur validité pu
 Bidons, seaux, bouteilles et cuves (catégorie « Autre ») se calculent comme leur forme de base — bac rigide ou fût
 debout —, en homogène comme en hétérogène, et sont dessinés avec leur forme réelle. Gerbés sur plusieurs couches
 sans intercalaire, bidons, seaux et bouteilles déclenchent un conseil (dessus non plat).
+
+**Forme du dessus** (bidon, seau, bouteille, facultative) : dessus droit ou arrondi, angle, poignée encastrée,
+saillante, anse rabattable ou aucune. Le calcul en déduit le gerbage :
+
+```text
+pose directe     pente ≤ 14° (glissement plastique sur plastique : tan θ ≤ 0,25), appui ≥ 40 %, poignée non saillante
+intercalaire     sinon : intercalaire rigide sous chaque couche, charge admissible réduite (× 0,8 à × 0,5)
+non gerbable     dessus bombé à plus de 45°
+```
+
+La fiche article affiche le verdict et son raisonnement ; l'aperçu 3D suit la forme.
 
 Chaque famille conserve ses propres règles.
 
@@ -739,6 +750,11 @@ Les écrans Conditionnements et Colisage ont un onglet **Détails du calcul** : 
 
 La section **Plan de couche pas à pas** montre comment le nombre de produits par couche est trouvé : surface utile et empreinte du produit, grilles simples comparées (tout en long, tout en travers ; pour les ronds, rangées alignées et en quinconce), plan retenu décomposé en blocs ou en rangées, gain sur la meilleure grille simple, borne par la surface et surface couverte. Tout en bas, **Les opérations, en bref** reprend le calcul en opérations simples numérotées (couches = 1 656 ÷ 250 = 6,62 → 6 ; produits = 8 × 6 = 48 ; poids ; hauteur).
 
+Pour chaque nombre, on sait pourquoi : chaque contrainte (hauteur, poids, résistance, couches maxi, forme du dessus)
+donne son nombre maximal de couches avec son opération, la plus petite décide ; la section **Pourquoi pas plus ?** dit
+ce qu'une couche de plus dépasserait, pourquoi pas un produit de plus par couche et pourquoi la dernière couche est
+incomplète. « Copier le détail » met tout le texte dans le presse-papiers.
+
 Deux sections expliquent les quantités :
 
 ```text
@@ -799,6 +815,11 @@ Ctrl+6  COLISAGE           meilleure caisse, caisse ouverte / fermée, création
 Ctrl+7  GESTION DES        tous les conditionnements rangés par client, famille, type ;
         CONDITIONNEMENTS   recherche, fiche résumée, aperçu 3D, ouvrir / dupliquer / supprimer
 ```
+
+**Recherche globale** : Ctrl+K (ou « Rechercher… » en haut de la navigation) trouve articles, colisages,
+conditionnements, clients, palettes, caisses et espaces en une saisie, accents ignorés ; Entrée ouvre le résultat.
+**Précédent / suivant** : Alt+← / Alt+→, flèches sous le logo ou boutons latéraux de la souris. Tous les raccourcis :
+Ctrl+F1.
 
 Les écrans sont reliés entre eux :
 
