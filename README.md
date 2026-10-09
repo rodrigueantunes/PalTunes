@@ -10,7 +10,7 @@ Palettisation, conditionnement et optimisation de chargement.
 
 Caisses · Cartons pliés · Bobines · Tubes · Bagues · Plaques · Sacs · Fûts · Bacs · Bidons · Seaux · Bouteilles · Cuves IBC
 
-`v0.2.4` · Windows · .NET 10 · WPF
+`v0.2.5` · Windows · .NET 10 · WPF
 
 </div>
 
