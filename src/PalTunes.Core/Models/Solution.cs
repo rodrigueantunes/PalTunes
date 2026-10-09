@@ -157,6 +157,18 @@ public sealed class UnitMetrics
 
     /// <summary>Hétérogène : plus forte charge reçue / capacité portante, en %.</summary>
     public double CapacityUseMax { get; set; }
+
+    /// <summary>Hétérogène : produit le plus sollicité (charge reçue / capacité la plus forte) : article, charge et capacité (kg).</summary>
+    public Guid? MostLoadedArticleId { get; set; }
+
+    public double? MostLoadedLoad { get; set; }
+    public double? MostLoadedCapacity { get; set; }
+
+    /// <summary>Hétérogène : plus forte charge reçue en kg (souvent un produit du bas), article et capacité retenue.</summary>
+    public Guid? HeaviestLoadArticleId { get; set; }
+
+    public double? HeaviestLoad { get; set; }
+    public double? HeaviestLoadCapacity { get; set; }
 }
 
 /// <summary>Rectangle autour duquel sont posées les cornières (par défaut : l'emprise de la charge).</summary>

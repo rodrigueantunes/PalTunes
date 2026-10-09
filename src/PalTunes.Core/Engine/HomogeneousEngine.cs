@@ -818,11 +818,9 @@ public static class HomogeneousEngine
                 ? "Bobines couchées : cornières en place, compléter par des cales sous le premier rang."
                 : "Bobines couchées : calage obligatoire (berceaux, cales ou cornières) pour empêcher le roulement.");
         }
-        else if (!c.Corners)
+        else if (!c.Corners && levels <= 1)
         {
-            s.Warnings.Add(staggered && n2 < n1
-                ? "Tubes couchés en quinconce : ajouter des cornières (coins) ou des montants pour bloquer les lits."
-                : "Tubes couchés : cornières (coins) conseillées pour empêcher le roulement latéral.");
+            s.Warnings.Add("Tubes couchés : cornières (coins) conseillées pour empêcher le roulement latéral.");
         }
 
         if (staggered && c.SlipSheetThickness > 0 && levels > 1)
@@ -953,6 +951,9 @@ public static class HomogeneousEngine
         {
             s.Warnings.Add($"Élancement élevé ({m.Slenderness.ToString("0.0", Fr)}) : filmage renforcé ou cerclage conseillé.");
         }
+
+        // Tenue physique (produits élancés, lits de tubes, palettes jumelées) : distincte de la géométrie.
+        s.Warnings.AddRange(LoadStability.Assess(s, unit, c, a).Warnings);
 
         if (m.CogOffset > 10)
         {

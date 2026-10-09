@@ -1447,6 +1447,8 @@ public static class HeterogeneousEngine
             var contacts = 0;
             var good = 0;
             double capUse = 0;
+            Box? most = null;
+            Box? heaviest = null;
             foreach (var b in _boxes)
             {
                 foreach (var (s, _) in b.Supporters)
@@ -1460,14 +1462,30 @@ public static class HeterogeneousEngine
                 }
 
                 var cap = b.CapFor(false);
-                if (b.Load > 0 && cap is > 0 and < double.MaxValue)
+                if (b.Load > 0 && cap is > 0 and < double.MaxValue && b.Load / cap > capUse)
                 {
-                    capUse = Math.Max(capUse, b.Load / cap);
+                    capUse = b.Load / cap;
+                    most = b;
+                }
+
+                if (b.Load > 0 && (heaviest == null || b.Load > heaviest.Load))
+                {
+                    heaviest = b;
                 }
             }
 
             unit.Metrics.OrderRespect = contacts == 0 ? 100 : good * 100.0 / contacts;
             unit.Metrics.CapacityUseMax = capUse * 100;
+            static double? Finite(double v) => v is >= 0 and < double.MaxValue ? v : null;
+            if (most != null)
+            {
+                (unit.Metrics.MostLoadedArticleId, unit.Metrics.MostLoadedLoad, unit.Metrics.MostLoadedCapacity) = (most.P.ArticleId, most.Load, Finite(most.CapFor(false)));
+            }
+
+            if (heaviest != null)
+            {
+                (unit.Metrics.HeaviestLoadArticleId, unit.Metrics.HeaviestLoad, unit.Metrics.HeaviestLoadCapacity) = (heaviest.P.ArticleId, heaviest.Load, Finite(heaviest.CapFor(false)));
+            }
             var levels = _boxes.Select(b => Math.Round(b.P.Z)).Distinct().OrderBy(z => z)
                 .Select((z, k) => (z, k)).ToDictionary(t => t.z, t => t.k + 1);
             foreach (var b in _boxes)
@@ -1523,11 +1541,12 @@ public static class HeterogeneousEngine
         s.RequestedItems = requested;
         foreach (var unit in s.Units.Where(u => !u.IsFullPallet))
         {
-            var order = unit.Metrics.OrderRespect;
-            var capUse = unit.Metrics.CapacityUseMax;
+            var old = unit.Metrics;
             unit.Metrics = MetricsCalculator.Compute(unit, ctx.Base, ctx.C);
-            unit.Metrics.OrderRespect = order;
-            unit.Metrics.CapacityUseMax = capUse;
+            unit.Metrics.OrderRespect = old.OrderRespect;
+            unit.Metrics.CapacityUseMax = old.CapacityUseMax;
+            (unit.Metrics.MostLoadedArticleId, unit.Metrics.MostLoadedLoad, unit.Metrics.MostLoadedCapacity) = (old.MostLoadedArticleId, old.MostLoadedLoad, old.MostLoadedCapacity);
+            (unit.Metrics.HeaviestLoadArticleId, unit.Metrics.HeaviestLoad, unit.Metrics.HeaviestLoadCapacity) = (old.HeaviestLoadArticleId, old.HeaviestLoad, old.HeaviestLoadCapacity);
         }
 
         s.ItemsPerUnit = s.Units.Count == 0 ? 0 : s.Units.Max(u => u.Items.Count);

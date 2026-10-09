@@ -28,10 +28,31 @@ public static class CircleLayerSolver
         var rowsX = Rows(xx, yy, d, diameter, transpose: false);
         var rowsY = Rows(yy, xx, d, diameter, transpose: true);
         var best = new[] { square, rowsX, rowsY }.OrderByDescending(p => p.Count).ThenBy(p => p.Kind == "Carré" ? 0 : p.Kind == "Quinconce" ? 1 : 2).First();
-        // Borne : densité hexagonale maximale π/(2√3) appliquée à la surface (Thue / Fejes Tóth).
-        var bound = (int)Math.Floor(xx * yy * (Math.PI / (2 * Math.Sqrt(3))) / (Math.PI * d * d / 4) + 1e-9);
-        return new Result(best, square, Math.Max(bound, best.Count));
+        return new Result(best, square, Math.Max(Bound(xx, yy, d), best.Count));
     }
+
+    /// <summary>
+    /// Borne démontrée du nombre de cercles de diamètre D dans un rectangle X × Y (inégalité d'Oler, 1961 : N points
+    /// distants d'au moins 1 dans un convexe K vérifient N ≤ 2/√3 · aire(K) + périmètre(K)/2 + 1). Les centres sont
+    /// dans le rectangle (X − D) × (Y − D), ramené à D = 1. La densité hexagonale (90,69 %) n'est, elle, qu'une
+    /// estimation : c'est la limite sur une surface infinie, pas une borne pour un rectangle donné.
+    /// </summary>
+    public static int Bound(double X, double Y, double d)
+    {
+        if (d <= 0 || X < d - 1e-9 || Y < d - 1e-9)
+        {
+            return 0;
+        }
+
+        var a = Math.Max(0, X - d) / d;
+        var b = Math.Max(0, Y - d) / d;
+        var oler = 2 / Math.Sqrt(3) * a * b + (a + b) + 1;
+        var area = X * Y / (Math.PI * d * d / 4);
+        return (int)Math.Floor(Math.Min(oler, area) + 1e-9);
+    }
+
+    /// <summary>Estimation par la densité hexagonale π/(2√3) appliquée à la surface (n'est pas une borne).</summary>
+    public static double HexEstimate(double X, double Y, double d) => d <= 0 ? 0 : X * Y * (Math.PI / (2 * Math.Sqrt(3))) / (Math.PI * d * d / 4);
 
     private static LayerPattern Square(double X, double Y, double d, double diameter)
     {

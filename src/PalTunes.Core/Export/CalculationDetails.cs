@@ -17,7 +17,11 @@ public static class CalculationDetails
 {
     private static readonly CultureInfo Fr = CultureInfo.GetCultureInfo("fr-FR");
 
-    private static string Mm(double v) => v.ToString("#,0", Fr);
+    /// <summary>Cotes au dixième de mm : Ø74,2 reste 74,2 (un arrondi à 74 rendrait les calculs affichés faux en apparence).</summary>
+    private static string Mm(double v) => Math.Round(v, 1).ToString("#,0.#", Fr);
+
+    /// <summary>Surface en m², assez de chiffres pour refaire le calcul (0,005701 m² ; 1,92 m²).</summary>
+    private static string M2(double mm2) => (mm2 / 1e6).ToString(mm2 < 1e5 ? "0.######" : "0.####", Fr);
     private static string Kg(double v) => v.ToString("#,0.###", Fr);
     private static string N(int v) => v.ToString("#,0", Fr);
     private static string Pct(double v) => v.ToString("0.#", Fr);
@@ -93,11 +97,14 @@ public static class CalculationDetails
         var m = unit.Metrics;
         sections.Add(new("Poids et encombrement", new List<string>
         {
-            $"Poids de la charge = {N(unit.Items.Count)} produits = {Kg(m.LoadWeight)} kg{(capacity > 0 ? $" (≤ {Kg(capacity)} kg)" : "")}.",
+            $"Poids de la charge = {N(unit.Items.Count)} {Units(unit.Items, find)} = {Kg(m.LoadWeight)} kg{(capacity > 0 ? $" (≤ {Kg(capacity)} kg)" : "")}.",
             $"Poids total = charge + accessoires + palette(s) = {Kg(m.LoadWeight)} + {Kg(m.AccessoriesWeight)} + {Kg(b.Tare)} = {Kg(m.TotalWeight)} kg.",
             $"Hauteur d'encombrement = plancher + charge{(c.CapHeight > 0 ? " + coiffe" : "")} = {Mm(m.EnclosureHeight)} mm (maxi {Mm(c.MaxTotalHeight)} mm).",
             $"Encombrement au sol : {Mm(m.EnclosureLength)} × {Mm(m.EnclosureWidth)} mm (charge {Mm(m.LoadLength)} × {Mm(m.LoadWidth)} mm).",
-            $"Remplissage = volume des produits / (surface utile × hauteur de charge) = {Pct(m.FillRate)} % ; surface au sol couverte {Pct(m.AreaRate)} %."
+            $"Remplissage = volume des produits / (surface utile × hauteur de charge) = {Pct(m.FillRate)} % ; surface au sol couverte {Pct(m.AreaRate)} %.",
+            $"Remplissage de la capacité = volume des produits / (surface utile × hauteur utile) = {Pct(m.FillRate)} % × {Mm(m.LoadHeight)} / {Mm(usableH)} = {Pct(m.FillRate * m.LoadHeight / Math.Max(1, usableH))} % " +
+            "(le premier mesure la compacité de la charge sur sa hauteur réelle, le second la part du volume disponible réellement utilisée)." +
+            (unit.Items.Any(p => p.Shape != ShapeKind.Box) ? " Produits ronds : volume du cylindre extérieur, pas de la matière." : "")
         }));
 
         if (s.StackLevels > 1 || !string.IsNullOrEmpty(s.StackLimitReason))
@@ -192,8 +199,11 @@ public static class CalculationDetails
         if (s.Kind == PackagingKind.Homogene && article != null)
         {
             var noun = article.CaseQuantity != null ? "colis" : "produit(s)";
-            lines.Add($"Quantité par palette = produits par couche × nombre de couches = {N(s.ItemsPerLayer)} × {N(s.LayerCount)}" +
-                      (s.PartialTopLayer ? $" (dernière couche incomplète) = {N(s.ItemsPerUnit)} {noun}." : $" = {N(s.ItemsPerUnit)} {noun}."));
+            var beds = s.Pattern == StackPattern.Quinconce && unit.Items.FirstOrDefault()?.Shape is ShapeKind.CylinderX or ShapeKind.CylinderY;
+            lines.Add(!s.PartialTopLayer && LayerSum(unit, beds) is { } sum
+                ? $"Quantité par palette = somme des {(beds ? "lits" : "couches")} = {sum} = {N(s.ItemsPerUnit)} {noun}."
+                : $"Quantité par palette = produits par {(beds ? "lit" : "couche")} × nombre de {(beds ? "lits" : "couches")} = {N(s.ItemsPerLayer)} × {N(s.LayerCount)}" +
+                  (s.PartialTopLayer ? $" (dernière couche incomplète) = {N(s.ItemsPerUnit)} {noun}." : $" = {N(s.ItemsPerUnit)} {noun}."));
             if (s.PartialTopLayer && s.LayerCount > 0)
             {
                 var full = s.ItemsPerLayer * (s.LayerCount - 1);
@@ -228,18 +238,34 @@ public static class CalculationDetails
         foreach (var u in s.Units)
         {
             var parts = u.Items.GroupBy(p => p.ArticleId).Select(g => $"{find(g.Key)?.Code ?? "?"} × {N(g.Count())}").ToList();
-            lines.Add($"{(s.Units.Count > 1 ? $"Palette {u.Index}" : "Palette")} : {string.Join(" + ", parts)} = {N(u.Items.Count)} produit(s).");
+            lines.Add($"{(s.Units.Count > 1 ? $"Palette {u.Index}" : "Palette")} : {string.Join(" + ", parts)} = {N(u.Items.Count)} {Units(u.Items, find)}.");
         }
 
+        var colis = 0;
+        var contained = 0;
+        var loose = 0;
         foreach (var g in s.Units.SelectMany(x => x.Items).GroupBy(p => p.ArticleId))
         {
+            if (find(g.Key) is not { CaseQuantity: { } } )
+            {
+                loose += g.Count();
+            }
+
             if (find(g.Key) is { CaseQuantity: { } q } box)
             {
+                colis += g.Count();
+                contained += g.Count() * q;
                 lines.Add($"{box.Code} : {N(g.Count())} colis × {N(q)} = {N(g.Count() * q)} produit(s){ContentOf(box, find)} contenus" +
                           (box.CaseContent is { IsMixed: true } mixed
                               ? $" (dont {string.Join(" + ", mixed.Lines!.Select(l => $"{N(g.Count() * l.Quantity)} {find(l.ArticleId)?.Code ?? "?"}"))})."
                               : "."));
             }
+        }
+
+        if (colis > 0)
+        {
+            lines.Add($"Total : {N(colis)} colis (unités manutentionnées) contenant {N(contained)} produits" +
+                      (loose > 0 ? $", plus {N(loose)} produit(s) posé(s) sans caisse, soit {N(contained + loose)} produits en tout." : "."));
         }
 
         if (s.UnplacedItems > 0)
@@ -249,6 +275,10 @@ public static class CalculationDetails
 
         return new("Quantité par palette", lines);
     }
+
+    /// <summary>« colis » quand tous les produits posés sont des caisses (quantité par caisse), sinon « produits ».</summary>
+    private static string Units(IEnumerable<Placement> items, Func<Guid, Article?> find) =>
+        items.Any() && items.All(p => find(p.ArticleId) is { CaseQuantity: not null }) ? "colis" : "produits";
 
     /// <summary>« de BAG0000001 » ou, caisse mixte, « (350 × BAG0000001 + 100 × BAG0000011) ».</summary>
     private static string ContentOf(Article box, Func<Guid, Article?> find) => box.CaseContent switch
@@ -393,24 +423,40 @@ public static class CalculationDetails
                     : "Produits rectangulaires : grille, découpes guillotine optimales et moulinets à 5 blocs (récursifs), rotation de 90° au sol autorisée.",
             $"Plan retenu : {layerKind} — {N(n)} produit(s) par couche.",
             s.UpperBound > 0
-                ? s.ProvenOptimal
-                    ? $"Borne théorique : {N(s.UpperBound)} par couche (surface utile / surface du produit, côtés réduits aux combinaisons de longueurs possibles) : le plan l'atteint, il est optimal."
-                    : $"Borne théorique : {N(s.UpperBound)} par couche ; le plan retenu en place {N(n)}."
+                ? shape == ShapeKind.CylinderZ
+                    ? s.ProvenOptimal
+                        ? $"Borne démontrée (inégalité d'Oler) : {N(s.UpperBound)} par couche : le plan l'atteint, il est optimal."
+                        : $"Borne démontrée (inégalité d'Oler) : {N(s.UpperBound)} par couche ; le plan retenu en place {N(n)} : meilleure disposition trouvée, son optimalité n'est pas démontrée."
+                    : s.ProvenOptimal
+                        ? $"Borne théorique : {N(s.UpperBound)} par couche (surface utile / surface du produit, côtés réduits aux combinaisons de longueurs possibles) : le plan l'atteint, il est optimal."
+                        : $"Borne théorique : {N(s.UpperBound)} par couche ; le plan retenu en place {N(n)} : meilleure disposition trouvée, son optimalité n'est pas démontrée."
                 : ""
         };
         yield return new("Plan de couche", planLines.Where(l => l.Length > 0).ToList());
         yield return new("Plan de couche pas à pas", LayerSteps(s, unit, first, c.Gap, usableX, usableY, container));
 
-        var (layerH, sheet, byHeight) = LayerFacts(unit, first, a, c, usableH);
+        var f = LayerFacts(s, unit, first, a, c, usableH);
+        var (layerH, sheet) = (f.LayerH, f.Sheet);
         var layerLines = new List<string>
         {
-            $"Hauteur d'une couche : {Mm(layerH)} mm{(sheet > 0 ? $" ; intercalaire de {sheet.ToString("0.#", Fr)} mm {SheetPattern(c)}" : "")}."
+            f.Nested
+                ? $"Lit du bas : {Mm(layerH)} mm (un diamètre){(f.Sheet0 > 0 ? $", sur un intercalaire de {f.Sheet0.ToString("0.#", Fr)} mm" : "")}. Chaque lit suivant est décalé d'un demi-diamètre " +
+                  $"({Mm(layerH / 2)} mm) et ses tubes se logent dans les creux du lit inférieur : il ne monte que de D × √3/2 = {Mm(layerH)} × 0,866 = {D(f.Pitch)} mm " +
+                  $"(triangle équilatéral de côté D entre trois centres de tubes)."
+                : $"Hauteur d'une couche : {Mm(layerH)} mm{(sheet > 0 ? $" ; intercalaire de {sheet.ToString("0.#", Fr)} mm {SheetPattern(c)}" : "")}."
         };
-        var limits = Limits(s, c, article, usableH, capacity, layerH, rule);
-        layerLines.Add("Chaque contrainte donne un nombre maximal de couches :");
-        layerLines.AddRange(limits.Select(l => $"   {l.Name} : {l.How} → {N(l.Layers)} couche(s){(l.Layers == limits.Min(x => x.Layers) ? "   ◄ la plus petite" : "")}"));
+        var limits = Limits(s, c, article, usableH, capacity, f, rule);
+        var noun = f.Nested ? "lit(s)" : "couche(s)";
+        layerLines.Add($"Chaque contrainte donne un nombre maximal de {(f.Nested ? "lits" : "couches")} :");
+        layerLines.AddRange(limits.Select(l => $"   {l.Name} : {l.How} → {N(l.Layers)} {noun}{(l.Layers == limits.Min(x => x.Layers) ? "   ◄ la plus petite" : "")}"));
         var smallest = limits.MinBy(l => l.Layers);
-        layerLines.Add($"La plus petite limite décide : {smallest.Name.ToLower(Fr)} → {N(smallest.Layers)} couche(s).");
+        layerLines.Add($"La plus petite limite décide : {smallest.Name.ToLower(Fr)} → {N(smallest.Layers)} {noun}.");
+        if (f.Nested)
+        {
+            var straight = (int)Math.Floor((usableH - f.Sheet0 + 1e-6) / layerH);
+            layerLines.Add($"Comparaison, lits superposés sans emboîtement (un diamètre chacun) : ⌊{Mm(usableH - f.Sheet0)} / {Mm(layerH)}⌋ = {N(straight)} lits, {N(straight * f.N1)} produits ; " +
+                           $"la quinconce en loge {N(f.ByHeight)} dans la même hauteur ({(f.ByHeight > straight ? $"+{N(f.ByHeight - straight)} lit(s)" : "pas de lit de plus")}).");
+        }
         if (s.LayerCount != smallest.Layers || s.PartialTopLayer)
         {
             layerLines.Add(s.LayerLimitReason == "quantité imposée"
@@ -420,12 +466,23 @@ public static class CalculationDetails
                       $"{N(s.LayerCount - 1)} couche(s) complète(s) ({N(n * (s.LayerCount - 1))}) + {N(s.ItemsPerUnit - n * (s.LayerCount - 1))} sur une dernière couche incomplète, remplie jusqu'au poids."
                     : s.PartialTopLayer
                     ? $"Dernière couche remplie jusqu'à la limite de poids : {N(s.LayerCount)} couche(s), la dernière incomplète."
-                    : $"Retenu : {N(s.LayerCount)} couche(s) (limite : {s.LayerLimitReason}).");
+                    : $"Retenu : {N(s.LayerCount)} {noun} (limite : {s.LayerLimitReason}).");
         }
 
-        layerLines.Add($"Produits = {N(n)} par couche × {N(s.LayerCount)} couche(s){(s.PartialTopLayer ? " (dernière incomplète)" : "")} = {N(s.ItemsPerUnit)}.");
+        if (f.Nested)
+        {
+            layerLines.Add($"Hauteur de charge : {Mm(layerH)}{(f.Sheet0 > 0 ? $" + {f.Sheet0.ToString("0.#", Fr)}" : "")} + ({N(s.LayerCount)} − 1) × {D(f.Pitch)} = {Mm(StackHeight(c, f, s.LayerCount))} mm (≤ {Mm(usableH)} mm utiles).");
+        }
+
+        layerLines.Add(LayerSum(unit, f.Nested) is { } sum && !s.PartialTopLayer
+            ? $"Produits = {sum} = {N(s.ItemsPerUnit)}."
+            : $"Produits = {N(n)} par {(f.Nested ? "lit" : "couche")} × {N(s.LayerCount)} {noun}{(s.PartialTopLayer ? " (dernière incomplète)" : "")} = {N(s.ItemsPerUnit)}.");
         yield return new("Nombre de couches", layerLines);
-        yield return new("Pourquoi pas plus ?", WhyNotMore(s, unit, c, article, usableX, usableY, usableH, capacity, layerH, rule, limits, container));
+        yield return new("Pourquoi pas plus ?", WhyNotMore(s, unit, c, article, usableX, usableY, usableH, capacity, f, rule, limits, container));
+        if (container == "palette" && LoadStability.Assess(s, unit, c, article).Lines is { Count: > 0 } stability)
+        {
+            yield return new("Stabilité et maintien", stability);
+        }
 
         if (s.Recommendation != null)
         {
@@ -438,6 +495,29 @@ public static class CalculationDetails
 
     private static string SheetPattern(PackagingConstraints c) =>
         (Math.Max(1, c.SlipSheetEvery) == 1 ? "sous chaque couche" : $"toutes les {c.SlipSheetEvery} couches") + (c.SlipSheetOnPallet ? ", et sur la palette" : "");
+
+    /// <summary>
+    /// Couches d'une palette homogène : hauteur d'une couche, intercalaire ; lits de produits couchés en quinconce
+    /// (« emboîtés ») : lit du bas d'un diamètre, chaque lit suivant D·√3/2, lits alternés de N1 et N2 produits.
+    /// </summary>
+    private sealed record Facts(double LayerH, double Sheet, double Sheet0, double Pitch, int N1, int N2, int ByHeight)
+    {
+        public bool Nested => Pitch > 0;
+
+        /// <summary>Produits de k couches (lits alternés N1, N2 en quinconce).</summary>
+        public int Count(int k) => Nested ? (k + 1) / 2 * N1 + k / 2 * N2 : k * N1;
+    }
+
+    /// <summary>Hauteur de charge de k couches : intercalaires compris ; lits emboîtés : D + (k − 1) × D·√3/2 (intercalaire sur la palette seulement, comme le moteur).</summary>
+    private static double StackHeight(PackagingConstraints c, Facts f, int k) =>
+        f.Nested ? (k == 0 ? 0 : f.Sheet0 + f.LayerH + (k - 1) * f.Pitch) : StackHeight(c, f.LayerH, k);
+
+    /// <summary>« 13 lits de 10 + 12 lits de 9 » quand les couches ne comptent pas toutes autant de produits ; sinon null.</summary>
+    private static string? LayerSum(LoadUnit unit, bool beds)
+    {
+        var groups = unit.Layers.GroupBy(l => l.Count).OrderByDescending(g => g.Key).ToList();
+        return groups.Count < 2 ? null : string.Join(" + ", groups.Select(g => $"{N(g.Count())} {(beds ? "lit(s)" : "couche(s)")} de {N(g.Key)}"));
+    }
 
     /// <summary>Hauteur de charge de k couches, intercalaires compris.</summary>
     private static double StackHeight(PackagingConstraints c, double layerH, int k)
@@ -454,24 +534,42 @@ public static class CalculationDetails
     private sealed record LayerLimit(string Name, int Layers, string How);
 
     /// <summary>Chaque contrainte et le nombre de couches qu'elle autorise (mêmes règles que le moteur).</summary>
-    private static List<LayerLimit> Limits(Solution s, PackagingConstraints c, Article article, double usableH, double capacity, double layerH, TopStackRule? rule)
+    private static List<LayerLimit> Limits(Solution s, PackagingConstraints c, Article article, double usableH, double capacity, Facts f, TopStackRule? rule)
     {
         var n = Math.Max(1, s.ItemsPerLayer);
+        var layerH = f.LayerH;
         var limits = new List<LayerLimit>();
         var byHeight = 0;
-        while (byHeight < 10000 && StackHeight(c, layerH, byHeight + 1) <= usableH + 1e-6)
+        while (byHeight < 10000 && StackHeight(c, f, byHeight + 1) <= usableH + 1e-6)
         {
             byHeight++;
         }
 
-        limits.Add(new("Hauteur", byHeight, c.SlipSheetThickness > 0
-            ? $"couches de {Mm(layerH)} mm et intercalaires tant que la hauteur cumulée reste ≤ {Mm(usableH)} mm ({N(byHeight)} couches = {Mm(StackHeight(c, layerH, byHeight))} mm)"
-            : $"⌊{Mm(usableH)} / {Mm(layerH)}⌋ = ⌊{(usableH / Math.Max(1, layerH)).ToString("0.##", Fr)}⌋"));
+        limits.Add(new("Hauteur", byHeight, f.Nested
+            ? $"lit du bas de {Mm(layerH + f.Sheet0)} mm, puis un lit tous les {D(f.Pitch)} mm : 1 + ⌊({Mm(usableH)} − {Mm(layerH + f.Sheet0)}) / {D(f.Pitch)}⌋ = " +
+              $"1 + ⌊{((usableH - layerH - f.Sheet0) / f.Pitch).ToString("0.##", Fr)}⌋ ({N(byHeight)} lits = {Mm(StackHeight(c, f, byHeight))} mm)"
+            : c.SlipSheetThickness > 0
+                ? $"couches de {Mm(layerH)} mm et intercalaires tant que la hauteur cumulée reste ≤ {Mm(usableH)} mm ({N(byHeight)} couches = {Mm(StackHeight(c, layerH, byHeight))} mm)"
+                : $"⌊{Mm(usableH)} / {Mm(layerH)}⌋ = ⌊{(usableH / Math.Max(1, layerH)).ToString("0.##", Fr)}⌋"));
         if (capacity > 0 && article.Weight > 0)
         {
-            var layerWeight = n * article.Weight;
-            limits.Add(new("Poids", (int)Math.Floor(capacity / layerWeight + 1e-9),
-                $"⌊{Kg(capacity)} kg / ({N(n)} × {Kg(article.Weight)} kg par couche = {Kg(layerWeight)} kg)⌋ = ⌊{(capacity / layerWeight).ToString("0.##", Fr)}⌋"));
+            if (f.Nested && f.N2 != f.N1)
+            {
+                var byWeight = 0;
+                while (byWeight < 10000 && f.Count(byWeight + 1) * article.Weight <= capacity + 1e-9)
+                {
+                    byWeight++;
+                }
+
+                limits.Add(new("Poids", byWeight,
+                    $"lits de {N(f.N1)} et {N(f.N2)} produits ({Kg(f.N1 * article.Weight)} et {Kg(f.N2 * article.Weight)} kg) cumulés tant que la charge reste ≤ {Kg(capacity)} kg"));
+            }
+            else
+            {
+                var layerWeight = n * article.Weight;
+                limits.Add(new("Poids", (int)Math.Floor(capacity / layerWeight + 1e-9),
+                    $"⌊{Kg(capacity)} kg / ({N(n)} × {Kg(article.Weight)} kg par {(f.Nested ? "lit" : "couche")} = {Kg(layerWeight)} kg)⌋ = ⌊{(capacity / layerWeight).ToString("0.##", Fr)}⌋"));
+            }
         }
 
         if (article.MaxLayers is { } ml)
@@ -542,29 +640,34 @@ public static class CalculationDetails
     /// avec les chiffres.
     /// </summary>
     private static List<string> WhyNotMore(Solution s, LoadUnit unit, PackagingConstraints c, Article article, double usableX, double usableY,
-        double usableH, double capacity, double layerH, TopStackRule? rule, List<LayerLimit> limits, string container)
+        double usableH, double capacity, Facts f, TopStackRule? rule, List<LayerLimit> limits, string container)
     {
         var lines = new List<string>();
         var n = Math.Max(1, s.ItemsPerLayer);
         var layers = s.LayerCount;
+        var one = f.Nested ? "Un lit de plus" : "Une couche de plus";
         if (s.LayerLimitReason == "quantité imposée")
         {
-            lines.Add($"Une couche de plus : la quantité imposée ({N(s.ItemsPerUnit)}) est atteinte.");
+            lines.Add($"{one} : la quantité imposée ({N(s.ItemsPerUnit)}) est atteinte.");
         }
         else
         {
             var next = layers + 1;
-            lines.Add($"Une couche de plus ({N(next)} couches, {N(next * n)} produits) dépasserait :");
+            var count = f.Count(next);
+            lines.Add($"{one} ({N(next)} {(f.Nested ? "lits" : "couches")}, {N(count)} produits) dépasserait :");
             var reasons = new List<string>();
-            var hNext = StackHeight(c, layerH, next);
+            var hNext = StackHeight(c, f, next);
             if (hNext > usableH + 1e-6)
             {
-                reasons.Add($"la hauteur : {Mm(hNext)} mm de charge > {Mm(usableH)} mm utiles (+{Mm(hNext - usableH)} mm)");
+                reasons.Add(f.Nested
+                    ? $"la hauteur : {Mm(f.LayerH + f.Sheet0)} + {N(next - 1)} × {D(f.Pitch)} = {Mm(hNext)} mm de charge > {Mm(usableH)} mm utiles (+{Mm(hNext - usableH)} mm), " +
+                      $"soit {Mm(hNext + s.Base.PalletHeight + c.CapHeight)} mm de hauteur totale"
+                    : $"la hauteur : {Mm(hNext)} mm de charge > {Mm(usableH)} mm utiles (+{Mm(hNext - usableH)} mm)");
             }
 
-            if (capacity > 0 && next * n * article.Weight > capacity + 1e-9)
+            if (capacity > 0 && count * article.Weight > capacity + 1e-9)
             {
-                reasons.Add($"le poids : {N(next * n)} × {Kg(article.Weight)} kg = {Kg(next * n * article.Weight)} kg > {Kg(capacity)} kg admis");
+                reasons.Add($"le poids : {N(count)} × {Kg(article.Weight)} kg = {Kg(count * article.Weight)} kg > {Kg(capacity)} kg admis");
             }
 
             if (article.MaxLayers is { } ml && next > ml)
@@ -595,21 +698,40 @@ public static class CalculationDetails
         }
 
         // Un produit de plus par couche.
-        if (s.UpperBound > 0 && n >= s.UpperBound)
+        var p0 = unit.Items.FirstOrDefault();
+        var round = p0?.Shape == ShapeKind.CylinderZ;
+        if (p0?.Shape is ShapeKind.CylinderX or ShapeKind.CylinderY)
         {
-            lines.Add($"Un produit de plus par couche ({N(n + 1)}) : impossible, la borne théorique est de {N(s.UpperBound)} par couche (surface utile et longueurs réellement combinables) et le plan l'atteint.");
+            // Tubes couchés : tous parallèles (le tube est plus long que l'autre côté), côte à côte dans un lit.
+            var alongX = p0.Shape == ShapeKind.CylinderX;
+            var (len, d) = (alongX ? p0.DX : p0.DY, p0.DZ);
+            var (lax, lcross) = alongX ? (usableX, usableY) : (usableY, usableX);
+            var g = c.Gap;
+            var nAxis = Fit(lax, len, g);
+            var nCross = Fit(lcross, d, g);
+            lines.Add($"Un tube de plus par lit : dans l'axe {FitText(lax, len, g)} = {N(nAxis)} tube(s) bout à bout ; en travers {FitText(lcross, d, g)} = {N(nCross)} côte à côte, " +
+                      $"un de plus demanderait {N(nCross + 1)} × {Mm(d + g)}{(g > 0 ? $" − {D(g)}" : "")} = {Mm((nCross + 1) * (d + g) - g)} mm > {Mm(lcross)} mm. " +
+                      (len > lcross + 1e-6
+                          ? $"Tourné, un tube de {Mm(len)} mm ne tient pas en travers ({Mm(len)} > {Mm(lcross)} mm) : {N(nAxis * nCross)} par lit est le maximum."
+                          : "L'autre sens de pose est calculé lui aussi (autres solutions proposées)."));
+        }
+        else if (s.UpperBound > 0 && n >= s.UpperBound)
+        {
+            lines.Add(round
+                ? $"Un produit de plus par couche ({N(n + 1)}) : impossible, la borne démontrée (inégalité d'Oler, voir le plan pas à pas) est de {N(s.UpperBound)} et le plan l'atteint."
+                : $"Un produit de plus par couche ({N(n + 1)}) : impossible, la borne théorique est de {N(s.UpperBound)} par couche (surface utile et longueurs réellement combinables) et le plan l'atteint.");
         }
         else if (s.UpperBound > 0)
         {
-            lines.Add($"Un produit de plus par couche ({N(n + 1)}) : la borne théorique ({N(s.UpperBound)}) ne l'exclut pas, mais aucune disposition à {N(n + 1)} n'a été trouvée " +
-                      "par la recherche exhaustive (grilles, découpes guillotine, moulinets récursifs, mailles alignées et en quinconce) : la borne n'est qu'un plafond, pas toujours atteignable.");
+            lines.Add($"Un produit de plus par couche ({N(n + 1)}) : la borne {(round ? "démontrée" : "théorique")} ({N(s.UpperBound)}) ne l'exclut pas. Aucune disposition à {N(n + 1)} n'a été trouvée " +
+                      (round
+                          ? "parmi les familles explorées (rangées alignées, en quinconce et mixtes, dans les deux sens)"
+                          : "parmi les familles explorées (grilles, découpes guillotine, moulinets récursifs)") +
+                      $" : {N(n)} est la meilleure disposition trouvée, pas un maximum démontré (une disposition irrégulière n'est pas exclue).");
         }
         else
         {
-            var area = article.ForPalletizing() is { IsCylinder: true } cyl ? Math.PI * cyl.Diameter * cyl.Diameter / 4 : 0;
-            lines.Add(area > 0
-                ? $"Un produit de plus par couche ({N(n + 1)}) : des cercles couvrent au mieux 90,7 % d'une surface ; ici {Pct(100 * n * area / Math.Max(1, usableX * usableY))} % sont couverts, et aucune maille (alignée, quinconce, mixte) n'en place {N(n + 1)}."
-                : $"Un produit de plus par couche ({N(n + 1)}) : aucune disposition trouvée dans la surface utile {Mm(usableX)} × {Mm(usableY)} mm.");
+            lines.Add($"Un produit de plus par couche ({N(n + 1)}) : aucune disposition trouvée dans la surface utile {Mm(usableX)} × {Mm(usableY)} mm.");
         }
 
         if (s.PartialTopLayer && layers > 0)
@@ -627,13 +749,24 @@ public static class CalculationDetails
         return lines;
     }
 
-    /// <summary>Hauteur d'une couche, intercalaire, couches par la hauteur.</summary>
-    private static (double LayerH, double Sheet, int ByHeight) LayerFacts(LoadUnit unit, List<Placement> first, Article a, PackagingConstraints c, double usableH)
+    /// <summary>Hauteur d'une couche, intercalaire, couches par la hauteur ; lits emboîtés (produits couchés en quinconce).</summary>
+    private static Facts LayerFacts(Solution s, LoadUnit unit, List<Placement> first, Article a, PackagingConstraints c, double usableH)
     {
         var layerH = unit.Layers.Count > 0 ? unit.Layers[0].Height : first.Count > 0 ? first.Max(p => p.DZ) : a.Height;
         var sheet = c.SlipSheetThickness > 0 ? c.SlipSheetThickness : 0;
+        var sheet0 = SheetBelow(c, 0) ? c.SlipSheetThickness : 0;
+        var nested = s.Pattern == StackPattern.Quinconce && first.Count > 0 && first[0].Shape is ShapeKind.CylinderX or ShapeKind.CylinderY;
+        var n1 = Math.Max(1, s.ItemsPerLayer);
+        if (nested && layerH > 0)
+        {
+            var pitch = layerH * Math.Sqrt(3) / 2;
+            var n2 = unit.Layers.Count > 1 ? unit.Layers[1].Count : n1;
+            var byNested = usableH + 1e-6 >= sheet0 + layerH ? 1 + (int)Math.Floor((usableH + 1e-6 - sheet0 - layerH) / pitch) : 0;
+            return new Facts(layerH, sheet, sheet0, pitch, n1, n2, byNested);
+        }
+
         var byHeight = layerH > 0 ? (int)Math.Floor((usableH + 1e-6) / (layerH + sheet)) : 0;
-        return (layerH, sheet, byHeight);
+        return new Facts(layerH, sheet, sheet0, 0, n1, n1, byHeight);
     }
 
     private static int Fit(double length, double size, double gap) => size <= 0 ? 0 : Math.Max(0, (int)Math.Floor((length + gap + 1e-6) / (size + gap)));
@@ -695,7 +828,18 @@ public static class CalculationDetails
             lines.Add($"Plan retenu : {N(rowsOf.Count)} rangées {(lengthwise ? "dans la longueur" : "dans la largeur")}, {kind} : " +
                       $"{string.Join(" + ", counts.GroupBy(x => x).OrderByDescending(g => g.Key).Select(g => g.Count() == 1 ? $"1 rangée de {N(g.Key)}" : $"{N(g.Count())} rangées de {N(g.Key)}"))} = {N(n)} produits par couche.");
             AddCoverage(lines, n, Math.PI * d * d / 4, usableX, usableY, "cercles");
-            lines.Add($"Des cercles laissent toujours des vides : même la quinconce parfaite n'en couvre que 90,7 % → environ {N((int)Math.Floor(0.9069 * usableX * usableY / (Math.PI * d * d / 4)))} produits au mieux sur une surface infinie, moins sur les bords.");
+            var (dd, xx, yy) = (d + gap, usableX + gap, usableY + gap);
+            var (ca, cb) = ((xx - dd) / dd, (yy - dd) / dd);
+            var oler = CircleLayerSolver.Bound(xx, yy, dd);
+            lines.Add($"Borne démontrée (inégalité d'Oler, 1961) : les centres sont dans un rectangle de ({Mm(xx)} − {Mm(dd)}) × ({Mm(yy)} − {Mm(dd)}) mm, " +
+                      $"soit a × b = {ca.ToString("0.###", Fr)} × {cb.ToString("0.###", Fr)} diamètres ; N ≤ 2/√3 × a × b + a + b + 1 = " +
+                      $"{(2 / Math.Sqrt(3) * ca * cb).ToString("0.##", Fr)} + {(ca + cb).ToString("0.##", Fr)} + 1 = {(2 / Math.Sqrt(3) * ca * cb + ca + cb + 1).ToString("0.##", Fr)} " +
+                      $"→ au plus {N(oler)} produits par couche, quelle que soit la disposition (même irrégulière).");
+            lines.Add($"Repère, pas une borne : la quinconce parfaite couvre 90,69 % d'une surface infinie, soit environ {CircleLayerSolver.HexEstimate(xx, yy, dd).ToString("0.#", Fr)} produits ici ; les bords en font perdre.");
+            lines.Add(n >= oler
+                ? $"Le plan retenu atteint la borne démontrée : {N(n)} est le maximum."
+                : $"Écart à la borne : {N(oler)} − {N(n)} = {N(oler - n)}. {N(n)} est la meilleure disposition trouvée (rangées alignées, en quinconce et mixtes, dans les deux sens) ; " +
+                  $"aucune disposition à {N(n + 1)} n'est connue, sans que son impossibilité soit démontrée.");
         }
         else
         {
@@ -735,10 +879,15 @@ public static class CalculationDetails
             lines.Add(n > simple
                 ? $"Gain sur la meilleure grille simple : {N(n)} − {N(simple)} = +{N(n - simple)} produit(s) par couche, en mélangeant les deux sens."
                 : n == simple ? "Le plan retenu est la meilleure grille simple : aucun mélange des sens ne place plus de produits." : $"Plan retenu : {N(n)} produits (contraintes de pose).");
-            AddCoverage(lines, n, big * small, usableX, usableY, "produits");
+            AddCoverage(lines, n, big * small, usableX, usableY, lying.Length > 0 ? "enveloppes projetées au sol : un tube ne touche le sol que sur une ligne" : "produits");
         }
 
-        if (unit.Layers.Select(l => l.Pattern).Distinct().Count() > 1)
+        if (s.Pattern == StackPattern.Quinconce && p0.Shape is ShapeKind.CylinderX or ShapeKind.CylinderY)
+        {
+            lines.Add($"Lits en quinconce : un lit sur deux est décalé d'un demi-diamètre ({Mm(p0.DZ / 2)} mm), chaque tube se loge dans le creux de deux tubes du lit inférieur " +
+                      "(hauteur des lits : voir « Nombre de couches »).");
+        }
+        else if (unit.Layers.Select(l => l.Pattern).Distinct().Count() > 1)
         {
             lines.Add("Couches alternées : d'une couche à l'autre le plan est retourné, pour croiser les joints et lier la charge (même principe, même calcul).");
         }
@@ -754,9 +903,9 @@ public static class CalculationDetails
             return;
         }
 
-        lines.Add($"Borne simple : surface utile ÷ surface d'un produit = {(usable / 1e6).ToString("0.###", Fr)} m² ÷ {(area / 1e6).ToString("0.####", Fr)} m² = " +
-                  $"{(usable / area).ToString("0.#", Fr)} → au plus {N((int)Math.Floor(usable / area + 1e-9))} produits par couche, même sans aucune perte.");
-        lines.Add($"Surface couverte = {N(n)} × {(area / 1e6).ToString("0.####", Fr)} m² = {(n * area / 1e6).ToString("0.###", Fr)} m², soit {Pct(100 * n * area / usable)} % de la surface utile ({what}).");
+        lines.Add($"Borne simple : surface utile ÷ surface d'un produit = {M2(usable)} m² ÷ {M2(area)} m² = " +
+                  $"{(usable / area).ToString("0.##", Fr)} → au plus {N((int)Math.Floor(usable / area + 1e-9))} produits par couche, même sans aucune perte.");
+        lines.Add($"Surface couverte = {N(n)} × {M2(area)} m² = {M2(n * area)} m², soit {(100 * n * area / usable).ToString("0.##", Fr)} % de la surface utile ({what}).");
     }
 
     /// <summary>Produits regroupés en rangées selon une coordonnée (même valeur à 1,5 mm près), rangées triées.</summary>
@@ -847,8 +996,7 @@ public static class CalculationDetails
         if (s.Kind == PackagingKind.Homogene && article != null)
         {
             var first = unit.Items.Where(p => p.Layer == 1).ToList();
-            var (layerH, sheet, byHeight) = LayerFacts(unit, first, article.ForPalletizing(), c, usableH);
-            AddLayerOps(ops, s, layerH, sheet, byHeight, usableH, capacity, article.Weight, "palette");
+            AddLayerOps(ops, s, unit, LayerFacts(s, unit, first, article.ForPalletizing(), c, usableH), usableH, capacity, article.Weight, "palette");
             var noun = article.CaseQuantity != null ? "colis" : "produits";
             if (article.CaseQuantity is { } q)
             {
@@ -860,10 +1008,10 @@ public static class CalculationDetails
         else
         {
             var all = s.Units.SelectMany(u => u.Items).ToList();
-            ops.Add($"Produits à placer : {string.Join(" + ", all.GroupBy(p => p.ArticleId).Select(g => $"{N(g.Count())} {find(g.Key)?.Code ?? "?"}"))} = {N(all.Count)} produits.");
+            ops.Add($"{(Units(all, find) == "colis" ? "Colis" : "Produits")} à placer : {string.Join(" + ", all.GroupBy(p => p.ArticleId).Select(g => $"{N(g.Count())} {find(g.Key)?.Code ?? "?"}"))} = {N(all.Count)} {Units(all, find)}.");
             foreach (var u in s.Units)
             {
-                ops.Add($"{(s.Units.Count > 1 ? $"Palette {u.Index}" : "Palette")} : {string.Join(" + ", u.Items.GroupBy(p => p.ArticleId).Select(g => N(g.Count())))} = {N(u.Items.Count)} produits, " +
+                ops.Add($"{(s.Units.Count > 1 ? $"Palette {u.Index}" : "Palette")} : {string.Join(" + ", u.Items.GroupBy(p => p.ArticleId).Select(g => N(g.Count())))} = {N(u.Items.Count)} {Units(u.Items, find)}, " +
                         $"{Kg(u.Items.Sum(p => p.Weight))} kg.");
             }
 
@@ -886,8 +1034,7 @@ public static class CalculationDetails
         if (s.Kind == PackagingKind.Homogene && article != null)
         {
             var first = unit.Items.Where(p => p.Layer == 1).ToList();
-            var (layerH, sheet, byHeight) = LayerFacts(unit, first, article.ForPalletizing(), c, spec.InnerHeight);
-            AddLayerOps(ops, s, layerH, sheet, byHeight, spec.InnerHeight, weightLimit, article.Weight, "caisse");
+            AddLayerOps(ops, s, unit, LayerFacts(s, unit, first, article.ForPalletizing(), c, spec.InnerHeight), spec.InnerHeight, weightLimit, article.Weight, "caisse");
             ops.Add($"Poids brut : {N(unit.Items.Count)} × {Kg(article.Weight)} kg + {Kg(spec.Tare)} kg (caisse vide) = {Kg(products + spec.Tare)} kg.");
         }
         else
@@ -911,25 +1058,53 @@ public static class CalculationDetails
     }
 
     /// <summary>Produits par couche, couches (hauteur, poids, limite retenue) et quantité, en opérations simples.</summary>
-    private static void AddLayerOps(List<string> ops, Solution s, double layerH, double sheet, int byHeight, double usableH, double capacity, double weight, string container)
+    private static void AddLayerOps(List<string> ops, Solution s, LoadUnit unit, Facts f, double usableH, double capacity, double weight, string container)
     {
         var n = s.ItemsPerLayer;
-        ops.Add($"Produits par couche : {N(n)}.");
-        if (layerH > 0)
+        var (layerH, sheet, byHeight) = (f.LayerH, f.Sheet, f.ByHeight);
+        if (f.Nested)
+        {
+            ops.Add(f.N2 != f.N1 ? $"Produits par lit : {N(f.N1)}, puis {N(f.N2)} sur les lits décalés, en alternance." : $"Produits par lit : {N(n)}.");
+            ops.Add($"Pas vertical des lits emboîtés : {Mm(layerH)} × √3/2 = {Mm(layerH)} × 0,866 = {D(f.Pitch)} mm.");
+            ops.Add($"Lits par la hauteur : 1 + ({Mm(usableH)} − {Mm(layerH + f.Sheet0)}) ÷ {D(f.Pitch)} = 1 + {Dec((usableH - layerH - f.Sheet0) / f.Pitch)} → {N(byHeight)} lits " +
+                    "(le lit du bas compte un diamètre, chaque lit suivant un pas ; on ne garde que les lits entiers).");
+        }
+        else
+        {
+            ops.Add($"Produits par couche : {N(n)}.");
+        }
+
+        if (layerH > 0 && !f.Nested)
         {
             var per = layerH + sheet;
             ops.Add($"Couches par la hauteur : {Mm(usableH)} ÷ {Mm(per)}{(sheet > 0 ? " (couche + intercalaire)" : "")} = {Dec(usableH / per)} → {N(byHeight)} couche(s) (on ne garde que les couches entières).");
         }
 
-        if (capacity > 0 && n > 0 && weight > 0)
+        if (f.Nested && f.N2 != f.N1 && capacity > 0 && weight > 0)
+        {
+            var byWeight = 0;
+            while (byWeight < 10000 && f.Count(byWeight + 1) * weight <= capacity + 1e-9)
+            {
+                byWeight++;
+            }
+
+            ops.Add($"Poids des lits : {N(f.N1)} × {Kg(weight)} = {Kg(f.N1 * weight)} kg et {N(f.N2)} × {Kg(weight)} = {Kg(f.N2 * weight)} kg ; lits par le poids (cumul ≤ {Kg(capacity)} kg) : {N(byWeight)}.");
+        }
+        else if (capacity > 0 && n > 0 && weight > 0)
         {
             var layerWeight = n * weight;
-            ops.Add($"Poids d'une couche : {N(n)} × {Kg(weight)} kg = {Kg(layerWeight)} kg ; couches par le poids : {Kg(capacity)} ÷ {Kg(layerWeight)} = {Dec(capacity / layerWeight)} → {N((int)Math.Floor(capacity / layerWeight + 1e-9))}.");
+            var (one, many) = f.Nested ? ("d'un lit", "lits") : ("d'une couche", "couches");
+            ops.Add($"Poids {one} : {N(n)} × {Kg(weight)} kg = {Kg(layerWeight)} kg ; {many} par le poids : {Kg(capacity)} ÷ {Kg(layerWeight)} = {Dec(capacity / layerWeight)} → {N((int)Math.Floor(capacity / layerWeight + 1e-9))}.");
         }
 
         if (s.LayerCount != byHeight)
         {
-            ops.Add($"Couches retenues : {N(s.LayerCount)}{(string.IsNullOrEmpty(s.LayerLimitReason) ? "" : $" (le plus petit des maxima ; limite : {s.LayerLimitReason})")}.");
+            ops.Add($"{(f.Nested ? "Lits" : "Couches")} retenu(e)s : {N(s.LayerCount)}{(string.IsNullOrEmpty(s.LayerLimitReason) ? "" : $" (le plus petit des maxima ; limite : {s.LayerLimitReason})")}.");
+        }
+
+        if (f.Nested)
+        {
+            ops.Add($"Hauteur de charge : {Mm(layerH + f.Sheet0)} + {N(s.LayerCount - 1)} × {D(f.Pitch)} = {Mm(StackHeight(new PackagingConstraints(), f, s.LayerCount))} mm.");
         }
 
         var noun = container == "caisse" ? "par caisse" : "par palette";
@@ -937,6 +1112,10 @@ public static class CalculationDetails
         {
             var full = n * (s.LayerCount - 1);
             ops.Add($"Produits {noun} : {N(n)} × {N(s.LayerCount - 1)} + {N(s.ItemsPerUnit - full)} (dernière couche) = {N(s.ItemsPerUnit)}.");
+        }
+        else if (LayerSum(unit, f.Nested) is { } sum)
+        {
+            ops.Add($"Produits {noun} : {sum} = {N(s.ItemsPerUnit)}.");
         }
         else
         {
@@ -956,10 +1135,13 @@ public static class CalculationDetails
         var byVolume = unitVolume > 0 ? (int)Math.Ceiling(volume / unitVolume - 1e-9) : 0;
         var byWeight = capacity > 0 ? (int)Math.Ceiling(weight / capacity - 1e-9) : 0;
         var plural = container == "caisse" ? "caisses" : "palettes";
+        string Count(int k) => $"{N(k)} {(k > 1 ? plural : container)}";
 
+        bool IsBox(Guid id) => find(id) is { CaseQuantity: not null } or { Kind: ArticleKind.Caisse };
+        var allBoxes = all.Count > 0 && all.All(p => IsBox(p.ArticleId));
         yield return new("Composition", all.GroupBy(p => p.ArticleId)
-            .Select(g => $"{find(g.Key)?.DisplayName ?? "?"} : {N(g.Count())} produit(s), {Kg(g.Sum(p => p.Weight))} kg.")
-            .Prepend($"{N(all.Count)} produits, {Kg(weight)} kg, volume des enveloppes {(volume / 1e9).ToString("0.###", Fr)} m³.").ToList());
+            .Select(g => $"{find(g.Key)?.DisplayName ?? "?"} : {N(g.Count())} {(IsBox(g.Key) ? "colis" : "produit(s)")}, {Kg(g.Sum(p => p.Weight))} kg.")
+            .Prepend($"{N(all.Count)} {(allBoxes ? "colis" : "produits")}, {Kg(weight)} kg, volume des enveloppes {(volume / 1e9).ToString("0.###", Fr)} m³.").ToList());
 
         var shaped = all.Select(p => p.ArticleId).Distinct().Select(find).OfType<Article>()
             .Select(a => (Article: a, Rule: TopStacking.For(a))).Where(x => x.Rule != null).ToList();
@@ -974,13 +1156,15 @@ public static class CalculationDetails
 
         yield return new("Bornes", new List<string>
         {
-            $"Par le volume : ⌈{(volume / 1e9).ToString("0.###", Fr)} m³ / {(unitVolume / 1e9).ToString("0.###", Fr)} m³ utiles⌉ = {N(byVolume)} {plural} au moins.",
-            capacity > 0 ? $"Par le poids : ⌈{Kg(weight)} / {Kg(capacity)} kg⌉ = {N(byWeight)} {plural} au moins." : "Par le poids : non limité.",
-            $"Solution : {N(s.Units.Count)} {plural}" + (s.Units.Count <= Math.Max(1, Math.Max(byVolume, byWeight)) ? " : la borne est atteinte, minimum prouvé." : "."),
+            $"Par le volume : ⌈{(volume / 1e9).ToString("0.###", Fr)} m³ / {(unitVolume / 1e9).ToString("0.###", Fr)} m³ utiles⌉ = {Count(byVolume)} au moins.",
+            capacity > 0 ? $"Par le poids : ⌈{Kg(weight)} / {Kg(capacity)} kg⌉ = {Count(byWeight)} au moins." : "Par le poids : non limité.",
+            $"Solution : {Count(s.Units.Count)}" + (s.Units.Count <= Math.Max(1, Math.Max(byVolume, byWeight)) ? " : la borne est atteinte, minimum prouvé." : "."),
             s.Units.Count > Math.Max(1, Math.Max(byVolume, byWeight))
                 ? $"Pourquoi pas {N(s.Units.Count - 1)} ? Les bornes ne l'interdisent pas, mais aucune pose n'y fait tenir tous les produits en respectant les règles (appui, charge reçue, lourd sous léger, formes) : " +
                   $"le volume des enveloppes n'est jamais rempli à 100 % ({Pct(100 * volume / Math.Max(1, s.Units.Count * unitVolume))} % ici, les vides entre formes différentes sont inévitables)."
-                : $"Pourquoi pas moins ? {(byWeight >= byVolume && byWeight > 0 ? $"le poids ({Kg(weight)} kg) dépasse ce que {N(Math.Max(0, s.Units.Count - 1))} {plural} peuvent porter." : $"le volume des produits dépasse celui de {N(Math.Max(0, s.Units.Count - 1))} {plural}.")}"
+                : s.Units.Count <= 1
+                    ? $"Pourquoi pas moins ? Une seule {container} : c'est le minimum possible."
+                    : $"Pourquoi pas moins ? {(byWeight >= byVolume && byWeight > 0 ? $"le poids ({Kg(weight)} kg) dépasse ce que {Count(s.Units.Count - 1)} peuvent porter." : $"le volume des produits dépasse celui de {Count(s.Units.Count - 1)}.")}"
         }.Where(l => l.Length > 0).ToList());
 
         yield return new("Règles de pose", new List<string>
@@ -1003,10 +1187,60 @@ public static class CalculationDetails
             strategyLines.Add(s.Recommendation);
         }
 
+        if (s.Units.Count > 0)
+        {
+            var fill = s.Units.Average(u => u.Metrics.FillRate);
+            var support = s.Units.Average(u => u.Metrics.SupportAvg);
+            var cog = s.Units.Average(u => Math.Min(100, u.Metrics.CogOffset));
+            var order = s.Units.Average(u => u.Metrics.OrderRespect);
+            var homogeneity = s.Units.Average(u => u.Metrics.Homogeneity);
+            var stab = 100 * s.StabilityScore;
+            strategyLines.Add($"Calcul du score : 0,35 × {Pct(fill)} % (remplissage) + 0,30 × {Pct(stab)} % (stabilité) + 0,20 × {Pct(order)} % (ordre lourd / léger) + 0,15 × {Pct(homogeneity)} % (regroupement) = " +
+                              $"{D(0.35 * fill)} + {D(0.30 * stab)} + {D(0.20 * order)} + {D(0.15 * homogeneity)} = {D(100 * s.Score)}, soit {(100 * s.Score).ToString("0", Fr)}/100.");
+            strategyLines.Add($"Stabilité = support moyen × (1 − décentrage du centre de gravité) = {Pct(support)} % × (1 − {Pct(cog)} %)" +
+                              (s.Units.Count > 1 ? " (moyenne des unités)" : "") +
+                              " : le décentrage est l'écart du centre de gravité au centre de la palette, rapporté à la demi-dimension de la base (le plus fort des deux sens).");
+        }
+
         yield return new("Stratégie", strategyLines);
 
+        var loads = new List<string>();
+        foreach (var u in s.Units.Where(u => u.Metrics.HeaviestLoad > 0))
+        {
+            var m = u.Metrics;
+            var label = s.Units.Count > 1 ? $"{(container == "caisse" ? "Caisse" : "Unité")} {u.Index} : c" : "C";
+            var label2 = s.Units.Count > 1 ? $"{(container == "caisse" ? "Caisse" : "Unité")} {u.Index} : p" : "P";
+            string Cap(double? cap, double load) => cap is > 0 ? $"capacité retenue {Kg(cap.Value)} kg, utilisée à {Pct(100 * load / cap.Value)} %" : "capacité non limitée";
+            loads.Add($"{label}harge la plus forte reçue : {Kg(m.HeaviestLoad!.Value)} kg sur un {find(m.HeaviestLoadArticleId ?? Guid.Empty)?.Code ?? "?"} ({Cap(m.HeaviestLoadCapacity, m.HeaviestLoad.Value)}).");
+            if (m.MostLoadedLoad is { } load && (m.MostLoadedArticleId != m.HeaviestLoadArticleId || Math.Abs(load - m.HeaviestLoad.Value) > 1e-6))
+            {
+                loads.Add($"{label2}roduit le plus sollicité : {find(m.MostLoadedArticleId ?? Guid.Empty)?.Code ?? "?"}, {Kg(load)} kg reçus ({Cap(m.MostLoadedCapacity, load)}).");
+            }
+        }
+
+        if (loads.Count > 0)
+        {
+            loads.Add("Charge reçue = poids de tout ce qui est posé au-dessus, réparti entre les appuis selon la surface de contact (calcul du haut vers le bas).");
+            var deduced = false;
+            foreach (var a in all.Select(p => p.ArticleId).Distinct().Select(find).OfType<Article>())
+            {
+                var profile = StackingProfile.For(a);
+                deduced |= !profile.CapacityEntered && a.Kind == ArticleKind.Caisse;
+                loads.Add($"{a.Code} : capacité {profile.CapacityText}.");
+            }
+
+            if (deduced)
+            {
+                loads.Add($"Capacités déduites : un carton est supposé supporter une palette de lui-même sur {Mm(StackingProfile.ReferenceLoadHeight)} mm (auto-gerbage). " +
+                          "Ce n'est pas une mesure de sa résistance à l'écrasement : pour un contrôle réel, saisir sur l'article caisse la charge maxi sur le dessus " +
+                          "(résistance à la compression BCT du carton divisée par un coefficient de sécurité, en général 3 à 5 selon la durée de stockage et l'humidité).");
+            }
+
+            yield return new("Charge reçue par les produits", loads);
+        }
+
         yield return new($"Détail par {container}", s.Units.Select(u =>
-            $"{(container == "caisse" ? "Caisse" : "Unité")} {u.Index} : {N(u.Items.Count)} produits, {Kg(u.Items.Sum(p => p.Weight))} kg, remplissage {Pct(u.Metrics.FillRate)} %" +
+            $"{(container == "caisse" ? "Caisse" : "Unité")} {u.Index} : {N(u.Items.Count)} {Units(u.Items, find)}, {Kg(u.Items.Sum(p => p.Weight))} kg, remplissage {Pct(u.Metrics.FillRate)} %" +
             (u.IsFullPallet ? " (complète, un seul article)." : ".")).ToList());
     }
 }
